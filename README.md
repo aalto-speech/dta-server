@@ -20,3 +20,4 @@ For more information, you can look at SaySvenska server: https://github.com/Usin
 
 You can look at an example of the API (a bit old now) from SaySuomi Readme file:
 https://github.com/Usin2705/CaptainA_unity/tree/main
+
