@@ -21,3 +21,41 @@ For more information, you can look at SaySvenska server: https://github.com/Usin
 You can look at an example of the API (a bit old now) from SaySuomi Readme file:
 https://github.com/Usin2705/CaptainA_unity/tree/main
 
+## Input and Output format:
+
+### The server expect to receive the following data and format via RESTful:
+
+- audio data: from attached file, in .wav format
+- guid: in text form, to identify users
+- Other text (or number) data collected from user feedback.
+
+### The server expect to return the minimum data:
+
+```python
+from flask import Flask, jsonify, request
+# You will use FastAPI, so the code will be slighly different:
+
+def func_assess_speech():
+	# Function for assessing user's speaking skill
+
+	wav_file = request.files['file'] # We receive the attached audio file here
+	guid = request.form["guid"] # We get the GUID sent to us, to know who is this user
+	other_info = request.form["other_info"] # Other info needed/collected
+
+	fluency, pronunciation, range_score, accuracy, holistic = ai_model.process(wav_file) # This is just an example that use AI Model to process the audio file
+
+	# For example, you will get
+	fluency = 4.3
+	pronunciation = 2.4
+	range_score = 3.3
+	accuracy = 4.9
+	holistic = 4.0
+	
+    return jsonify({
+        "fluency"		: fluency,
+        "pronunciation" : pronunciation,
+		"range" 		: range_score,
+		"accuracy" 		: accuracy,
+        "holistic"		: holistic,
+    }), 200
+```
