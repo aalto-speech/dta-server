@@ -1,0 +1,30 @@
+{
+	# ACME contact
+	email nhan.phan@aalto.fi
+}
+
+:80 {
+	### Logging
+	log {
+		output file /var/log/caddy/access.log
+		format console # or json
+	}
+
+	### ───── /saysuomi/ backend ─────
+	@saysuomi path /saysuomi/* # match any URI that starts with /saysuomi/
+	handle @saysuomi {
+		uri strip_prefix /saysuomi # rewrite /saysuomi/foo → /foo
+		reverse_proxy dta:8000
+	}
+
+    ### Static files (equivalent to nginx root /usr/share/nginx/html)
+    handle {
+	    root * /usr/share/nginx/html
+	    file_server # enable static file serving
+    }
+
+	### Optional: return 404 for anything unmatched instead of static files
+	handle /* {
+		respond "Not found" 404
+	}
+}
