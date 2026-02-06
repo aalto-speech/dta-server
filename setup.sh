@@ -74,8 +74,8 @@ COMPOSE_FILE=${COMPOSE_FILE:-container-compose.yaml}
 setup_dependencies () {
   # Environment & dependency setup
   log "Setting up environment and dependencies..."
-  sudo dnf update -y
-  sudo dnf install -y podman git
+  sudo apt update -y
+  sudo apt install -y podman git
 
   # ? Service enabling for podman probably not needed
   # # Podman is daemonless, but these improve convenience on some distros
@@ -89,7 +89,7 @@ setup_model () {
   # Downloads the specified LLM into podman volumes for persistent storage and caching
 
   # Create the podman volumes if they do not exist
-  # Creating the cache volume helps speed up future downloads of models instead of re-downloading everything. This also allows the pruning of the cache volume without affecting the models.
+  # Creating the cache volume helps speed up future downloads of models instead of re-downloading everything. This also allows the purging of the cache volume without affecting the models.
   log "Creating volumes (for models and cache) if they do not exist..."
 
   podman volume inspect "${HF_MODELS_VOLUME}" >/dev/null 2>&1 || podman volume create "${HF_MODELS_VOLUME}" >/dev/null
@@ -204,7 +204,7 @@ main() {
   echo "Done."
   echo "Model volume: ${HF_MODELS_VOLUME} (model at /hf/models/${MODEL_DIR_NAME} when mounted)"
   echo "HF cache volume: ${HF_CACHE_VOLUME}"
-  echo "App image: ${LOCAL_APP_IMAGE_NAME:-dta-server:local}"
+  echo "App image: ${LOCAL_APP_IMAGE_NAME}"
 }
 
 main
