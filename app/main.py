@@ -1,19 +1,10 @@
 from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+
+from models import SpeechAssessment
 
 app = FastAPI()
-
-
-class SpeechAssessment(BaseModel):
-    """Speech assessment response type"""
-
-    fluency: float
-    pronunciation: float
-    range_score: float
-    accuracy: float
-    holistic: float
 
 
 @app.get("/hello")
@@ -23,7 +14,7 @@ async def read_root():
 
 
 @app.post("/speech/assess")
-async def assess_speech():
+async def assess_speech() -> JSONResponse:
     """Assess speech using the AI model"""
     fluency = 4.3
     pronunciation = 2.4
