@@ -1,29 +1,29 @@
 {
-  # ACME contact
-  email {$ACME_EMAIL}
+	# ACME contact
+	email {$ACME_EMAIL}
 }
 
 {$DOMAIN}:80 {
-  # Redirect all HTTP requests to HTTPS.
-  redir https://{host}{uri} 308
+	# Redirect all HTTP requests to HTTPS.
+	redir https://{host}{uri} 308
 }
 
 {$DOMAIN}:443 {
-  # Logging
-  log {
-    output file /var/log/caddy/access.log
-    format console
-  }
+	# Logging
+	log {
+		output file /var/log/caddy/access.log
+		format console
+	}
 
-  # /api/v1/* → {$UPSTREAM}/*
-  @api path /api/v1/*
-  handle @api {
-    uri strip_prefix /api/v1
-    reverse_proxy {$UPSTREAM}
-  }
+	# /api/v1/* → {$UPSTREAM}/*
+	@api path /api/v1/*
+	handle @api {
+		uri strip_prefix /api/v1
+		reverse_proxy {$UPSTREAM}
+	}
 
-  # Return 404 if not matched by previous handlers
-  handle /* {
-    respond "Not found" 404
-  }
+	# Return 404 if not matched by previous handlers
+	handle /* {
+		respond "Not found" 404
+	}
 }
