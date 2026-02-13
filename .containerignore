@@ -4,5 +4,4 @@
 # Keep only what the image needs
 !app/
 !environment.yaml
-!requirements.txt
 !LICENSE

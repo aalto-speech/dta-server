@@ -1,13 +1,13 @@
 name: dta-server
 channels:
-  - defaults
+  - pytorch
   - conda-forge
-channel_priority: strict
+  - defaults
 dependencies:
   - python=3.14.3
-  - ffmpeg=8.0
-  - transformers=4.57
-  - torchaudio=2.5
-  - python-levenshtein=0.27
-  - fastapi=0.128
-
+  - ffmpeg
+  - transformers
+  - torchaudio
+  - gunicorn
+  - python-levenshtein
+  - fastapi
