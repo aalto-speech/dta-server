@@ -1,0 +1,21 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/miniconda
+{
+  "name": "Miniconda Dev Container",
+  "build": {
+    "context": "..",
+    "dockerfile": "Containerfile"
+  },
+  "forwardPorts": [3000],
+  "postCreateCommand": "python --version && conda --version",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.autopep8",
+        "ms-python.python",
+        "ms-python.pylint"
+      ]
+    }
+  },
+  "remoteUser": "root"
+}
