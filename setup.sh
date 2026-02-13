@@ -3,35 +3,31 @@ set -euo pipefail
 
 VERBOSE="${VERBOSE:-1}"
 DRY_RUN="${DRY_RUN:-0}"
+declare -a CONFIG_FILES=()
 
 usage () {
   cat <<'EOF'
 Usage: [ENV VARS] ./setup.sh [OPTIONS]
 
 Options:
-  -q, --quiet     Disable progress logs
-  -n, --dry-run   Show what would be executed without running commands
-  -h, --help      Show this help
+  -q, --quiet                             Disable progress logs
+  -n, --dry-run                           Show what would be executed without running commands
+  -u, --user <username>                   Non-root user to run the application (default: saysuomi)
+  -p, --user-path <path>                  Home directory for the application user (default: /home/<username>)
+  -r, --app-repo <user/repo[:ref]>        Git repository and optional revision. If no reference given, defaults to main (default: aalto-speech/dta-server:main)
+  -m, --model <user/repo[:rev]>           Hugging Face repository and optional revision. If no revision given, defaults to main (default: Usin2705/CaptainA_v0:main)
+  -d, --compose-file <path>               Path to the container compose file (default: compose.yaml)
+  -c, --config-files <path> [<path> ...]  Path(s) to configuration files to fetch from the application repository (default: Caddyfile compose.yaml)
+  -h, --help                              Show this help
 
 Environment overrides:
-  Application:
-    APP_USER=saysuomi                             Non-root user to run app and manage resources
-    APP_ROOT=/home/${APP_USER}/app                Root directory for application files
-    APP_REPO=aalto-speech/dta-server.git          GitHub repository for fetching configuration files
-    APP_REF=main                                  Git reference (branch, tag, or commit)
-    APP_OWNER=                                    GitHub repository owner for configuration files
-
   Model:
-    MODEL_REPO=Usin2705/CaptainA_v0               LLM repository
-    MODEL_REVISION=main                           LLM revision (branch, tag, or commit)
-    MODEL_DIR_NAME=CaptainA_v0                    LLM directory name in volume (/hf/models/${MODEL_DIR_NAME})
-    HF_MODELS_VOLUME=hf-models                    Podman volume name for downloaded models
-    HF_CACHE_VOLUME=hf-cache                      Podman volume name for Hugging Face cache
-    HF_TOKEN=                                     Hugging Face API token (for private models)
+    HF_MODELS_VOLUME=hf-models  Podman volume name for downloaded models
+    HF_CACHE_VOLUME=hf-cache    Podman volume name for downloaded cache
+    HF_TOKEN=                   Hugging Face API token (for private repositories and increased rate limits)
 
   Build:
-    COMPOSE_FILE=container-compose.yaml           Path to the container compose file
-    GITHUB_TOKEN=                                 GitHub token (for private repository access)
+    GITHUB_TOKEN=               GitHub token (for private repository access and increased rate limits)
 EOF
 }
 
@@ -44,6 +40,40 @@ while [[ $# -gt 0 ]]; do
     -n|--dry-run)
       DRY_RUN=1
       shift
+      ;;
+    -u|--user)
+      USERNAME="$2"
+      shift 2
+      ;;
+    -p|--user-path)
+      USER_PATH="$2"
+      shift 2
+      ;;
+    -r|--app-repo)
+      GIT_REPO="${2%%:*}"
+      if [[ "$2" == *:* ]]; then
+        GIT_REPO_REF="${2#*:}"
+      fi
+      shift 2
+      ;;
+    -m|--model)
+      MODEL_REPO="${2%%:*}"
+      MODEL_NAME="${MODEL_REPO##*/}"
+      if [[ "$2" == *:* ]]; then
+        MODEL_REV="${2#*:}"
+      fi
+      shift 2
+      ;;
+    -d|--compose-file)
+      COMPOSE_FILE="$2"
+      shift 2
+      ;;
+    -c|--config-files)
+      shift
+      while [[ $# -gt 0 ]] && [[ "$1" != -* ]]; do
+        CONFIG_FILES+=("$1")
+        shift
+      done
       ;;
     -h|--help)
       usage
@@ -72,29 +102,71 @@ run_cmd () {
   fi
 }
 
-# Default environment variables
+validate_input () {
+  local var_name="$1"
+  local var_value="$2"
+  local pattern="$3"
+
+  if [[ ! "${var_value}" =~ ${pattern} ]]; then
+    echo "Error: Invalid ${var_name}: '${var_value}'" >&2
+    echo "Must match pattern: ${pattern}" >&2
+    exit 1
+  fi
+}
+
+validate_path () {
+  local path="$1"
+  # Prevent path traversal attacks
+  if [[ "${path}" == *".."* ]] || [[ "${path}" == /* ]]; then
+    echo "Error: Invalid path '${path}' - absolute paths and path traversal not allowed" >&2
+    exit 1
+  fi
+}
+
+# Default environment variables. Use CLI options to override.
 # Model settings
 MODEL_REPO="${MODEL_REPO:-Usin2705/CaptainA_v0}"  # LLM repository
-MODEL_REVISION="${MODEL_REVISION:-main}"  # LLM revision (branch, tag, or commit)
-MODEL_DIR_NAME="${MODEL_DIR_NAME:-CaptainA_v0}" # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_DIR_NAME})
+MODEL_REV="${MODEL_REV:-main}"  # LLM revision (branch, tag, or commit)
+MODEL_NAME="${MODEL_NAME:-CaptainA_v0}" # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_NAME})
+# Sanitize MODEL_NAME to prevent path traversal
+MODEL_NAME="${MODEL_NAME##*/}"  # Remove any path components
+MODEL_NAME="${MODEL_NAME//[^a-zA-Z0-9_-]/}"  # Remove special characters
+
 HF_MODELS_VOLUME="${HF_MODELS_VOLUME:-hf-models}" # Podman volume name for storing downloaded models
 HF_CACHE_VOLUME="${HF_CACHE_VOLUME:-hf-cache}"  # Podman volume name for storing Hugging Face cache
+HF_TOKEN="${HF_TOKEN:-}"  # Hugging Face API token (optional, for private repositories and increased rate limits)
 
 # Application settings
-APP_USER="${APP_USER:-saysuomi}"  # Non-root user to run the application and manage resources
-APP_OWNER=  # GitHub repository owner for fetching configuration files
-APP_REPO="${APP_REPO:-aalto-speech/dta-server.git}" # GitHub repository for fetching configuration files
-APP_REF="${APP_REF:-main}"  # Git reference (branch, tag, or commit)
-APP_ROOT="/home/${APP_USER}/app"  # Root directory for application files
+USERNAME="${USERNAME:-saysuomi}"  # Non-root user to run the application and manage resources
+USER_PATH="${USER_PATH:-/home/${USERNAME}}"  # Root directory for the application user (e.g., for logs, data, etc.)
+GIT_REPO="${GIT_REPO:-aalto-speech/dta-server}" # Git repository for fetching configuration files
+GIT_REPO_REF="${GIT_REPO_REF:-main}"  # Git reference (branch, tag, or commit)
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"  # GitHub token (optional, for private repository access and increased rate limits)
 
 # Misc. settings
-COMPOSE_FILE=${COMPOSE_FILE:-container-compose.yaml}  # Path to the container compose file
+COMPOSE_FILE=${COMPOSE_FILE:-compose.yaml}  # Path to the container compose file
+if [[ ${#CONFIG_FILES[@]} -eq 0 ]]; then
+  CONFIG_FILES=(Caddyfile ${COMPOSE_FILE})  # Default configuration files to fetch from the repository
+fi
+
+# Validate critical inputs to prevent command injection
+validate_input "GIT_REPO" "${GIT_REPO}" '^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
+validate_input "GIT_REPO_REF" "${GIT_REPO_REF}" '^[a-zA-Z0-9/_.-]+$'
+validate_input "MODEL_REPO" "${MODEL_REPO}" '^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
+validate_input "MODEL_REV" "${MODEL_REV}" '^[a-zA-Z0-9/_.-]+$'
+validate_input "USERNAME" "${USERNAME}" '^[a-z_][a-z0-9_-]*$'
+
+# Validate config file paths
+for config_file in "${CONFIG_FILES[@]}"; do
+  validate_path "${config_file}"
+done
 
 
 setup_dependencies () {
   # Environment & dependency setup
   log "Setting up environment and dependencies..."
   run_cmd sudo apt update -y
+  # run_cmd sudo apt install -y podman podman-compose iptables-persistent
   run_cmd sudo apt install -y podman podman-compose git iptables-persistent
 
   # ? Service enabling for podman probably not needed
@@ -108,12 +180,12 @@ setup_dependencies () {
 setup_user () {
   # Create a non-root user for running the application and managing resources
 
-  if id -u "${APP_USER}" >/dev/null 2>&1; then
-    log "User '${APP_USER}' already exists. Skipping user creation."
+  if id -u "${USERNAME}" >/dev/null 2>&1; then
+    log "User '${USERNAME}' already exists. Skipping user creation."
   else
-    log "Creating user '${APP_USER}'..."
-    run_cmd sudo useradd -m -s /bin/bash "${APP_USER}"
-    log "User '${APP_USER}' created successfully."
+    log "Creating user '${USERNAME}'..."
+    run_cmd sudo useradd -m -s /bin/bash "${USERNAME}"
+    log "User '${USERNAME}' created successfully."
   fi
 }
 
@@ -121,21 +193,46 @@ setup_user () {
 setup_app_dirs () {
   # Create application directory structure under the user
 
-  log "Creating app user directories if not exist at ${APP_ROOT}..."
-  run_cmd sudo mkdir -p \
-    "${APP_ROOT}/logs" \
-    "${APP_ROOT}/models" \
-    "${APP_ROOT}/cache" \
-    "${APP_ROOT}/data"
-  run_cmd sudo chown -R "${APP_USER}:${APP_USER}" "${APP_ROOT}"
+  # ? Should 'cache' and 'models' be symlinks to the volume points?
+  local dirs=(
+    "${USER_PATH}/app/cache"
+    "${USER_PATH}/app/conf.d"
+    "${USER_PATH}/app/data"
+    "${USER_PATH}/app/logs"
+    "${USER_PATH}/app/models"
+  )
+
+  log "Creating app user directories if not exist at ${USER_PATH}..."
+  run_cmd sudo mkdir -p "${dirs[@]}"
+  run_cmd sudo chown -R "${USERNAME}:${USERNAME}" "${USER_PATH}/app"
 }
 
 
 setup_networking () {
   # Setup iptables rules to redirect ports 80 and 443 to 8080 and 8443 respectively
-  # # This is needed since binding to privileged ports (<1024) typically requires root permissions, which is not ideal for containerized applications. By redirecting to higher ports, the application can run without elevated privileges while still being accessible on standard HTTP/HTTPS ports.
+  # * This is needed since binding to privileged ports (<1024) typically requires root permissions, which is not ideal for containerized applications. By redirecting to higher ports, the application can run without elevated privileges while still being accessible on standard HTTP/HTTPS ports.
 
   log "Setting up iptables rules for port redirection..."
+
+  # Save current iptables state for rollback on error
+  local iptables_backup=""
+  if [[ "${DRY_RUN}" != "1" ]]; then
+    iptables_backup="$(mktemp)"
+    sudo iptables-save > "${iptables_backup}"
+
+    # Set up trap to restore iptables on error
+    trap 'log "Error occurred, restoring iptables..."; sudo iptables-restore < "${iptables_backup}"; rm -f "${iptables_backup}"' ERR
+  fi
+
+  # Check if rules already exist to avoid duplicates
+  if [[ "${DRY_RUN}" != "1" ]]; then
+    if sudo iptables -t nat -C PREROUTING -i eth0 -p tcp --dport 80 -j REDIRECT --to-ports 8080 2>/dev/null; then
+      log "Port redirection rules already exist, skipping..."
+      rm -f "${iptables_backup}"
+      trap - ERR
+      return 0
+    fi
+  fi
 
   # Redirect port 80 to 8080
   run_cmd sudo iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 80 -j REDIRECT --to-ports 8080
@@ -154,6 +251,10 @@ setup_networking () {
   else
     sudo iptables-save | sudo tee /etc/iptables/rules.v4 >/dev/null
     sudo ip6tables-save | sudo tee /etc/iptables/rules.v6 >/dev/null
+
+    # Clean up backup and remove trap
+    rm -f "${iptables_backup}"
+    trap - ERR
   fi
 }
 
@@ -166,27 +267,51 @@ setup_model () {
   run_cmd podman volume create --ignore "${HF_CACHE_VOLUME}" >/dev/null
 
   # Run a temporary container to download the model and cache into the volumes
-  log "Downloading model '${MODEL_REPO}' (revision: '${MODEL_REVISION}') into volume '${HF_MODELS_VOLUME}'..."
+  log "Downloading model '${MODEL_REPO}:${MODEL_REV}' into volume '${HF_MODELS_VOLUME}'..."
   local image_name="docker.io/python:3.14-slim"
 
   if [[ "${DRY_RUN}" == "1" ]]; then
     log "[DRY-RUN] Would execute: podman run (model download)..."
   else
+    local podman_env_args=(
+      -e HF_HOME=/hf
+      -e HUGGINGFACE_HUB_CACHE=/hf/cache/hub
+      -e TRANSFORMERS_CACHE=/hf/cache/transformers
+    )
+
+    # Make HF_TOKEN available inside the container if provided using secure temp file
+    local token_file=""
+    local token_dir=""
+    if [[ -n "${HF_TOKEN}" ]]; then
+      token_dir="$(mktemp -d)"
+      chmod 700 "${token_dir}"
+      token_file="${token_dir}/hf_token.env"
+      echo "HF_TOKEN=${HF_TOKEN}" > "${token_file}"
+      chmod 600 "${token_file}"
+      podman_env_args+=(--env-file "${token_file}")
+
+      # Set up trap to ensure token file cleanup
+      trap 'rm -rf "${token_dir}"' EXIT INT TERM
+    fi
+
     podman run --rm --pull=always \
     --userns=keep-id \
-    -e HF_HOME=/hf \
-    -e HUGGINGFACE_HUB_CACHE=/hf/cache/hub \
-    -e TRANSFORMERS_CACHE=/hf/cache/transformers \
-    -e HF_TOKEN \
+    "${podman_env_args[@]}" \
     -v "${HF_MODELS_VOLUME}":/hf/models:Z \
     -v "${HF_CACHE_VOLUME}":/hf/cache:Z \
     "${image_name}" \
     bash -lc \
     "pip install -U 'huggingface_hub[cli]' >/dev/null \
       && huggingface-cli download '${MODEL_REPO}' \
-        --revision '${MODEL_REVISION}' \
-        --local-dir '/hf/models/${MODEL_DIR_NAME}' \
+        --revision '${MODEL_REV}' \
+        --local-dir '/hf/models/${MODEL_NAME}' \
         --local-dir-use-symlinks False"
+
+    # Clean up token directory immediately after use
+    if [[ -n "${token_dir}" ]]; then
+      rm -rf "${token_dir}"
+      trap - EXIT INT TERM
+    fi
   fi
 
   log "Cleaning up temporary containers and images '${image_name}'..."
@@ -195,67 +320,128 @@ setup_model () {
     podman rmi -f -i "${image_name}" >/dev/null || true
   fi
 
-  log "Model downloaded to volume: ${HF_MODELS_VOLUME}"
-  log "Cache stored in volume: ${HF_CACHE_VOLUME}"
+  log "Model downloaded to volume '${HF_MODELS_VOLUME}'."
+  log "Cache stored in volume '${HF_CACHE_VOLUME}'."
 }
 
 
 fetch_file () {
   local path="$1"
   local out="$2"
-  curl -fsSL \
-    -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-    -H "Accept: application/vnd.github.raw" \
-    "https://api.github.com/repos/${APP_OWNER}/${APP_REPO}/contents/${path}?ref=${APP_REF}" \
+  local curl_args=(-fsSL -H "Accept: application/vnd.github.raw")
+
+  # Use secure token handling if GITHUB_TOKEN is provided
+  local curl_config_dir=""
+  local curl_config_file=""
+
+  if [[ -n "${GITHUB_TOKEN}" ]]; then
+    curl_config_dir="$(mktemp -d)"
+    chmod 700 "${curl_config_dir}"
+    curl_config_file="${curl_config_dir}/curl_config"
+
+    # Write token to config file to avoid exposing it in process listings
+    cat > "${curl_config_file}" <<CURL_CONFIG_EOF
+header = "Authorization: Bearer ${GITHUB_TOKEN}"
+CURL_CONFIG_EOF
+    chmod 600 "${curl_config_file}"
+    curl_args+=(--config "${curl_config_file}")
+
+    # Set up trap to ensure cleanup
+    trap 'rm -rf "${curl_config_dir}"' EXIT INT TERM ERR
+  fi
+
+  curl "${curl_args[@]}" \
+    "https://api.github.com/repos/${GIT_REPO}/contents/${path}?ref=${GIT_REPO_REF}" \
     -o "${out}"
+
+  # Clean up token config
+  if [[ -n "${curl_config_dir}" ]]; then
+    rm -rf "${curl_config_dir}"
+    trap - EXIT INT TERM ERR
+  fi
 }
 
 
-fetch_configuration_files () {
+fetch_configuration () {
   # Fetch configuration files from the application repository to the server
 
-  log "NOT IMPLEMENTED RETURNING 0: Fetching configuration files from ${APP_REPO}..."
-  return 0
+  log "Fetching files from repository '${GIT_REPO}:${GIT_REPO_REF}'..."
+  local conf_dir="${USER_PATH}/app/conf.d"
+  run_cmd mkdir -p "${conf_dir}"
 
-  local conf_dir="$(mkdir -p ./dta-conf.d)"
-  cd "${conf_dir}"
+  for config_file in "${CONFIG_FILES[@]}"; do
+    local out="${conf_dir}/${config_file##*/}"
+    log "Fetching file '${config_file}' to '${out}'..."
+    run_cmd fetch_file "${config_file}" "${out}"
+  done
+}
 
-  # # Fetch configuration files using GitHub API (requires GITHUB_TOKEN with repo access)
-  # fetch_file "Caddyfile" "Caddyfile"
-  # fetch_file "container-compose.yaml" "container-compose.yaml"
 
-  # Fetch configuration files from the application repository
-  git init >/dev/null
-  git remote add origin https://github.com/${APP_REPO} >/dev/null
-  git fetch --depth 1 origin "${APP_REF}" >/dev/null
-  git show "${APP_REF}":Caddyfile > ./Caddyfile
-  git show "${APP_REF}":container-compose.yaml > ./container-compose.yaml
+fetch_app () {
+  # TEMPORARY FUNCTION! Fetch the application source code from the repository to the server
+  # ! Once the configuration files are in place and the application image can be built in CI/CD use fetch_configuration instead and remove this function!
 
-  # Cleanup git metadata
-  rm -rf .git
+  local app_conf_path="${USER_PATH}/app/conf.d"
 
-  cd -
+  log "Fetching application source code from 'https://github.com/${GIT_REPO}:${GIT_REPO_REF}' to a temporary directory '${app_conf_path}'..."
+
+  run_cmd mkdir -p "${app_conf_path}"
+
+  if [[ "${DRY_RUN}" != "1" ]]; then
+    cd "${app_conf_path}"
+
+    # Use GIT_ASKPASS for secure token handling if GITHUB_TOKEN is provided
+    local git_askpass_script=""
+    local git_askpass_dir=""
+
+    if [[ -n "${GITHUB_TOKEN}" ]]; then
+      git_askpass_dir="$(mktemp -d)"
+      chmod 700 "${git_askpass_dir}"
+      git_askpass_script="${git_askpass_dir}/askpass.sh"
+      # Embed token directly in script
+      cat > "${git_askpass_script}" <<ASKPASS_EOF
+#!/bin/sh
+echo "${GITHUB_TOKEN}"
+ASKPASS_EOF
+      chmod 500 "${git_askpass_script}"
+      export GIT_ASKPASS="${git_askpass_script}"
+
+      # Set up trap to ensure cleanup even if interrupted
+      trap 'rm -rf "${git_askpass_dir}"; unset GIT_ASKPASS' EXIT INT TERM ERR
+    fi
+
+    git init >/dev/null
+    git remote add origin "https://github.com/${GIT_REPO}.git" >/dev/null
+    git fetch --depth 1 origin "${GIT_REPO_REF}" >/dev/null
+    git checkout FETCH_HEAD -- . >/dev/null
+    rm -rf .git
+
+    # Clean up the askpass script and directory
+    if [[ -n "${git_askpass_dir}" ]]; then
+      rm -rf "${git_askpass_dir}"
+      unset GIT_ASKPASS
+      trap - EXIT INT TERM ERR
+    fi
+  else
+    log "[DRY-RUN] Would execute: cd ${app_conf_path}"
+    log "[DRY-RUN] Would execute: git init"
+    log "[DRY-RUN] Would execute: git remote add origin https://github.com/${GIT_REPO}.git"
+    log "[DRY-RUN] Would execute: git fetch --depth 1 origin ${GIT_REPO_REF}"
+    log "[DRY-RUN] Would execute: git checkout FETCH_HEAD -- ."
+    log "[DRY-RUN] Would execute: rm -rf .git"
+  fi
 }
 
 
 setup_app () {
-  log "Building application from compose file: ${COMPOSE_FILE}"
+  log "Building application from compose file '${COMPOSE_FILE}'..."
   run_cmd podman compose build -f "${COMPOSE_FILE}" --pull --quiet
   log "Run the application with: podman compose -f ${COMPOSE_FILE} up -d"
 }
 
 
-cleanup () {
-  if [[ -n "${APP_SRC_TEMP_DIR:-}" && -d "${APP_SRC_TEMP_DIR}" ]]; then
-    rm -rf "${APP_SRC_TEMP_DIR}"
-  fi
-}
-
-
 main () {
   local start_time=$(date +%s%N)
-
-  trap cleanup EXIT
 
   if [[ "${DRY_RUN}" == "1" ]]; then
     log "Starting setup in DRY-RUN mode (no commands will be executed)..."
@@ -270,14 +456,23 @@ main () {
   setup_networking
 
   setup_model
-  # fetch_configuration_files # TODO: This should be used instead of fetch_app once the configuration files are in place and the application image can be built in CI/CD. See fetch_configuration_files comments.
+  # fetch_configuration # ! See fetch_app comments!
+  # fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
+
+
+  local conf_dir="${USER_PATH}/app/conf.d"
+  if [[ ! -d "${conf_dir}" || -z "$(ls -A "${conf_dir}" 2>/dev/null)" ]]; then
+    log "Copy the application code manually to the server with 'scp <local_path> <user>@<host>:<remote_path>'. Exiting..."
+    exit 0
+  fi
+
   setup_app
 
   local end_time=$(date +%s%N)
   local time_ns=$((end_time - start_time))
   local time_ms=$((time_ns / 1000000))
 
-  log "Model volume: ${HF_MODELS_VOLUME} (model at /hf/models/${MODEL_DIR_NAME} when mounted)"
+  log "Model volume: ${HF_MODELS_VOLUME} (model at /hf/models/${MODEL_NAME} when mounted)"
   log "HF cache volume: ${HF_CACHE_VOLUME}"
 
   log "Script completed in [${time_ms}ms]"
