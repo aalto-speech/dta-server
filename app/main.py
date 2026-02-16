@@ -2,7 +2,7 @@ import tempfile
 from random import uniform
 
 import whisper
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
@@ -29,6 +29,12 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         content = await file.read()
         f.write(content)
         temp_path = f.name
+
+    # Deny the request if the file is too big or does not exist
+    if not file.size:
+        raise HTTPException(status_code=400, detail="No audio file provided")
+    if file.size > 10_000_000:
+        raise HTTPException(status_code=400, detail="Audio file too large")
 
     try:
         # Transcribe audio using whisper (force Finnish language for better accuracy)
