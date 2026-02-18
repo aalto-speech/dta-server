@@ -124,6 +124,8 @@ validate_path () {
 }
 
 # Default environment variables. Use CLI options to override.
+NETWORK_INTERFACE="${NETWORK_INTERFACE:-}"  # Network interface to apply iptables rules on (auto-detected if not set)
+
 # Model settings
 MODEL_REPO="${MODEL_REPO:-Usin2705/CaptainA_v0}"  # LLM repository
 MODEL_REV="${MODEL_REV:-main}"  # LLM revision (branch, tag, or commit)
@@ -163,17 +165,11 @@ done
 
 
 setup_dependencies () {
-  # Environment & dependency setup
-  log "Setting up environment and dependencies..."
-  run_cmd sudo apt update -y
-  # run_cmd sudo apt install -y podman podman-compose iptables-persistent
-  run_cmd sudo apt install -y podman podman-compose git iptables-persistent
+  # Install required dependencies
 
-  # ? Service enabling for podman probably not needed
-  # # Podman is daemonless, but these improve convenience on some distros
-  # log "Enabling podman services..."
-  # sudo systemctl enable --now podman-restart.service 2>/dev/null || true
-  # sudo systemctl enable --now podman.socket 2>/dev/null || true
+  log "Updating and installing required dependencies..."
+  run_cmd sudo apt update
+  run_cmd sudo apt install -y podman git curl iptables-persistent
 }
 
 
@@ -202,7 +198,7 @@ setup_app_dirs () {
     "${USER_PATH}/app/models"
   )
 
-  log "Creating app user directories if not exist at ${USER_PATH}..."
+  log "Creating app user directories if they do not exist at '${USER_PATH}'..."
   run_cmd sudo mkdir -p "${dirs[@]}"
   run_cmd sudo chown -R "${USERNAME}:${USERNAME}" "${USER_PATH}/app"
 }
@@ -210,39 +206,65 @@ setup_app_dirs () {
 
 setup_networking () {
   # Setup iptables rules to redirect ports 80 and 443 to 8080 and 8443 respectively
-  # * This is needed since binding to privileged ports (<1024) typically requires root permissions, which is not ideal for containerized applications. By redirecting to higher ports, the application can run without elevated privileges while still being accessible on standard HTTP/HTTPS ports.
+  # * This is needed since binding to privileged ports (<1024) typically requires root permissions, which is not ideal for containerized applications ran through podman. By redirecting to higher ports, the application can run without elevated privileges while still being accessible on standard HTTP/HTTPS ports.
 
   log "Setting up iptables rules for port redirection..."
 
-  # Save current iptables state for rollback on error
-  local iptables_backup=""
-  if [[ "${DRY_RUN}" != "1" ]]; then
-    iptables_backup="$(mktemp)"
-    sudo iptables-save > "${iptables_backup}"
+  # Save current iptables rules to restore on error and prevent lockout, and set up trap for cleanup
+  local iptables_backup_dir=""
+  local iptables4_backup=""
+  local iptables6_backup=""
+  if [[ "${DRY_RUN}" == "0" ]]; then
+    iptables_backup_dir="$(mktemp -d)"
+    iptables4_backup="$(mktemp -p "${iptables_backup_dir}")"
+    iptables6_backup="$(mktemp -p "${iptables_backup_dir}")"
+    sudo iptables-save > "${iptables4_backup}"
+    sudo ip6tables-save > "${iptables6_backup}"
+    # Set up trap to restore iptables on error, and clean up
+    trap 'log "Error occurred, restoring iptables..."; sudo iptables-restore < "${iptables4_backup}"; sudo ip6tables-restore < "${iptables6_backup}"; if [[ -n "${iptables_backup_dir}" && -d "${iptables_backup_dir}" ]]; then rm -rf "${iptables_backup_dir}"; fi; trap - ERR; unset iptables_backup_dir iptables4_backup iptables6_backup' ERR
+  fi
 
-    # Set up trap to restore iptables on error
-    trap 'log "Error occurred, restoring iptables..."; sudo iptables-restore < "${iptables_backup}"; rm -f "${iptables_backup}"' ERR
+  # 4. Interface autodetection (fallback to eth0)
+  local interface="${NETWORK_INTERFACE:-}"
+  if [[ -z "$interface" ]]; then
+    interface=$(ip route | awk '/default/ {print $5; exit}')
+    if [[ -z "$interface" ]]; then
+      interface="eth0"
+      log "[WARN] Could not auto-detect network interface, defaulting to 'eth0'."
+    else
+      log "Auto-detected network interface: '$interface'"
+    fi
+  else
+    log "Using configured network interface: '$interface'"
   fi
 
   # Check if rules already exist to avoid duplicates
-  if [[ "${DRY_RUN}" != "1" ]]; then
-    if sudo iptables -t nat -C PREROUTING -i eth0 -p tcp --dport 80 -j REDIRECT --to-ports 8080 2>/dev/null; then
+  if [[ "${DRY_RUN}" == "0" ]]; then
+    local rule_80_exists=0
+    local rule_443_exists=0
+    if sudo iptables -t nat -C PREROUTING -i "${interface}" -p tcp --dport 80 -j REDIRECT --to-ports 8080 2>/dev/null; then
+      rule_80_exists=1
+    fi
+    if sudo iptables -t nat -C PREROUTING -i "${interface}" -p tcp --dport 443 -j REDIRECT --to-ports 8443 2>/dev/null; then
+      rule_443_exists=1
+    fi
+    if [[ $rule_80_exists -eq 1 && $rule_443_exists -eq 1 ]]; then
       log "Port redirection rules already exist, skipping..."
-      rm -f "${iptables_backup}"
       trap - ERR
+      unset iptables_backup_dir iptables4_backup iptables6_backup
       return 0
     fi
   fi
 
   # Redirect port 80 to 8080
-  run_cmd sudo iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 80 -j REDIRECT --to-ports 8080
+  run_cmd sudo iptables -t nat -A PREROUTING -i "${interface}" -p tcp --dport 80 -j REDIRECT --to-ports 8080
   run_cmd sudo iptables -t nat -A OUTPUT -o lo -p tcp --dport 80 -j REDIRECT --to-ports 8080
-  run_cmd sudo iptables -A INPUT -i eth0 -p tcp --dport 8080 -j ACCEPT
+  run_cmd sudo iptables -A INPUT -i "${interface}" -p tcp --dport 8080 -j ACCEPT
 
   # Redirect port 443 to 8443
-  run_cmd sudo iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 443 -j REDIRECT --to-ports 8443
+  run_cmd sudo iptables -t nat -A PREROUTING -i "${interface}" -p tcp --dport 443 -j REDIRECT --to-ports 8443
   run_cmd sudo iptables -t nat -A OUTPUT -o lo -p tcp --dport 443 -j REDIRECT --to-ports 8443
-  run_cmd sudo iptables -A INPUT -i eth0 -p tcp --dport 8443 -j ACCEPT
+  run_cmd sudo iptables -A INPUT -i "${interface}" -p tcp --dport 8443 -j ACCEPT
 
   log "Saving iptables rules to '/etc/iptables/rules.v[4|6]'..."
   if [[ "${DRY_RUN}" == "1" ]]; then
@@ -253,8 +275,11 @@ setup_networking () {
     sudo ip6tables-save | sudo tee /etc/iptables/rules.v6 >/dev/null
 
     # Clean up backup and remove trap
-    rm -f "${iptables_backup}"
+    if [[ -n "${iptables_backup_dir}" && -d "${iptables_backup_dir}" ]]; then
+      rm -rf "${iptables_backup_dir}"
+    fi
     trap - ERR
+    unset iptables_backup_dir iptables4_backup iptables6_backup
   fi
 }
 
@@ -337,7 +362,7 @@ fetch_file () {
   if [[ -n "${GITHUB_TOKEN}" ]]; then
     curl_config_dir="$(mktemp -d)"
     chmod 700 "${curl_config_dir}"
-    curl_config_file="${curl_config_dir}/curl_config"
+    curl_config_file="$(mktemp -p "${curl_config_dir}")"
 
     # Write token to config file to avoid exposing it in process listings
     cat > "${curl_config_file}" <<CURL_CONFIG_EOF
@@ -381,14 +406,15 @@ fetch_app () {
   # TEMPORARY FUNCTION! Fetch the application source code from the repository to the server
   # ! Once the configuration files are in place and the application image can be built in CI/CD use fetch_configuration instead and remove this function!
 
+  local temp_conf_path="$(mktemp -d)"
   local app_conf_path="${USER_PATH}/app/conf.d"
 
-  log "Fetching application source code from 'https://github.com/${GIT_REPO}:${GIT_REPO_REF}' to a temporary directory '${app_conf_path}'..."
-
-  run_cmd mkdir -p "${app_conf_path}"
+  log "Fetching application source code from 'https://github.com/${GIT_REPO}:${GIT_REPO_REF}' to a temporary directory '${temp_conf_path}'..."
 
   if [[ "${DRY_RUN}" != "1" ]]; then
-    cd "${app_conf_path}"
+    # TODO: Become the application user for this operation to avoid permission issues and ensure correct ownership of files.
+
+    cd ${temp_conf_path}
 
     # Use GIT_ASKPASS for secure token handling if GITHUB_TOKEN is provided
     local git_askpass_script=""
@@ -415,6 +441,11 @@ ASKPASS_EOF
     git fetch --depth 1 origin "${GIT_REPO_REF}" >/dev/null
     git checkout FETCH_HEAD -- . >/dev/null
     rm -rf .git
+
+    # Move the fetched files to the actual configuration directory
+    log "Moving fetched files to '${app_conf_path}' and setting ownership to '${USERNAME}'..."
+    sudo mv "${temp_conf_path}/"* "${app_conf_path}/"
+    sudo chown -R "${USERNAME}:${USERNAME}" "${app_conf_path}"
 
     # Clean up the askpass script and directory
     if [[ -n "${git_askpass_dir}" ]]; then
@@ -457,8 +488,7 @@ main () {
 
   setup_model
   # fetch_configuration # ! See fetch_app comments!
-  # fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
-
+  fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
 
   local conf_dir="${USER_PATH}/app/conf.d"
   if [[ ! -d "${conf_dir}" || -z "$(ls -A "${conf_dir}" 2>/dev/null)" ]]; then
