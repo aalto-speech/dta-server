@@ -12,6 +12,7 @@ Usage: [ENV VARS] ./setup.sh [OPTIONS]
 Options:
   -q, --quiet                             Disable progress logs
   -n, --dry-run                           Show what would be executed without running commands
+  -i, --interface <interface>             Network interface to apply iptables rules on (default: auto-detected)
   -u, --user <username>                   Non-root user to run the application (default: saysuomi)
   -p, --user-path <path>                  Home directory for the application user (default: /home/<username>)
   -r, --app-repo <user/repo[:ref]>        Git repository and optional revision. If no reference given, defaults to main (default: aalto-speech/dta-server:main)
@@ -40,6 +41,10 @@ while [[ $# -gt 0 ]]; do
     -n|--dry-run)
       DRY_RUN=1
       shift
+      ;;
+    -i|--interface)
+      NETWORK_INTERFACE="$2"
+      shift 2
       ;;
     -u|--user)
       USERNAME="$2"
@@ -169,7 +174,7 @@ setup_dependencies () {
 
   log "Updating and installing required dependencies..."
   run_cmd sudo apt update
-  run_cmd sudo apt install -y podman git curl iptables-persistent
+  run_cmd sudo apt install -y podman podman-compose git curl iptables-persistent
 }
 
 
@@ -200,6 +205,8 @@ setup_app_dirs () {
 
   log "Creating app user directories if they do not exist at '${USER_PATH}'..."
   run_cmd sudo mkdir -p "${dirs[@]}"
+
+  log "Setting ownership of '${USER_PATH}/app' to '${USERNAME}'..."
   run_cmd sudo chown -R "${USERNAME}:${USERNAME}" "${USER_PATH}/app"
 }
 
@@ -214,14 +221,17 @@ setup_networking () {
   local iptables_backup_dir=""
   local iptables4_backup=""
   local iptables6_backup=""
-  if [[ "${DRY_RUN}" == "0" ]]; then
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "[DRY-RUN] Would save iptables rules to temporary backup directory."
+  else
     iptables_backup_dir="$(mktemp -d)"
     iptables4_backup="$(mktemp -p "${iptables_backup_dir}")"
     iptables6_backup="$(mktemp -p "${iptables_backup_dir}")"
     sudo iptables-save > "${iptables4_backup}"
     sudo ip6tables-save > "${iptables6_backup}"
+
     # Set up trap to restore iptables on error, and clean up
-    trap 'log "Error occurred, restoring iptables..."; sudo iptables-restore < "${iptables4_backup}"; sudo ip6tables-restore < "${iptables6_backup}"; if [[ -n "${iptables_backup_dir}" && -d "${iptables_backup_dir}" ]]; then rm -rf "${iptables_backup_dir}"; fi; trap - ERR; unset iptables_backup_dir iptables4_backup iptables6_backup' ERR
+    trap 'trap - ERR; log "Error occurred, restoring iptables..."; sudo iptables-restore < "${iptables4_backup}"; sudo ip6tables-restore < "${iptables6_backup}"; if [[ -n "${iptables_backup_dir}" && -d "${iptables_backup_dir}" ]]; then rm -rf "${iptables_backup_dir}"; fi; unset iptables_backup_dir iptables4_backup iptables6_backup' ERR
   fi
 
   # 4. Interface autodetection (fallback to eth0)
@@ -239,7 +249,9 @@ setup_networking () {
   fi
 
   # Check if rules already exist to avoid duplicates
-  if [[ "${DRY_RUN}" == "0" ]]; then
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "[DRY-RUN] Would check for existing iptables rules for interface '${interface}' and ports 80/443."
+  else
     local rule_80_exists=0
     local rule_443_exists=0
     if sudo iptables -t nat -C PREROUTING -i "${interface}" -p tcp --dport 80 -j REDIRECT --to-ports 8080 2>/dev/null; then
@@ -267,7 +279,7 @@ setup_networking () {
   run_cmd sudo iptables -A INPUT -i "${interface}" -p tcp --dport 8443 -j ACCEPT
 
   log "Saving iptables rules to '/etc/iptables/rules.v[4|6]'..."
-  if [[ "${DRY_RUN}" == "1" ]]; then
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "[DRY-RUN] Would execute: sudo iptables-save | sudo tee /etc/iptables/rules.v4"
     log "[DRY-RUN] Would execute: sudo ip6tables-save | sudo tee /etc/iptables/rules.v6"
   else
@@ -295,7 +307,7 @@ setup_model () {
   log "Downloading model '${MODEL_REPO}:${MODEL_REV}' into volume '${HF_MODELS_VOLUME}'..."
   local image_name="docker.io/python:3.14-slim"
 
-  if [[ "${DRY_RUN}" == "1" ]]; then
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "[DRY-RUN] Would execute: podman run (model download)..."
   else
     local podman_env_args=(
@@ -305,18 +317,18 @@ setup_model () {
     )
 
     # Make HF_TOKEN available inside the container if provided using secure temp file
-    local token_file=""
-    local token_dir=""
+    local temp_token_dir=""
+    local temp_token_file=""
     if [[ -n "${HF_TOKEN}" ]]; then
-      token_dir="$(mktemp -d)"
-      chmod 700 "${token_dir}"
-      token_file="${token_dir}/hf_token.env"
-      echo "HF_TOKEN=${HF_TOKEN}" > "${token_file}"
-      chmod 600 "${token_file}"
-      podman_env_args+=(--env-file "${token_file}")
+      temp_token_dir="$(mktemp -d)"
+      chmod 700 "${temp_token_dir}"
+      temp_token_file="$(mktemp -p "${temp_token_dir}")"
+      echo "HF_TOKEN=${HF_TOKEN}" > "${temp_token_file}"
+      chmod 600 "${temp_token_file}"
+      podman_env_args+=(--env-file "${temp_token_file}")
 
       # Set up trap to ensure token file cleanup
-      trap 'rm -rf "${token_dir}"' EXIT INT TERM
+      trap 'trap - EXIT INT TERM; if [[ -n "${temp_token_dir}" && -d "${temp_token_dir}" ]]; then rm -rf "${temp_token_dir}"; fi; unset temp_token_dir temp_token_file' EXIT INT TERM
     fi
 
     podman run --rm --pull=always \
@@ -332,18 +344,23 @@ setup_model () {
         --local-dir '/hf/models/${MODEL_NAME}' \
         --local-dir-use-symlinks False"
 
+    unset podman_env_args
+
     # Clean up token directory immediately after use
-    if [[ -n "${token_dir}" ]]; then
-      rm -rf "${token_dir}"
+    if [[ -n "${temp_token_dir}" && -d "${temp_token_dir}" ]]; then
       trap - EXIT INT TERM
+      rm -rf "${temp_token_dir}"
+      unset temp_token_dir temp_token_file
     fi
   fi
 
   log "Cleaning up temporary containers and images '${image_name}'..."
-  if [[ "${DRY_RUN}" != "1" ]]; then
+  if [[ "${DRY_RUN}" -eq 0 ]]; then
     podman rm -f -i "${image_name}" >/dev/null || true
     podman rmi -f -i "${image_name}" >/dev/null || true
   fi
+
+  unset image_name
 
   log "Model downloaded to volume '${HF_MODELS_VOLUME}'."
   log "Cache stored in volume '${HF_CACHE_VOLUME}'."
@@ -353,6 +370,12 @@ setup_model () {
 fetch_file () {
   local path="$1"
   local out="$2"
+
+  if [[ ${DRY_RUN} -eq 1 ]]; then
+    log "[DRY-RUN] Would fetch file '${path}' from repository '${GIT_REPO}:${GIT_REPO_REF}' to '${out}'."
+    return 0
+  fi
+
   local curl_args=(-fsSL -H "Accept: application/vnd.github.raw")
 
   # Use secure token handling if GITHUB_TOKEN is provided
@@ -372,17 +395,20 @@ CURL_CONFIG_EOF
     curl_args+=(--config "${curl_config_file}")
 
     # Set up trap to ensure cleanup
-    trap 'rm -rf "${curl_config_dir}"' EXIT INT TERM ERR
+    trap 'trap - EXIT INT TERM ERR; if [[ -n "${curl_config_dir}" && -d "${curl_config_dir}" ]]; then rm -rf "${curl_config_dir}"; fi; unset curl_config_dir curl_config_file curl_args' EXIT INT TERM ERR
   fi
 
   curl "${curl_args[@]}" \
     "https://api.github.com/repos/${GIT_REPO}/contents/${path}?ref=${GIT_REPO_REF}" \
     -o "${out}"
 
+  unset curl_args
+
   # Clean up token config
-  if [[ -n "${curl_config_dir}" ]]; then
-    rm -rf "${curl_config_dir}"
+  if [[ -n "${curl_config_dir}" && -d "${curl_config_dir}" ]]; then
     trap - EXIT INT TERM ERR
+    rm -rf "${curl_config_dir}"
+    unset curl_config_dir curl_config_file
   fi
 }
 
@@ -391,14 +417,21 @@ fetch_configuration () {
   # Fetch configuration files from the application repository to the server
 
   log "Fetching files from repository '${GIT_REPO}:${GIT_REPO_REF}'..."
+
+  if [[ ${DRY_RUN} -eq 1 ]]; then
+    log "[DRY-RUN] Would fetch configuration files: ${CONFIG_FILES[*]}"
+    return 0
+  fi
+
   local conf_dir="${USER_PATH}/app/conf.d"
-  run_cmd mkdir -p "${conf_dir}"
 
   for config_file in "${CONFIG_FILES[@]}"; do
     local out="${conf_dir}/${config_file##*/}"
     log "Fetching file '${config_file}' to '${out}'..."
     run_cmd fetch_file "${config_file}" "${out}"
   done
+
+  unset conf_dir
 }
 
 
@@ -406,14 +439,18 @@ fetch_app () {
   # TEMPORARY FUNCTION! Fetch the application source code from the repository to the server
   # ! Once the configuration files are in place and the application image can be built in CI/CD use fetch_configuration instead and remove this function!
 
-  local temp_conf_path="$(mktemp -d)"
-  local app_conf_path="${USER_PATH}/app/conf.d"
+  local temp_conf_path=""
+  local app_repo_path="${USER_PATH}/app/repo"
+  if [[ -d $(app_repo_path) ]]; then
+    sudo rm -rf "${app_repo_path}"
+  fi
 
-  log "Fetching application source code from 'https://github.com/${GIT_REPO}:${GIT_REPO_REF}' to a temporary directory '${temp_conf_path}'..."
+  log "Fetching application source code from 'https://github.com/${GIT_REPO}:${GIT_REPO_REF}' to a temporary directory..."
 
-  if [[ "${DRY_RUN}" != "1" ]]; then
-    # TODO: Become the application user for this operation to avoid permission issues and ensure correct ownership of files.
-
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "[DRY-RUN] Would fetch application source code from 'https://github.com/${GIT_REPO}:${GIT_REPO_REF}' to '${app_repo_path}'..."
+  else
+    temp_conf_path="$(mktemp -d)"
     cd ${temp_conf_path}
 
     # Use GIT_ASKPASS for secure token handling if GITHUB_TOKEN is provided
@@ -423,7 +460,8 @@ fetch_app () {
     if [[ -n "${GITHUB_TOKEN}" ]]; then
       git_askpass_dir="$(mktemp -d)"
       chmod 700 "${git_askpass_dir}"
-      git_askpass_script="${git_askpass_dir}/askpass.sh"
+      git_askpass_script="$(mktemp -p "${git_askpass_dir}")"
+
       # Embed token directly in script
       cat > "${git_askpass_script}" <<ASKPASS_EOF
 #!/bin/sh
@@ -433,7 +471,7 @@ ASKPASS_EOF
       export GIT_ASKPASS="${git_askpass_script}"
 
       # Set up trap to ensure cleanup even if interrupted
-      trap 'rm -rf "${git_askpass_dir}"; unset GIT_ASKPASS' EXIT INT TERM ERR
+      trap 'trap - EXIT INT TERM ERR; if [[ -n "${git_askpass_dir}" && -d "${git_askpass_dir}" ]]; then rm -rf "${git_askpass_dir}"; fi; unset GIT_ASKPASS git_askpass_script git_askpass_dir' EXIT INT TERM ERR
     fi
 
     git init >/dev/null
@@ -442,29 +480,24 @@ ASKPASS_EOF
     git checkout FETCH_HEAD -- . >/dev/null
     rm -rf .git
 
+    cd ~
+
     # Move the fetched files to the actual configuration directory
-    log "Moving fetched files to '${app_conf_path}' and setting ownership to '${USERNAME}'..."
-    sudo mv "${temp_conf_path}/"* "${app_conf_path}/"
-    sudo chown -R "${USERNAME}:${USERNAME}" "${app_conf_path}"
+    log "Moving fetched files to '${app_repo_path}' and setting ownership to '${USERNAME}'..."
+    sudo mv "${temp_conf_path}/" "${app_repo_path}/"
+    sudo chown -R "${USERNAME}:${USERNAME}" "${app_repo_path}"
 
     # Clean up the askpass script and directory
-    if [[ -n "${git_askpass_dir}" ]]; then
-      rm -rf "${git_askpass_dir}"
-      unset GIT_ASKPASS
+    if [[ -n "${git_askpass_dir}" && -d "${git_askpass_dir}" ]]; then
       trap - EXIT INT TERM ERR
+      rm -rf "${git_askpass_dir}"
+      unset GIT_ASKPASS git_askpass_script git_askpass_dir
     fi
-  else
-    log "[DRY-RUN] Would execute: cd ${app_conf_path}"
-    log "[DRY-RUN] Would execute: git init"
-    log "[DRY-RUN] Would execute: git remote add origin https://github.com/${GIT_REPO}.git"
-    log "[DRY-RUN] Would execute: git fetch --depth 1 origin ${GIT_REPO_REF}"
-    log "[DRY-RUN] Would execute: git checkout FETCH_HEAD -- ."
-    log "[DRY-RUN] Would execute: rm -rf .git"
   fi
 }
 
 
-setup_app () {
+build_app () {
   log "Building application from compose file '${COMPOSE_FILE}'..."
   run_cmd podman compose build -f "${COMPOSE_FILE}" --pull --quiet
   log "Run the application with: podman compose -f ${COMPOSE_FILE} up -d"
@@ -486,17 +519,18 @@ main () {
   setup_app_dirs
   setup_networking
 
-  setup_model
+  # setup_model
   # fetch_configuration # ! See fetch_app comments!
   fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
 
   local conf_dir="${USER_PATH}/app/conf.d"
-  if [[ ! -d "${conf_dir}" || -z "$(ls -A "${conf_dir}" 2>/dev/null)" ]]; then
+  local repo_dir="${USER_PATH}/app/repo"
+  if [[ ! -d "${repo_dir}" || -z "$(sudo ls -A "${repo_dir}" 2>/dev/null)" ]]; then
     log "Copy the application code manually to the server with 'scp <local_path> <user>@<host>:<remote_path>'. Exiting..."
     exit 0
   fi
 
-  setup_app
+  build_app
 
   local end_time=$(date +%s%N)
   local time_ns=$((end_time - start_time))
