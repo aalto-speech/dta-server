@@ -222,7 +222,7 @@ setup_networking () {
   local iptables4_backup=""
   local iptables6_backup=""
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    log "[DRY-RUN] Would save iptables rules to temporary backup directory."
+    log "[DRY-RUN] Would save iptables rules to a temporary backup directory."
   else
     iptables_backup_dir="$(mktemp -d)"
     iptables4_backup="$(mktemp -p "${iptables_backup_dir}")"
@@ -332,17 +332,17 @@ setup_model () {
     fi
 
     podman run --rm --pull=always \
-    --userns=keep-id \
-    "${podman_env_args[@]}" \
-    -v "${HF_MODELS_VOLUME}":/hf/models:Z \
-    -v "${HF_CACHE_VOLUME}":/hf/cache:Z \
-    "${image_name}" \
-    bash -lc \
-    "pip install -U 'huggingface_hub[cli]' >/dev/null \
-      && huggingface-cli download '${MODEL_REPO}' \
-        --revision '${MODEL_REV}' \
-        --local-dir '/hf/models/${MODEL_NAME}' \
-        --local-dir-use-symlinks False"
+      --userns=keep-id \
+      "${podman_env_args[@]}" \
+      -v "${HF_MODELS_VOLUME}":/hf/models:Z \
+      -v "${HF_CACHE_VOLUME}":/hf/cache:Z \
+      "${image_name}" \
+      bash -lc \
+      "pip install -U 'huggingface_hub[cli]' >/dev/null \
+        && huggingface-cli download '${MODEL_REPO}' \
+          --revision '${MODEL_REV}' \
+          --local-dir '/hf/models/${MODEL_NAME}' \
+          --local-dir-use-symlinks False"
 
     unset podman_env_args
 
@@ -441,7 +441,7 @@ fetch_app () {
 
   local temp_conf_path=""
   local app_repo_path="${USER_PATH}/app/repo"
-  if [[ -d $(app_repo_path) ]]; then
+  if [[ ${DRY_RUN} -eq 0 && -d "${app_repo_path}" ]]; then
     sudo rm -rf "${app_repo_path}"
   fi
 
@@ -519,13 +519,13 @@ main () {
   setup_app_dirs
   setup_networking
 
-  # setup_model
+  setup_model
   # fetch_configuration # ! See fetch_app comments!
   fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
 
   local conf_dir="${USER_PATH}/app/conf.d"
   local repo_dir="${USER_PATH}/app/repo"
-  if [[ ! -d "${repo_dir}" || -z "$(sudo ls -A "${repo_dir}" 2>/dev/null)" ]]; then
+  if [[ ${DRY_RUN} -eq 0 && ! -d "${repo_dir}" ]]; then
     log "Copy the application code manually to the server with 'scp <local_path> <user>@<host>:<remote_path>'. Exiting..."
     exit 0
   fi
