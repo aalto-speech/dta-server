@@ -34,13 +34,17 @@ services:
       UPSTREAM: ${UPSTREAM:-dta:8000} # [service|IP]:port
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
       - caddy-config:/config
-      - ./caddy-logs:/var/log/caddy
+      - caddy-data:/data
+      - caddy-logs:/var/log/caddy
 
 volumes:
   dta-data:
-  caddy-data:
   caddy-config:
+  caddy-data:
+  caddy-logs:
+    external: true
   hf-models:
+    external: true
   hf-cache:
+    external: true
