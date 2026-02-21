@@ -6,6 +6,8 @@ WORKDIR /app
 # Prevent Python from writing .pyc files and buffering stdout
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# Cache Whisper models in the persistent volume
+ENV WHISPER_CACHE_DIR=/hf/models
 
 # Install dependencies and clean up to reduce image size
 COPY environment.yaml ./
