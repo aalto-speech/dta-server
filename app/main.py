@@ -1,4 +1,5 @@
 import tempfile
+from random import uniform
 import whisper
 from fastapi import FastAPI, File, UploadFile
 from fastapi.encoders import jsonable_encoder
@@ -12,10 +13,10 @@ app = FastAPI()
 whisper_model = whisper.load_model("small")
 
 
-@app.get("/hello")
-async def read_root():
-    """Hello endpoint"""
-    return "Hello world!"
+@app.get("/ping")
+async def ping():
+    """Pingpong test endpoint"""
+    return "Pong!"
 
 
 @app.post("/speech/assess")
@@ -34,11 +35,11 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         transcript = " ".join(text) if isinstance(text, list) else text
 
         # Placeholder assessment scores (replace with actual ML logic)
-        fluency = 4.3
-        pronunciation = 2.4
-        range_score = 3.3
-        accuracy = 4.9
-        holistic = 4.0
+        fluency = round(uniform(0, 5), 1)
+        pronunciation = round(uniform(0, 5), 1)
+        range_score = round(uniform(0, 5), 1)
+        accuracy = round(uniform(0, 5), 1)
+        holistic = round(uniform(0, 5), 1)
 
         json = jsonable_encoder(
             SpeechAssessment(
