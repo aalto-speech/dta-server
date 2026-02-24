@@ -30,7 +30,8 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
     try:
         # Transcribe audio using whisper
         result = whisper_model.transcribe(temp_path)
-        transcript = result["text"]
+        text = result["text"]
+        transcript = " ".join(text) if isinstance(text, list) else text
 
         # Placeholder assessment scores (replace with actual ML logic)
         fluency = 4.3
