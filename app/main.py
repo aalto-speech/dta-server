@@ -54,5 +54,5 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         return JSONResponse(content=json, status_code=200)
     finally:
         # Clean up temporary file
-        import os
+        import os  # pylint: disable=import-outside-toplevel
         os.unlink(temp_path)
