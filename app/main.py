@@ -29,8 +29,8 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         temp_path = temp_file.name
 
     try:
-        # Transcribe audio using whisper
-        result = whisper_model.transcribe(temp_path)
+        # Transcribe audio using whisper (force Finnish language for better accuracy)
+        result = whisper_model.transcribe(temp_path, language="fi")
         text = result["text"]
         transcript = " ".join(text) if isinstance(text, list) else text
 
