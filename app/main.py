@@ -5,7 +5,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from models import SpeechAssessment
+from .models import SpeechAssessment
 
 app = FastAPI()
 
