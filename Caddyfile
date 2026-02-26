@@ -15,7 +15,13 @@
 		format console
 	}
 
-	# /api/v1/* → {$UPSTREAM}/*
+	# /openapi.json -> {$UPSTREAM}/openapi.json
+	@openapi path /openapi.json
+	handle @openapi {
+		reverse_proxy {$UPSTREAM}/openapi.json
+	}
+
+	# /api/v1/* -> {$UPSTREAM}/*
 	@api path /api/v1/*
 	handle @api {
 		uri strip_prefix /api/v1
