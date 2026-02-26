@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 
-class SpeechAssessmentScore(BaseModel):
+class SpeechAssessmentScores(BaseModel):
     """Speech assessment score type"""
 
     accuracy: float
@@ -14,5 +14,5 @@ class SpeechAssessmentScore(BaseModel):
 class SpeechAssessment(BaseModel):
     """Speech assessment response type"""
 
-    score: SpeechAssessmentScore
+    scores: SpeechAssessmentScores
     transcript: str
