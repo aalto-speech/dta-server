@@ -5,7 +5,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from .models import SpeechAssessment
+from .models import SpeechAssessment, SpeechAssessmentScore
 
 app = FastAPI()
 
@@ -44,11 +44,13 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         json = jsonable_encoder(
             SpeechAssessment(
                 transcript=transcript,
-                fluency=fluency,
-                pronunciation=pronunciation,
-                range_score=range_score,
-                accuracy=accuracy,
-                holistic=holistic,
+                score=SpeechAssessmentScore(
+                    accuracy=accuracy,
+                    fluency=fluency,
+                    holistic=holistic,
+                    pronunciation=pronunciation,
+                    range_score=range_score,
+                )
             )
         )
         return JSONResponse(content=json, status_code=200)
