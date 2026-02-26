@@ -1,5 +1,6 @@
 import tempfile
 from random import uniform
+
 import whisper
 from fastapi import FastAPI, File, UploadFile
 from fastapi.encoders import jsonable_encoder
@@ -14,46 +15,49 @@ whisper_model = whisper.load_model("small")
 
 
 @app.get("/ping")
-async def ping():
-    """Pingpong test endpoint"""
-    return "Pong!"
+async def ping() -> JSONResponse:
+    """Ping-pong endpoint for checking if the server is running."""
+    return JSONResponse(content={"message": "Pong!"}, status_code=200)
 
 
 @app.post("/speech/assess")
 async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
-    """Assess speech using the AI model"""
+    """Assess speech using the AI model."""
+
     # Save uploaded file temporarily
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
         content = await file.read()
-        temp_file.write(content)
-        temp_path = temp_file.name
+        f.write(content)
+        temp_path = f.name
 
     try:
         # Transcribe audio using whisper (force Finnish language for better accuracy)
         result = whisper_model.transcribe(temp_path, language="fi")
         text = result["text"]
-        transcript = " ".join(text) if isinstance(text, list) else text
+        transcript = " ".join(text) if isinstance(text, list) else str(text)
 
         # Placeholder assessment scores (replace with actual ML logic)
+        accuracy = round(uniform(0, 5), 1)
         fluency = round(uniform(0, 5), 1)
+        proficiency = round(uniform(0, 5), 1)
         pronunciation = round(uniform(0, 5), 1)
         range_score = round(uniform(0, 5), 1)
-        accuracy = round(uniform(0, 5), 1)
-        holistic = round(uniform(0, 5), 1)
 
         json = jsonable_encoder(
             SpeechAssessment(
-                transcript=transcript,
                 scores=SpeechAssessmentScores(
                     accuracy=accuracy,
                     fluency=fluency,
-                    holistic=holistic,
+                    proficiency=proficiency,
                     pronunciation=pronunciation,
-                    range_score=range_score,
-                )
+                    range=range_score,
+                ),
+                transcript=transcript
             )
         )
         return JSONResponse(content=json, status_code=200)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return JSONResponse(content={"error": str(e)}, status_code=500)
     finally:
         # Clean up temporary file
         import os  # pylint: disable=import-outside-toplevel

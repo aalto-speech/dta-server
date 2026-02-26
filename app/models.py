@@ -6,13 +6,13 @@ class SpeechAssessmentScores(BaseModel):
 
     accuracy: float
     fluency: float
-    holistic: float
+    proficiency: float
     pronunciation: float
-    range_score: float
+    range: float
 
 
 class SpeechAssessment(BaseModel):
-    """Speech assessment response type"""
+    """Speech assessment result type"""
 
     scores: SpeechAssessmentScores
     transcript: str
