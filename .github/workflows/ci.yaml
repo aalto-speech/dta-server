@@ -7,13 +7,13 @@ on:
     branches: [dev, main]
 
 jobs:
-  test-and-lint:
-    name: Test and Lint on ${{ matrix.os }}
+  lint-and-test:
+    name: Lint and test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-latest"]
+        os: ["ubuntu-24.04"]
 
     steps:
       - name: Checkout code
@@ -31,10 +31,10 @@ jobs:
           conda info
           python --version
 
-      - name: Install test and linter dependencies
+      - name: Install lint and test dependencies
         shell: bash -l {0}
         run: |
-          conda install -c conda-forge pytest pylint
+          conda install -c conda-forge pylint pytest
 
       - name: Lint with pylint
         shell: bash -l {0}
