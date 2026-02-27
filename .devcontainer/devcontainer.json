@@ -6,7 +6,7 @@
     "context": "..",
     "dockerfile": "Containerfile"
   },
-  "forwardPorts": [3000],
+  "forwardPorts": [8000],
   "postCreateCommand": "python --version && conda --version",
   "customizations": {
     "vscode": {
@@ -14,7 +14,8 @@
         "ms-python.autopep8",
         "ms-python.isort",
         "ms-python.pylint",
-        "ms-python.python"
+        "ms-python.python",
+        "esbenp.prettier-vscode"
       ]
     }
   },
