@@ -121,15 +121,6 @@ fi
 
 log() { [[ "${VERBOSE}" == "1" ]] && printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
-run_cmd() {
-  if [[ "${DRY_RUN}" == "1" ]]; then
-    log "[DRY-RUN] Would execute: $*"
-    return 0
-  else
-    "$@"
-  fi
-}
-
 validate_input() {
   local var_name="$1"
   local var_value="$2"
@@ -157,9 +148,9 @@ CADDY_LOGS_VOLUME="${CADDY_LOGS_VOLUME:-caddy-logs}" # Podman volume name
 TARGET_OS_VERSION="${TARGET_OS_VERSION:-24.04}"      # Target OS version for package selection (e.g., for podman-compose vs docker-compose)
 
 # Model settings
-MODEL_REPO="${MODEL_REPO:-Usin2705/CaptainA_v0}" # LLM repository
-MODEL_REV="${MODEL_REV:-main}"                   # LLM revision (branch, tag, or commit)
-MODEL_NAME="${MODEL_NAME:-CaptainA_v0}"          # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_NAME})
+MODEL_REPO="${MODEL_REPO:}"             # LLM repository
+MODEL_REV="${MODEL_REV:-main}"          # LLM revision (branch, tag, or commit)
+MODEL_NAME="${MODEL_NAME:-CaptainA_v0}" # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_NAME})
 # Sanitize MODEL_NAME to prevent path traversal
 MODEL_NAME="${MODEL_NAME##*/}"              # Remove any path components
 MODEL_NAME="${MODEL_NAME//[^a-zA-Z0-9_-]/}" # Remove special characters
@@ -195,6 +186,7 @@ done
 
 setup_dependencies() {
   # Install required dependencies based on the OS version
+
   is_target_version() {
     local current="$1"
     local target="$2"
@@ -584,6 +576,59 @@ build_app() {
   log "Run the application with: podman compose -f ${COMPOSE_FILE} up -d"
 }
 
+enable_services() {
+  log "Enabling services to start on boot..."
+
+  # TODO: Get dta-compose.service content from a file in the repository instead of hardcoding it here. This would allow easier maintenance and updates to the service definition without modifying the setup script.
+
+  local service_name="dta-compose.service"
+  local service_file="${USER_PATH}/.config/systemd/user/${service_name}"
+  mkdir -p "$(dirname "${service_file}")"
+
+  log "Creating systemd user service file at '${service_file}'..."
+
+  cat >"${service_file}" <<SERVICE_EOF
+# Manages the rootless dta-server stack via podman compose (user service).
+# Starts containers with: podman compose up -d
+# Stops containers with: podman compose down
+# Runs in /home/ubuntu/dta after network is online, and can auto-start when enabled.
+# /home/ubuntu/.config/systemd/user/dta-compose.service
+
+[Unit]
+Description=Rootless dta-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=300
+Environment=HOME=/home/ubuntu
+WorkingDirectory=/home/ubuntu/dta
+ExecStart=/usr/bin/podman compose up -d
+ExecStop=/usr/bin/podman compose down
+
+[Install]
+WantedBy=default.target
+
+SERVICE_EOF
+
+  log "Enabling lingering for user '${USERNAME}' to allow services to run without an active login session..."
+  loginctl enable-linger "${USERNAME}"
+
+  log "Reloading systemd user daemon to recognize new service..."
+  systemctl --user daemon-reload
+
+  log "Checking if the service is set up correctly..."
+  systemctl --user status "${service_name}" >/dev/null
+
+  log "Enabling the service '${service_name}' for user '${USERNAME}'..."
+  systemctl --user enable "${service_name}"
+
+  log "Starting services..."
+  systemctl --user start --now "${service_name}"
+}
+
 main() {
   local start_time=""
   start_time=$(date +%s%N)
@@ -605,6 +650,8 @@ main() {
 
   log "build_app"
   # build_app
+
+  enable_services
 
   local end_time=""
   end_time=$(date +%s%N)
