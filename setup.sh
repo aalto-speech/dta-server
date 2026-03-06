@@ -16,10 +16,10 @@ Required options:
 Options:
   -q, --quiet          Disable progress logs
 
-  -i, --interface <interface>
+  -n, --interface <interface>
                        Network interface to apply iptables rules on (default: [auto-detected|eth0])
 
-  -r, --app-repo <user/repo[:ref]>
+  -i, --app-image <user/repo[:ref]>
                        GitHub repository and optional revision. If no revision given, defaults to main
                        (default: aalto-speech/dta-server:main)
 
@@ -56,11 +56,7 @@ while [[ $# -gt 0 ]]; do
     VERBOSE=0
     shift
     ;;
-  -n | --dry-run)
-    DRY_RUN=1
-    shift
-    ;;
-  -i | --interface)
+  -n | --interface)
     NETWORK_INTERFACE="$2"
     shift 2
     ;;
@@ -72,7 +68,7 @@ while [[ $# -gt 0 ]]; do
     USER_PATH="$2"
     shift 2
     ;;
-  -r | --app-repo)
+  -i | --app-image)
     GIT_REPO="${2%%:*}"
     if [[ "$2" == *:* ]]; then
       GIT_REPO_REF="${2#*:}"
@@ -162,14 +158,16 @@ HF_TOKEN="${HF_TOKEN:-}"                          # Hugging Face API token (opti
 # Application settings
 USERNAME="${USERNAME:-ubuntu}"                  # Non-root user to run the application and manage resources
 USER_PATH="${USER_PATH:-/home/${USERNAME}}"     # Root directory for the application user (e.g., for logs, data, etc.)
+APP_PATH="${USER_PATH}/dta"                     # Directory where the application code and configuration will be stored
 GIT_REPO="${GIT_REPO:-aalto-speech/dta-server}" # Git repository for fetching configuration files
 GIT_REPO_REF="${GIT_REPO_REF:-main}"            # Git reference (branch, tag, or commit)
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"                # GitHub token (optional, for private repository access and increased rate limits)
 
 # Misc. settings
-COMPOSE_FILE=${COMPOSE_FILE:-compose.yaml} # Path to the container compose file
+COMPOSE_FILE=${COMPOSE_FILE:-compose.yaml}        # Path to the container compose file
+SERVICE_FILE=${SERVICE_FILE:-dta-compose.service} # Name of the systemd service file to create for managing the application services
 if [[ ${#CONFIG_FILES[@]} -eq 0 ]]; then
-  CONFIG_FILES=(Caddyfile "${COMPOSE_FILE}") # Default configuration files to fetch from the repository
+  CONFIG_FILES=(Caddyfile "${COMPOSE_FILE}" "${SERVICE_FILE}") # Default configuration files to fetch from the repository
 fi
 
 # Validate critical inputs to prevent command injection
@@ -222,22 +220,22 @@ setup_app_dirs() {
   # Create application directory structure under the user
 
   local dirs=(
-    "${USER_PATH}/app/conf.d"
-    "${USER_PATH}/app/data"
-    "${USER_PATH}/app/logs"
+    "${APP_PATH}/conf.d"
+    "${APP_PATH}/data"
+    "${APP_PATH}/logs"
   )
 
-  log "Creating app user directories if they do not exist at '${USER_PATH}'..."
+  log "Creating app user directories if they do not exist at '${APP_PATH}'..."
   mkdir -p "${dirs[@]}"
 
-  log "Setting ownership of '${USER_PATH}/app' to '${USERNAME}'..."
-  sudo chown -R "${USERNAME}:${USERNAME}" "${USER_PATH}/app"
+  log "Setting ownership of '${APP_PATH}' to '${USERNAME}'..."
+  sudo chown -R "${USERNAME}:${USERNAME}" "${APP_PATH}"
 
-  log "Setting up Caddy logs volume '${CADDY_LOGS_VOLUME}' and symlink to '${USER_PATH}/app/logs/caddy'..."
+  log "Setting up Caddy logs volume '${CADDY_LOGS_VOLUME}' and symlink to '${APP_PATH}/logs/caddy'..."
   podman volume create --ignore "${CADDY_LOGS_VOLUME}" >/dev/null
 
-  if [[ ! -L "${USER_PATH}/app/logs/caddy" ]]; then
-    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${CADDY_LOGS_VOLUME}")" "${USER_PATH}/app/logs/caddy"
+  if [[ ! -L "${APP_PATH}/logs/caddy" ]]; then
+    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${CADDY_LOGS_VOLUME}")" "${APP_PATH}/logs/caddy"
   fi
 }
 
@@ -379,15 +377,15 @@ setup_model() {
 
   create_volumes() {
     # Removing any existing 'models' and 'cache' directories to prevent conflicts with the symlinks to the volumes
-    rm -rf "${USER_PATH}/app/models" "${USER_PATH}/app/cache"
+    rm -rf "${APP_PATH}/models" "${APP_PATH}/cache"
 
     log "Creating volumes '${HF_MODELS_VOLUME}' and '${HF_CACHE_VOLUME}' if they do not exist..."
     podman volume create --ignore "${HF_MODELS_VOLUME}" >/dev/null
     podman volume create --ignore "${HF_CACHE_VOLUME}" >/dev/null
 
-    log "Creating symlinks for 'model' and 'cache' volumes in '${USER_PATH}/app'..."
-    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${HF_MODELS_VOLUME}")" "${USER_PATH}/app/models"
-    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${HF_CACHE_VOLUME}")" "${USER_PATH}/app/cache"
+    log "Creating symlinks for 'model' and 'cache' volumes in '${APP_PATH}'..."
+    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${HF_MODELS_VOLUME}")" "${APP_PATH}/models"
+    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${HF_CACHE_VOLUME}")" "${APP_PATH}/cache"
   }
 
   download_model() {
@@ -496,17 +494,12 @@ fetch_configuration() {
 
   log "Fetching files from repository '${GIT_REPO}:${GIT_REPO_REF}'..."
 
-  if [[ ${DRY_RUN} -eq 1 ]]; then
-    log "[DRY-RUN] Would fetch configuration files: ${CONFIG_FILES[*]}"
-    return 0
-  fi
-
-  local conf_dir="${USER_PATH}/app/conf.d"
+  local conf_dir="${APP_PATH}"
 
   for config_file in "${CONFIG_FILES[@]}"; do
     local out="${conf_dir}/${config_file##*/}"
     log "Fetching file '${config_file}' to '${out}'..."
-    run_cmd fetch_file "${config_file}" "${out}"
+    fetch_file "${config_file}" "${out}"
   done
 
   unset conf_dir
@@ -526,7 +519,7 @@ fetch_app() {
 
   local git_askpass_dir=""
   local git_askpass_script=""
-  local app_repo_path="${USER_PATH}/app/repo"
+  local app_repo_path="${APP_PATH}/repo"
 
   if [[ -d "${app_repo_path}" ]]; then
     rm -rf "${app_repo_path}"
@@ -571,8 +564,8 @@ ASKPASS_EOF
 
 build_app() {
   log "Building application from compose file '${COMPOSE_FILE}'..."
-  local app_repo_path="${USER_PATH}/app/repo"
-  run_cmd podman compose -f "${app_repo_path}/${COMPOSE_FILE}" build --pull
+  local app_repo_path="${APP_PATH}/repo"
+  podman compose -f "${app_repo_path}/${COMPOSE_FILE}" build --pull
   log "Run the application with: podman compose -f ${COMPOSE_FILE} up -d"
 }
 
@@ -639,14 +632,14 @@ main() {
   setup_app_dirs
   setup_networking
   setup_model
-  # fetch_configuration # ! See fetch_app comments!
-  fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
+  fetch_configuration # ! See fetch_app comments!
+  # fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
 
-  local repo_dir="${USER_PATH}/app/repo"
-  if [[ ! -d "${repo_dir}" ]]; then
-    log "Copy the application code manually to the server with 'scp <local_path> <user>@<host>:<remote_path>'. Exiting..."
-    exit 0
-  fi
+  # local repo_dir="${APP_PATH}/repo"
+  # if [[ ! -d "${repo_dir}" ]]; then
+  #   log "Copy the application code manually to the server with 'scp <local_path> <user>@<host>:<remote_path>'. Exiting..."
+  #   exit 0
+  # fi
 
   log "build_app"
   # build_app
