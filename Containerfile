@@ -12,7 +12,8 @@ ENV WHISPER_CACHE_DIR=/hf/models
 # Install dependencies and clean up to reduce image size
 COPY environment.yaml ./
 RUN conda env update -n base -f environment.yaml \
-    && conda clean -afy
+    && conda clean -afy \
+    && apt-get update && apt-get install -y sqlite3 && rm -rf /var/lib/apt/lists/*
 
 # Copy application files after installing dependencies (see .containerignore for excluded files)
 COPY . .
