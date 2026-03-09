@@ -1,5 +1,7 @@
+import sqlite3
 import tempfile
 from random import uniform
+
 
 import whisper
 from fastapi import FastAPI, File, UploadFile
@@ -12,6 +14,31 @@ app = FastAPI()
 
 # Load whisper model once at startup
 whisper_model = whisper.load_model("small")
+
+
+@app.on_event("startup")
+async def setup_database():
+    """Initialize database on app startup."""
+
+    conn = sqlite3.connect('speech_assessments.db')
+    conn.execute('PRAGMA journal_mode=WAL;')
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS assessments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        transcript TEXT NOT NULL,
+        accuracy REAL,
+        fluency REAL,
+        proficiency REAL,
+        pronunciation REAL,
+        range REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    conn.commit()
+    conn.close()
 
 
 @app.get("/ping")
