@@ -1,16 +1,26 @@
 {
 	# ACME contact
 	email {$ACME_EMAIL}
+
+	servers {
+		protocols h2
+		timeouts {
+			read_body 10s
+			read_header 5s
+			idle 30s
+		}
+	}
 }
 
 {$DOMAIN}:80 {
-	# Redirect all HTTP requests to HTTPS.
+	# Redirect all HTTP requests to HTTPS
 	redir https://{host}{uri} 308
 }
 
 {$DOMAIN}:443 {
-	tls {
-		alpn h2
+	# Limit request body size to 10 MB
+	request_body {
+		max_size 10MB
 	}
 
 	# Logging

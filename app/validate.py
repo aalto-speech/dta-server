@@ -65,7 +65,8 @@ async def _validate_file_size(file: UploadFile) -> bytes:
         total_size += len(chunk)
         if total_size > MAX_FILE_SIZE:
             raise HTTPException(
-                status_code=413, detail="File exceeds the 10 MB size limit."
+                status_code=413,
+                detail="File exceeds the 10 MB size limit.",
             )
         chunks.append(chunk)
 
