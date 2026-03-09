@@ -1,15 +1,17 @@
 name: CD
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
     branches: [dev]
   release:
     types: [published]
-  pull_request:
-    branches: [dev]
 
 jobs:
   build-and-deploy:
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'dev') || (github.event_name == 'release' && github.event.release.target_commitish == 'main') }}
     name: Build and deploy on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     permissions:
@@ -18,7 +20,6 @@ jobs:
 
     env:
       IMAGE_NAME: ghcr.io/${{ github.repository }}
-      TAG_NAME: ${{ github.ref_name }}
 
     strategy:
       matrix:
@@ -27,6 +28,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.release.tag_name }}
+
+      - name: Resolve target image tags
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_run" ]]; then
+            echo "TAG_NAME=dev" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            echo "TAG_NAME=latest" >> "$GITHUB_ENV"
+            echo "RELEASE_TAG=${{ github.event.release.tag_name }}" >> "$GITHUB_ENV"
+          else
+            echo "Unsupported event: $GITHUB_EVENT_NAME" >&2
+            exit 1
+          fi
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -39,8 +54,8 @@ jobs:
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
             podman build --pull \
-              --tag $IMAGE_NAME:latest \
               --tag $IMAGE_NAME:$TAG_NAME \
+              --tag $IMAGE_NAME:$RELEASE_TAG \
               .
           else
             podman build --pull \
@@ -50,9 +65,7 @@ jobs:
 
       - name: Push container images to GitHub Container Registry
         run: |
+          podman push $IMAGE_NAME:$TAG_NAME
           if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
-            podman push $IMAGE_NAME:latest
-            podman push $IMAGE_NAME:$TAG_NAME
-          else
-            podman push $IMAGE_NAME:$TAG_NAME
+            podman push $IMAGE_NAME:$RELEASE_TAG
           fi

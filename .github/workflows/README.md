@@ -30,32 +30,42 @@ The CD (Continuous Deployment) workflow builds and pushes container images to th
 
 **Triggers:**
 
-- Runs on every push to the `dev` branch.
-- Runs on every release event (published release).
-- Runs on every pull request targeting the `dev` branch.
+- Runs when the `CI` workflow completes on the `dev` branch (`workflow_run` trigger).
+- Runs on published releases (`release` trigger).
 
 **Job: build-and-deploy**
 
 - **Matrix Build:** Runs the workflow on `ubuntu-24.04`
+- **Job guard:** The job runs only when one of these is true:
+  - `CI` completed successfully for `dev` (`workflow_run.conclusion == success` and branch is `dev`).
+  - A release is published from `main` (`release.target_commitish == main`).
 - **Environment Variables:**
   - `IMAGE_NAME`: The full image name for GHCR, e.g., `ghcr.io/OWNER/REPO`.
-  - `TAG_NAME`: The tag for the image, set to the current ref name (branch or tag).
 
 **Steps:**
 
-1. **Checkout code:** Retrieves the latest code from the repository.
+1. **Checkout code:**
+
+- For `workflow_run`, checks out the exact commit SHA that passed CI.
+- For `release`, checks out the release tag.
+
 2. **Login to GitHub Container Registry:** Authenticates to GHCR using the GitHub Actions token.
-3. **Build and tag container image:**
+3. **Resolve target image tags:**
 
-- If the workflow is triggered by a release event, builds the image and tags it as `latest` and with the release tag name.
-- Otherwise, builds the image and tags it with the current branch or tag name.
+- For `workflow_run`, sets `TAG_NAME=dev`.
+- For `release`, sets `TAG_NAME=latest` and `RELEASE_TAG=<release-tag>`.
 
-4. **Push container images to GHCR:**
+4. **Build and tag container image:**
 
-- If the workflow is triggered by a release event, pushes both the `latest` and the release tag images.
-- Otherwise, pushes the image tagged with the current branch or tag name.
+- For `workflow_run`, builds one image tag: `:dev`.
+- For `release`, builds two image tags: `:latest` and `:<release-tag>`.
 
-This workflow ensures that container images are automatically built and published for development and release events, supporting continuous deployment practices.
+5. **Push container images to GHCR:**
+
+- For `workflow_run`, pushes `:dev`.
+- For `release`, pushes `:latest` and `:<release-tag>`.
+
+This workflow ensures development images are published only after CI passes on `dev`, and release images from `main` are published as both `latest` and the release-specific tag.
 
 ---
 
