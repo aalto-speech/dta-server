@@ -3,7 +3,8 @@
 	email {$ACME_EMAIL}
 
 	servers {
-		protocols h2
+		# TODO: HTTP1 support will be removed in the future
+		protocols h1 h2
 		timeouts {
 			read_body 10s
 			read_header 5s
