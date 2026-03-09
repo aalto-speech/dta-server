@@ -1,17 +1,18 @@
 # DigiTala in Action server
 
-[![CI](https://github.com/aalto-speech/dta-server/actions/workflows/ci.yaml/badge.svg)](https://github.com/aalto-speech/dta-server/actions/workflows/ci.yaml)
+[![CI-CD](https://github.com/aalto-speech/dta-server/actions/workflows/ci-cd.yaml/badge.svg?branch=main)](https://github.com/aalto-speech/dta-server/actions/workflows/ci-cd.yaml)
 
 This repo contain the server developed for the DigiTala in Action project.
 
 ## Project requirement:
+
 - Develop a server to processing speech send by a mobile app, and return the 5 speech ratings scores: `fluency, pronunciation, range, accuracy, holistic`
-  -   Some python library is require: pytorch and transformer (to run [wav2vec2](https://huggingface.co/facebook/wav2vec2-xls-r-300m) and [Whisper](https://huggingface.co/openai/whisper-small) model).
-  -   For TLS cerfiticate, Caddy and Let's Encrypt is the prefered choice.
-  -   We suggest using FastAPI instead of Flask for Web API. We used Flask in our server but FastAPI is faster for large scale.
+  - Some python library is require: pytorch and transformer (to run [wav2vec2](https://huggingface.co/facebook/wav2vec2-xls-r-300m) and [Whisper](https://huggingface.co/openai/whisper-small) model).
+  - For TLS cerfiticate, Caddy and Let's Encrypt is the prefered choice.
+  - We suggest using FastAPI instead of Flask for Web API. We used Flask in our server but FastAPI is faster for large scale.
 - Our main goals are as follow:
   - The server is **secure and reliable**: it should be able to run with minimum maintenance for the next 4-5 years. If the instance restart, server will also automatic start again and data is not lost.
-  - **Simplicity** for maintenance/setup: as the maintainer may not familiar with server development. We may need to migrate our server to a better/worse CSC instance in the future, so easier to setup is also important.  
+  - **Simplicity** for maintenance/setup: as the maintainer may not familiar with server development. We may need to migrate our server to a better/worse CSC instance in the future, so easier to setup is also important.
     - For such reasons, we prefer Docker/Podman, but if it is possible to run without any container (simpler) then we are also ok with your solution.
     - Please comments your code.
     - We would want to have a script for setup the server (see Server_setup.md as an example). And another script to rebuild the container when we made change (see SaySvenska server).
@@ -53,7 +54,7 @@ def func_assess_speech():
 	range_score = 3.3
 	accuracy = 4.9
 	holistic = 4.0
-	
+
     return jsonify({
         "fluency"		: fluency,
         "pronunciation" : pronunciation,
