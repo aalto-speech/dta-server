@@ -1,14 +1,29 @@
 {
 	# ACME contact
 	email {$ACME_EMAIL}
+
+	servers {
+		# TODO: HTTP1 support will be removed in the future
+		protocols h1 h2
+		timeouts {
+			read_body 10s
+			read_header 5s
+			idle 30s
+		}
+	}
 }
 
 {$DOMAIN}:80 {
-	# Redirect all HTTP requests to HTTPS.
+	# Redirect all HTTP requests to HTTPS
 	redir https://{host}{uri} 308
 }
 
 {$DOMAIN}:443 {
+	# Limit request body size to 10 MB
+	request_body {
+		max_size 10MB
+	}
+
 	# Logging
 	log {
 		output file /var/log/caddy/access.log
