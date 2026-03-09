@@ -1,9 +1,6 @@
-<<<<<<< feat/receive-audio
 import logging
 import os
-=======
 import sqlite3
->>>>>>> dev
 import tempfile
 from random import uniform
 
