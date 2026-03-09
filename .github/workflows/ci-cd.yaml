@@ -1,0 +1,103 @@
+name: CI-CD
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev, main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  lint-and-test:
+    name: Lint and test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-24.04"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          environment-file: environment.yaml
+
+      - name: Check conda and Python version
+        shell: bash -l {0}
+        run: |
+          conda info
+          python --version
+
+      - name: Install lint and test dependencies
+        shell: bash -l {0}
+        run: |
+          pip install pylint pytest
+
+      - name: Lint with pylint
+        shell: bash -l {0}
+        run: |
+          pylint app/
+
+      - name: Run tests
+        shell: bash -l {0}
+        run: |
+          pytest tests/
+
+  build-and-deploy:
+    name: Build and deploy on ${{ matrix.os }}
+    needs: lint-and-test
+    if: ${{ (github.event_name == 'push' && github.ref_name == 'dev') || (github.event_name == 'release' && github.event.release.target_commitish == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'dev') }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository }}
+      TAG_NAME: ${{ github.event_name == 'release' && 'latest' || 'staging' }}
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+
+    strategy:
+      matrix:
+        os: ["ubuntu-24.04"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and tag container image
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            podman build --pull \
+              --tag $IMAGE_NAME:$TAG_NAME \
+              --tag $IMAGE_NAME:$RELEASE_TAG \
+              .
+          else
+            podman build --pull \
+              --tag $IMAGE_NAME:$TAG_NAME \
+              .
+          fi
+
+      - name: Push container images to GitHub Container Registry
+        run: |
+          podman push $IMAGE_NAME:$TAG_NAME
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            podman push $IMAGE_NAME:$RELEASE_TAG
+          fi
