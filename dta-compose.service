@@ -5,7 +5,7 @@
 # /home/ubuntu/.config/systemd/user/dta-compose.service
 
 [Unit]
-Description=Rootless dta-server
+Description=Rootless dta-server service
 After=network-online.target
 Wants=network-online.target
 
@@ -14,8 +14,11 @@ Type=oneshot
 RemainAfterExit=yes
 TimeoutStartSec=300
 Environment=HOME=/home/ubuntu
+EnvironmentFile=/home/ubuntu/.config/dta/env
 WorkingDirectory=/home/ubuntu/dta
+ExecStartPre=/usr/bin/podman compose build --pull
 ExecStart=/usr/bin/podman compose up -d
+ExecReload=/usr/bin/podman compose restart
 ExecStop=/usr/bin/podman compose down
 
 [Install]

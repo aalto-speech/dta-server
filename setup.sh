@@ -14,18 +14,17 @@ Required options:
                        instructions.
 
 Options:
-  -q, --quiet          Disable progress logs
+  -q, --quiet          Disable progress logs (only disables logs from the setup script itself,
+                       not from other commands ran within the script)
 
   -n, --interface <interface>
                        Network interface to apply iptables rules on (default: [auto-detected|eth0])
 
-  -i, --app-image <user/repo[:ref]>
+  -r, --repo <user/repo[:ref]>
                        GitHub repository and optional revision. If no revision given, defaults to main
-                       (default: aalto-speech/dta-server:main)
 
   -m, --model <user/repo[:rev]>
-                       Hugging Face repository and optional revision. If no revision given, defaults to
-                       main (default: Usin2705/CaptainA_v0:main)
+                       Hugging Face repository and optional revision. If no revision given, defaults to main
 
   -d, --compose-file <path>
                        Path to the compose file (default: compose.yaml)
@@ -68,7 +67,7 @@ while [[ $# -gt 0 ]]; do
     USER_PATH="$2"
     shift 2
     ;;
-  -i | --app-image)
+  -r | --repo)
     GIT_REPO="${2%%:*}"
     if [[ "$2" == *:* ]]; then
       GIT_REPO_REF="${2#*:}"
@@ -144,7 +143,7 @@ CADDY_LOGS_VOLUME="${CADDY_LOGS_VOLUME:-caddy-logs}" # Podman volume name
 TARGET_OS_VERSION="${TARGET_OS_VERSION:-24.04}"      # Target OS version for package selection (e.g., for podman-compose vs docker-compose)
 
 # Model settings
-MODEL_REPO="${MODEL_REPO:}"             # LLM repository
+MODEL_REPO="${MODEL_REPO:-}"             # LLM repository
 MODEL_REV="${MODEL_REV:-main}"          # LLM revision (branch, tag, or commit)
 MODEL_NAME="${MODEL_NAME:-CaptainA_v0}" # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_NAME})
 # Sanitize MODEL_NAME to prevent path traversal
@@ -171,9 +170,9 @@ if [[ ${#CONFIG_FILES[@]} -eq 0 ]]; then
 fi
 
 # Validate critical inputs to prevent command injection
-validate_input "GIT_REPO" "${GIT_REPO}" '^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
+validate_input "GIT_REPO" "${GIT_REPO}" '^$|^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
 validate_input "GIT_REPO_REF" "${GIT_REPO_REF}" '^[a-zA-Z0-9/_.-]+$'
-validate_input "MODEL_REPO" "${MODEL_REPO}" '^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
+validate_input "MODEL_REPO" "${MODEL_REPO}" '^$|^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
 validate_input "MODEL_REV" "${MODEL_REV}" '^[a-zA-Z0-9/_.-]+$'
 validate_input "USERNAME" "${USERNAME}" '^[a-z_][a-z0-9_-]*$'
 
@@ -562,11 +561,22 @@ ASKPASS_EOF
   cleanup
 }
 
-build_app() {
-  log "Building application from compose file '${COMPOSE_FILE}'..."
-  local app_repo_path="${APP_PATH}/repo"
-  podman compose -f "${app_repo_path}/${COMPOSE_FILE}" build --pull
-  log "Run the application with: podman compose -f ${COMPOSE_FILE} up -d"
+setup_env_file() {
+  local env_path = $(mkdir -p "/home/ubuntu/.config/dta")
+  local env_file="${env_path}/env"
+
+  chmod 700 "$env_path"
+  chown -R ubuntu:ubuntu /home/ubuntu/.config/dta
+
+  log "Creating env file at '${env_file}' with environment variables for the compose..."
+
+  cat >"${env_file}" <<ENV_EOF
+# Environment variables for caddy
+DOMAIN=${DOMAIN:-}
+ACME_EMAIL=${ACME_EMAIL:-}
+UPSTREAM=${UPSTREAM:-}
+ENV_EOF
+  chmod 600 /home/ubuntu/.config/dta/env
 }
 
 enable_services() {
@@ -574,13 +584,13 @@ enable_services() {
 
   # TODO: Get dta-compose.service content from a file in the repository instead of hardcoding it here. This would allow easier maintenance and updates to the service definition without modifying the setup script.
 
-  local service_name="dta-compose.service"
-  local service_file="${USER_PATH}/.config/systemd/user/${service_name}"
-  mkdir -p "$(dirname "${service_file}")"
+  local service_name="${SERVICE_FILE}"
+  local service_path="${USER_PATH}/.config/systemd/user/${service_name}"
+  mkdir -p "$(dirname "${service_path}")"
 
-  log "Creating systemd user service file at '${service_file}'..."
+  log "Creating systemd user service file at '${service_path}'..."
 
-  cat >"${service_file}" <<SERVICE_EOF
+  cat >"${service_path}" <<SERVICE_EOF
 # Manages the rootless dta-server stack via podman compose (user service).
 # Starts containers with: podman compose up -d
 # Stops containers with: podman compose down
@@ -588,7 +598,7 @@ enable_services() {
 # /home/ubuntu/.config/systemd/user/dta-compose.service
 
 [Unit]
-Description=Rootless dta-server
+Description=Rootless dta-server service
 After=network-online.target
 Wants=network-online.target
 
@@ -597,8 +607,11 @@ Type=oneshot
 RemainAfterExit=yes
 TimeoutStartSec=300
 Environment=HOME=/home/ubuntu
+EnvironmentFile=/home/ubuntu/.config/dta/env
 WorkingDirectory=/home/ubuntu/dta
+ExecStartPre=/usr/bin/podman compose build --pull
 ExecStart=/usr/bin/podman compose up -d
+ExecReload=/usr/bin/podman compose restart
 ExecStop=/usr/bin/podman compose down
 
 [Install]
@@ -609,11 +622,11 @@ SERVICE_EOF
   log "Enabling lingering for user '${USERNAME}' to allow services to run without an active login session..."
   loginctl enable-linger "${USERNAME}"
 
-  log "Reloading systemd user daemon to recognize new service..."
+  log "Reloading systemd user daemon to recognize the new service..."
   systemctl --user daemon-reload
 
-  log "Checking if the service is set up correctly..."
-  systemctl --user status "${service_name}" >/dev/null
+  # log "Checking if the service is set up correctly..."
+  # systemctl --user status "${service_name}"
 
   log "Enabling the service '${service_name}' for user '${USERNAME}'..."
   systemctl --user enable "${service_name}"
@@ -631,19 +644,25 @@ main() {
   setup_dependencies
   setup_app_dirs
   setup_networking
-  setup_model
-  fetch_configuration # ! See fetch_app comments!
-  # fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
 
-  # local repo_dir="${APP_PATH}/repo"
-  # if [[ ! -d "${repo_dir}" ]]; then
-  #   log "Copy the application code manually to the server with 'scp <local_path> <user>@<host>:<remote_path>'. Exiting..."
-  #   exit 0
-  # fi
+  # Setup language model only if MODEL_REPO is provided
+  if [[ -n "${MODEL_REPO}" ]]; then
+    setup_model
+  else
+    log "No language model repository provided, skipping model setup..."
+  fi
 
-  log "build_app"
-  # build_app
+  # Fetch configuration files from the application repository if GIT_REPO is provided.
+  if [[ -n "${GIT_REPO}" ]]; then
+    fetch_configuration
+    # fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
+  else
+    log "No application repository provided, skipping configuration fetch..."
+  fi
 
+  setup_env_file
+
+  # * Service composes the containers and enables them to start on boot
   enable_services
 
   local end_time=""
