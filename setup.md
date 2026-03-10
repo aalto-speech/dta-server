@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> This documentation will change in the future, so remember to re-check this page on new updates!
+
 # Setting up the server
 
 Quick guide to deploying the DTA server.
@@ -37,6 +40,16 @@ You can also manually copy the script by displaying its contents and pasting the
 </details>
 
 ## Running the setup script
+
+> [!WARNING]
+> For now the user **NEEDS** to log in to `ghcr.io` with podman to be able to create and launch the service before running the setup command!
+>
+> ```bash
+> sudo apt update
+> sudo apt upgrade -y
+> sudo apt install podman -y
+> podman login ghcr.io
+> ```
 
 - To see script options and overrides, run
 

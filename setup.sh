@@ -445,9 +445,15 @@ setup_model() {
   }
 
   create_volumes
-  download_model
 
-  log "Model downloaded to volume '${HF_MODELS_VOLUME}'."
+  # Setup language model only if MODEL_REPO is provided
+  if [[ -n "${MODEL_REPO}" ]]; then
+    download_model
+    log "Model downloaded to volume '${HF_MODELS_VOLUME}'."
+  else
+    log "No language model repository provided, skipping model download..."
+  fi
+
   log "Cache stored in volume '${HF_CACHE_VOLUME}'."
 }
 
@@ -562,8 +568,10 @@ ASKPASS_EOF
 }
 
 setup_env_file() {
-  local env_path = $(mkdir -p "/home/ubuntu/.config/dta")
+  local env_path="/home/ubuntu/.config/dta"
   local env_file="${env_path}/env"
+
+  mkdir -p "${env_path}"
 
   chmod 700 "$env_path"
   chown -R ubuntu:ubuntu /home/ubuntu/.config/dta
@@ -609,8 +617,7 @@ TimeoutStartSec=300
 Environment=HOME=/home/ubuntu
 EnvironmentFile=/home/ubuntu/.config/dta/env
 WorkingDirectory=/home/ubuntu/dta
-ExecStartPre=/usr/bin/podman compose build --pull
-ExecStart=/usr/bin/podman compose up -d
+ExecStart=/usr/bin/podman compose up --detach
 ExecReload=/usr/bin/podman compose restart
 ExecStop=/usr/bin/podman compose down
 
@@ -645,12 +652,7 @@ main() {
   setup_app_dirs
   setup_networking
 
-  # Setup language model only if MODEL_REPO is provided
-  if [[ -n "${MODEL_REPO}" ]]; then
-    setup_model
-  else
-    log "No language model repository provided, skipping model setup..."
-  fi
+  setup_model
 
   # Fetch configuration files from the application repository if GIT_REPO is provided.
   if [[ -n "${GIT_REPO}" ]]; then

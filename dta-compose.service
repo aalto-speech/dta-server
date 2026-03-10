@@ -16,8 +16,7 @@ TimeoutStartSec=300
 Environment=HOME=/home/ubuntu
 EnvironmentFile=/home/ubuntu/.config/dta/env
 WorkingDirectory=/home/ubuntu/dta
-ExecStartPre=/usr/bin/podman compose build --pull
-ExecStart=/usr/bin/podman compose up -d
+ExecStart=/usr/bin/podman compose up --detach
 ExecReload=/usr/bin/podman compose restart
 ExecStop=/usr/bin/podman compose down
 
