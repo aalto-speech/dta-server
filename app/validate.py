@@ -1,10 +1,14 @@
 import wave
 import os
 
+import torchaudio
 from fastapi import UploadFile, HTTPException
 
 # Maximum allowed upload size: 10 MB
 MAX_FILE_SIZE = 10 * 1024 * 1024
+
+# Maximum allowed audio duration in seconds
+MAX_AUDIO_DURATION = 90
 
 # MIME type accepted for WAV audio uploads
 ALLOWED_CONTENT_TYPE = "application/octet-stream"
@@ -109,3 +113,28 @@ def _validate_wav_structure(path: str) -> None:
         raise HTTPException(
             status_code=400, detail="Uploaded file is not a valid WAV file."
         ) from err
+
+
+def _validate_audio_duration(path: str) -> None:
+    """Reject audio files longer than MAX_AUDIO_DURATION seconds.
+
+    Uses torchaudio.load to obtain the waveform length and sample rate.
+
+    Raises:
+        HTTPException (400): If torchaudio cannot read the file.
+        HTTPException (413): If the audio exceeds MAX_AUDIO_DURATION.
+    """
+    try:
+        waveform, sample_rate = torchaudio.load(path)
+    except Exception as err:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not read audio metadata.",
+        ) from err
+
+    duration = waveform.shape[1] / sample_rate
+    if duration > MAX_AUDIO_DURATION:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio exceeds the {MAX_AUDIO_DURATION}s duration limit.",
+        )

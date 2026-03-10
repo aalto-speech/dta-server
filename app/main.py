@@ -17,6 +17,7 @@ from .validate import (
     _validate_file_size,
     _validate_wav_headers,
     _validate_wav_structure,
+    _validate_audio_duration,
 )
 
 app = FastAPI()
@@ -67,6 +68,7 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
     3. File size must not exceed MAX_FILE_SIZE (streamed in chunks).
     4. RIFF/WAVE magic bytes must be present.
     5. stdlib `wave` module must parse the file without errors.
+    6. Audio length must be within constraints, by default less than 90 seconds.
     """
 
     # --- 1. Validate Content-Type to reject obviously wrong uploads ---
@@ -96,6 +98,9 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
 
         # Parse with stdlib wave to confirm structural validity
         _validate_wav_structure(temp_path)
+
+        # --- 6. Validate audio duration ---
+        _validate_audio_duration(temp_path)
 
         # --- Processing ---
         # Transcribe audio using whisper (force Finnish language for better accuracy)
