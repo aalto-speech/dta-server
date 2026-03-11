@@ -1,12 +1,7 @@
 services:
   dta:
     container_name: dta
-    # image: ghcr.io/aalto-speech/dta-server:latest
-    build:
-      context: .
-      dockerfile: Containerfile
-      args:
-        PROJECT_NAME: ${PROJECT_NAME:-dta-server}
+    image: ghcr.io/aalto-speech/dta-server:staging
     restart: unless-stopped
     volumes:
       - dta-data:/data

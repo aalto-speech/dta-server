@@ -14,18 +14,17 @@ Required options:
                        instructions.
 
 Options:
-  -q, --quiet          Disable progress logs
+  -q, --quiet          Disable progress logs (only disables logs from the setup script itself,
+                       not from other commands ran within the script)
 
-  -i, --interface <interface>
+  -n, --interface <interface>
                        Network interface to apply iptables rules on (default: [auto-detected|eth0])
 
-  -r, --app-repo <user/repo[:ref]>
+  -r, --repo <user/repo[:ref]>
                        GitHub repository and optional revision. If no revision given, defaults to main
-                       (default: aalto-speech/dta-server:main)
 
   -m, --model <user/repo[:rev]>
-                       Hugging Face repository and optional revision. If no revision given, defaults to
-                       main (default: Usin2705/CaptainA_v0:main)
+                       Hugging Face repository and optional revision. If no revision given, defaults to main
 
   -d, --compose-file <path>
                        Path to the compose file (default: compose.yaml)
@@ -56,11 +55,7 @@ while [[ $# -gt 0 ]]; do
     VERBOSE=0
     shift
     ;;
-  -n | --dry-run)
-    DRY_RUN=1
-    shift
-    ;;
-  -i | --interface)
+  -n | --interface)
     NETWORK_INTERFACE="$2"
     shift 2
     ;;
@@ -72,7 +67,7 @@ while [[ $# -gt 0 ]]; do
     USER_PATH="$2"
     shift 2
     ;;
-  -r | --app-repo)
+  -r | --repo)
     GIT_REPO="${2%%:*}"
     if [[ "$2" == *:* ]]; then
       GIT_REPO_REF="${2#*:}"
@@ -121,15 +116,6 @@ fi
 
 log() { [[ "${VERBOSE}" == "1" ]] && printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
-run_cmd() {
-  if [[ "${DRY_RUN}" == "1" ]]; then
-    log "[DRY-RUN] Would execute: $*"
-    return 0
-  else
-    "$@"
-  fi
-}
-
 validate_input() {
   local var_name="$1"
   local var_value="$2"
@@ -157,9 +143,9 @@ CADDY_LOGS_VOLUME="${CADDY_LOGS_VOLUME:-caddy-logs}" # Podman volume name
 TARGET_OS_VERSION="${TARGET_OS_VERSION:-24.04}"      # Target OS version for package selection (e.g., for podman-compose vs docker-compose)
 
 # Model settings
-MODEL_REPO="${MODEL_REPO:-Usin2705/CaptainA_v0}" # LLM repository
-MODEL_REV="${MODEL_REV:-main}"                   # LLM revision (branch, tag, or commit)
-MODEL_NAME="${MODEL_NAME:-CaptainA_v0}"          # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_NAME})
+MODEL_REPO="${MODEL_REPO:-}"             # LLM repository
+MODEL_REV="${MODEL_REV:-main}"          # LLM revision (branch, tag, or commit)
+MODEL_NAME="${MODEL_NAME:-CaptainA_v0}" # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_NAME})
 # Sanitize MODEL_NAME to prevent path traversal
 MODEL_NAME="${MODEL_NAME##*/}"              # Remove any path components
 MODEL_NAME="${MODEL_NAME//[^a-zA-Z0-9_-]/}" # Remove special characters
@@ -171,20 +157,22 @@ HF_TOKEN="${HF_TOKEN:-}"                          # Hugging Face API token (opti
 # Application settings
 USERNAME="${USERNAME:-ubuntu}"                  # Non-root user to run the application and manage resources
 USER_PATH="${USER_PATH:-/home/${USERNAME}}"     # Root directory for the application user (e.g., for logs, data, etc.)
+APP_PATH="${USER_PATH}/dta"                     # Directory where the application code and configuration will be stored
 GIT_REPO="${GIT_REPO:-aalto-speech/dta-server}" # Git repository for fetching configuration files
 GIT_REPO_REF="${GIT_REPO_REF:-main}"            # Git reference (branch, tag, or commit)
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"                # GitHub token (optional, for private repository access and increased rate limits)
 
 # Misc. settings
-COMPOSE_FILE=${COMPOSE_FILE:-compose.yaml} # Path to the container compose file
+COMPOSE_FILE=${COMPOSE_FILE:-compose.yaml}        # Path to the container compose file
+SERVICE_FILE=${SERVICE_FILE:-dta-compose.service} # Name of the systemd service file to create for managing the application services
 if [[ ${#CONFIG_FILES[@]} -eq 0 ]]; then
-  CONFIG_FILES=(Caddyfile "${COMPOSE_FILE}") # Default configuration files to fetch from the repository
+  CONFIG_FILES=(Caddyfile "${COMPOSE_FILE}" "${SERVICE_FILE}") # Default configuration files to fetch from the repository
 fi
 
 # Validate critical inputs to prevent command injection
-validate_input "GIT_REPO" "${GIT_REPO}" '^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
+validate_input "GIT_REPO" "${GIT_REPO}" '^$|^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
 validate_input "GIT_REPO_REF" "${GIT_REPO_REF}" '^[a-zA-Z0-9/_.-]+$'
-validate_input "MODEL_REPO" "${MODEL_REPO}" '^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
+validate_input "MODEL_REPO" "${MODEL_REPO}" '^$|^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
 validate_input "MODEL_REV" "${MODEL_REV}" '^[a-zA-Z0-9/_.-]+$'
 validate_input "USERNAME" "${USERNAME}" '^[a-z_][a-z0-9_-]*$'
 
@@ -195,6 +183,7 @@ done
 
 setup_dependencies() {
   # Install required dependencies based on the OS version
+
   is_target_version() {
     local current="$1"
     local target="$2"
@@ -230,22 +219,22 @@ setup_app_dirs() {
   # Create application directory structure under the user
 
   local dirs=(
-    "${USER_PATH}/app/conf.d"
-    "${USER_PATH}/app/data"
-    "${USER_PATH}/app/logs"
+    "${APP_PATH}/conf.d"
+    "${APP_PATH}/data"
+    "${APP_PATH}/logs"
   )
 
-  log "Creating app user directories if they do not exist at '${USER_PATH}'..."
+  log "Creating app user directories if they do not exist at '${APP_PATH}'..."
   mkdir -p "${dirs[@]}"
 
-  log "Setting ownership of '${USER_PATH}/app' to '${USERNAME}'..."
-  sudo chown -R "${USERNAME}:${USERNAME}" "${USER_PATH}/app"
+  log "Setting ownership of '${APP_PATH}' to '${USERNAME}'..."
+  sudo chown -R "${USERNAME}:${USERNAME}" "${APP_PATH}"
 
-  log "Setting up Caddy logs volume '${CADDY_LOGS_VOLUME}' and symlink to '${USER_PATH}/app/logs/caddy'..."
+  log "Setting up Caddy logs volume '${CADDY_LOGS_VOLUME}' and symlink to '${APP_PATH}/logs/caddy'..."
   podman volume create --ignore "${CADDY_LOGS_VOLUME}" >/dev/null
 
-  if [[ ! -L "${USER_PATH}/app/logs/caddy" ]]; then
-    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${CADDY_LOGS_VOLUME}")" "${USER_PATH}/app/logs/caddy"
+  if [[ ! -L "${APP_PATH}/logs/caddy" ]]; then
+    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${CADDY_LOGS_VOLUME}")" "${APP_PATH}/logs/caddy"
   fi
 }
 
@@ -387,15 +376,15 @@ setup_model() {
 
   create_volumes() {
     # Removing any existing 'models' and 'cache' directories to prevent conflicts with the symlinks to the volumes
-    rm -rf "${USER_PATH}/app/models" "${USER_PATH}/app/cache"
+    rm -rf "${APP_PATH}/models" "${APP_PATH}/cache"
 
     log "Creating volumes '${HF_MODELS_VOLUME}' and '${HF_CACHE_VOLUME}' if they do not exist..."
     podman volume create --ignore "${HF_MODELS_VOLUME}" >/dev/null
     podman volume create --ignore "${HF_CACHE_VOLUME}" >/dev/null
 
-    log "Creating symlinks for 'model' and 'cache' volumes in '${USER_PATH}/app'..."
-    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${HF_MODELS_VOLUME}")" "${USER_PATH}/app/models"
-    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${HF_CACHE_VOLUME}")" "${USER_PATH}/app/cache"
+    log "Creating symlinks for 'model' and 'cache' volumes in '${APP_PATH}'..."
+    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${HF_MODELS_VOLUME}")" "${APP_PATH}/models"
+    ln -s "$(podman volume inspect -f "{{.Mountpoint}}" "${HF_CACHE_VOLUME}")" "${APP_PATH}/cache"
   }
 
   download_model() {
@@ -456,9 +445,15 @@ setup_model() {
   }
 
   create_volumes
-  download_model
 
-  log "Model downloaded to volume '${HF_MODELS_VOLUME}'."
+  # Setup language model only if MODEL_REPO is provided
+  if [[ -n "${MODEL_REPO}" ]]; then
+    download_model
+    log "Model downloaded to volume '${HF_MODELS_VOLUME}'."
+  else
+    log "No language model repository provided, skipping model download..."
+  fi
+
   log "Cache stored in volume '${HF_CACHE_VOLUME}'."
 }
 
@@ -504,17 +499,12 @@ fetch_configuration() {
 
   log "Fetching files from repository '${GIT_REPO}:${GIT_REPO_REF}'..."
 
-  if [[ ${DRY_RUN} -eq 1 ]]; then
-    log "[DRY-RUN] Would fetch configuration files: ${CONFIG_FILES[*]}"
-    return 0
-  fi
-
-  local conf_dir="${USER_PATH}/app/conf.d"
+  local conf_dir="${APP_PATH}"
 
   for config_file in "${CONFIG_FILES[@]}"; do
     local out="${conf_dir}/${config_file##*/}"
     log "Fetching file '${config_file}' to '${out}'..."
-    run_cmd fetch_file "${config_file}" "${out}"
+    fetch_file "${config_file}" "${out}"
   done
 
   unset conf_dir
@@ -534,7 +524,7 @@ fetch_app() {
 
   local git_askpass_dir=""
   local git_askpass_script=""
-  local app_repo_path="${USER_PATH}/app/repo"
+  local app_repo_path="${APP_PATH}/repo"
 
   if [[ -d "${app_repo_path}" ]]; then
     rm -rf "${app_repo_path}"
@@ -577,11 +567,79 @@ ASKPASS_EOF
   cleanup
 }
 
-build_app() {
-  log "Building application from compose file '${COMPOSE_FILE}'..."
-  local app_repo_path="${USER_PATH}/app/repo"
-  run_cmd podman compose -f "${app_repo_path}/${COMPOSE_FILE}" build --pull
-  log "Run the application with: podman compose -f ${COMPOSE_FILE} up -d"
+setup_env_file() {
+  local env_path="/home/ubuntu/.config/dta"
+  local env_file="${env_path}/env"
+
+  mkdir -p "${env_path}"
+
+  chmod 700 "$env_path"
+  chown -R ubuntu:ubuntu /home/ubuntu/.config/dta
+
+  log "Creating env file at '${env_file}' with environment variables for the compose..."
+
+  cat >"${env_file}" <<ENV_EOF
+# Environment variables for caddy
+DOMAIN=${DOMAIN:-}
+ACME_EMAIL=${ACME_EMAIL:-}
+UPSTREAM=${UPSTREAM:-}
+ENV_EOF
+  chmod 600 /home/ubuntu/.config/dta/env
+}
+
+enable_services() {
+  log "Enabling services to start on boot..."
+
+  # TODO: Get dta-compose.service content from a file in the repository instead of hardcoding it here. This would allow easier maintenance and updates to the service definition without modifying the setup script.
+
+  local service_name="${SERVICE_FILE}"
+  local service_path="${USER_PATH}/.config/systemd/user/${service_name}"
+  mkdir -p "$(dirname "${service_path}")"
+
+  log "Creating systemd user service file at '${service_path}'..."
+
+  cat >"${service_path}" <<SERVICE_EOF
+# Manages the rootless dta-server stack via podman compose (user service).
+# Starts containers with: podman compose up -d
+# Stops containers with: podman compose down
+# Runs in /home/ubuntu/dta after network is online, and can auto-start when enabled.
+# /home/ubuntu/.config/systemd/user/dta-compose.service
+
+[Unit]
+Description=Rootless dta-server service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=300
+Environment=HOME=/home/ubuntu
+EnvironmentFile=/home/ubuntu/.config/dta/env
+WorkingDirectory=/home/ubuntu/dta
+ExecStart=/usr/bin/podman compose up --detach
+ExecReload=/usr/bin/podman compose restart
+ExecStop=/usr/bin/podman compose down
+
+[Install]
+WantedBy=default.target
+
+SERVICE_EOF
+
+  log "Enabling lingering for user '${USERNAME}' to allow services to run without an active login session..."
+  loginctl enable-linger "${USERNAME}"
+
+  log "Reloading systemd user daemon to recognize the new service..."
+  systemctl --user daemon-reload
+
+  # log "Checking if the service is set up correctly..."
+  # systemctl --user status "${service_name}"
+
+  log "Enabling the service '${service_name}' for user '${USERNAME}'..."
+  systemctl --user enable "${service_name}"
+
+  log "Starting services..."
+  systemctl --user start --now "${service_name}"
 }
 
 main() {
@@ -593,18 +651,21 @@ main() {
   setup_dependencies
   setup_app_dirs
   setup_networking
-  setup_model
-  # fetch_configuration # ! See fetch_app comments!
-  fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
 
-  local repo_dir="${USER_PATH}/app/repo"
-  if [[ ! -d "${repo_dir}" ]]; then
-    log "Copy the application code manually to the server with 'scp <local_path> <user>@<host>:<remote_path>'. Exiting..."
-    exit 0
+  setup_model
+
+  # Fetch configuration files from the application repository if GIT_REPO is provided.
+  if [[ -n "${GIT_REPO}" ]]; then
+    fetch_configuration
+    # fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
+  else
+    log "No application repository provided, skipping configuration fetch..."
   fi
 
-  log "build_app"
-  # build_app
+  setup_env_file
+
+  # * Service composes the containers and enables them to start on boot
+  enable_services
 
   local end_time=""
   end_time=$(date +%s%N)

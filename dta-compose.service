@@ -1,0 +1,24 @@
+# Manages the rootless dta-server stack via podman compose (user service).
+# Starts containers with: podman compose up -d
+# Stops containers with: podman compose down
+# Runs in /home/ubuntu/dta after network is online, and can auto-start when enabled.
+# /home/ubuntu/.config/systemd/user/dta-compose.service
+
+[Unit]
+Description=Rootless dta-server service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=300
+Environment=HOME=/home/ubuntu
+EnvironmentFile=/home/ubuntu/.config/dta/env
+WorkingDirectory=/home/ubuntu/dta
+ExecStart=/usr/bin/podman compose up --detach
+ExecReload=/usr/bin/podman compose restart
+ExecStop=/usr/bin/podman compose down
+
+[Install]
+WantedBy=default.target
