@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from .models import SpeechAssessment, SpeechAssessmentScores
 from .validate import (
+    _validate_content_type,
     _validate_file_name,
     _validate_file_size,
     _validate_wav_headers,
@@ -71,7 +72,7 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
     """
 
     # --- 1. Validate Content-Type to reject obviously wrong uploads ---
-    #_validate_content_type(file)
+    _validate_content_type(file)
 
     # --- 2. Validate and sanitise the filename ---
     filename = file.filename or ""

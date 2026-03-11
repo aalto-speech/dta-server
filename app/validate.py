@@ -11,7 +11,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 MAX_AUDIO_DURATION = 90
 
 # MIME type accepted for WAV audio uploads
-ALLOWED_CONTENT_TYPE = "application/octet-stream"
+ALLOWED_CONTENT_TYPES = {"application/octet-stream", "audio/wav"}
 
 # WAV files start with "RIFF" at offset 0 and "WAVE" at offset 8
 WAV_RIFF_MAGIC = b"RIFF"
@@ -24,7 +24,7 @@ def _validate_content_type(file: UploadFile) -> None:
     Raises:
         HTTPException (415): If the Content-Type is not application/octet-stream.
     """
-    if file.content_type != ALLOWED_CONTENT_TYPE:
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=415,
             detail=f"Unsupported media type: expected a WAV file, "
