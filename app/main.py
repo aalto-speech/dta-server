@@ -4,20 +4,19 @@ import sqlite3
 import tempfile
 from random import uniform
 
-
 import whisper
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from .models import SpeechAssessment, SpeechAssessmentScores
+from .models import OnboardingRequest, SpeechAssessment, SpeechAssessmentScores
 from .validate import (
+    _validate_audio_duration,
     _validate_content_type,
     _validate_file_name,
     _validate_file_size,
     _validate_wav_headers,
     _validate_wav_structure,
-    _validate_audio_duration,
 )
 
 app = FastAPI()
@@ -28,7 +27,10 @@ whisper_model = whisper.load_model("small")
 
 
 @app.on_event("startup")
-async def setup_database():
+# on_event is deprecated, use lifespan event handlers instead.
+#         Read more about it in the
+#         [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+async def setup_database() -> None:
     """Initialize database on app startup."""
 
     conn = sqlite3.connect('speech_assessments.db')
@@ -141,3 +143,14 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         # Always clean up the temporary file
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
+
+
+@app.post("/onboarding")
+async def onboarding(payload: OnboardingRequest) -> JSONResponse:
+    """Onboarding endpoint for new users."""
+
+    # Temporary placeholder response until onboarding logic is implemented
+    return JSONResponse(
+        content={"payload": jsonable_encoder(payload)},
+        status_code=200
+    )
