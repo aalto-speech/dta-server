@@ -148,3 +148,6 @@ conda-bld/
 
 # Swap files
 *.swp
+
+# Database files
+*.db
