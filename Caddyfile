@@ -33,7 +33,7 @@
 	# /openapi.json -> {$UPSTREAM}/openapi.json
 	@openapi path /openapi.json
 	handle @openapi {
-		reverse_proxy {$UPSTREAM}/openapi.json
+		reverse_proxy {$UPSTREAM}
 	}
 
 	# /api/v1/* -> {$UPSTREAM}/*
