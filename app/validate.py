@@ -17,6 +17,48 @@ ALLOWED_CONTENT_TYPES = {"application/octet-stream", "audio/wav"}
 WAV_RIFF_MAGIC = b"RIFF"
 WAV_WAVE_MAGIC = b"WAVE"
 
+# $ FEEDBACK
+# feedback target_types
+FEEDBACK_TARGET_TYPES = ('assessment', 'rating_ui',
+                         'comparison_ui', 'general_experience')
+MAX_COMMENT_LENGTH = 500
+
+
+def _validate_feedback(guid: str, assessment_id: int | None, target_type: str,
+                       reaction_value: int, comment: str | None) -> None:
+    """Validate feedback form data before saving to database.
+
+    Raises:
+        HTTPException (400): If any field fails validation.
+    """
+    if not guid or not isinstance(guid, str):
+        raise HTTPException(
+            status_code=400, detail="guid is required and must be a string.")
+
+    if target_type not in FEEDBACK_TARGET_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"target_type must be one of {FEEDBACK_TARGET_TYPES}."
+        )
+
+    if not isinstance(reaction_value, int) or reaction_value < 1 or reaction_value > 5:
+        raise HTTPException(
+            status_code=400,
+            detail="reaction_value must be an integer between 1 and 5."
+        )
+
+    if assessment_id is not None and (not isinstance(assessment_id, int) or assessment_id < 0):
+        raise HTTPException(
+            status_code=400, detail="assessment_id must be a non-negative integer.")
+
+    if comment is not None:
+        if not isinstance(comment, str):
+            raise HTTPException(
+                status_code=400, detail="comment must be a string if provided.")
+        if len(comment) > MAX_COMMENT_LENGTH:
+            raise HTTPException(
+                status_code=400, detail=f"comment must not exceed {MAX_COMMENT_LENGTH} characters.")
+
 
 def _validate_content_type(file: UploadFile) -> None:
     """Reject uploads whose Content-Type is not application/octet-stream.
