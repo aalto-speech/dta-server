@@ -5,7 +5,7 @@ import tempfile
 from random import uniform
 
 import whisper
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
@@ -17,6 +17,7 @@ from .validate import (
     _validate_file_size,
     _validate_wav_headers,
     _validate_wav_structure,
+    _validate_feedback
 )
 
 app = FastAPI()
@@ -116,6 +117,36 @@ async def setup_database() -> None:
 async def ping() -> JSONResponse:
     """Ping-pong endpoint for checking if the server is running."""
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
+
+
+@app.post("/feedback")
+async def feedback(
+    guid: str = Form(...),
+    assessment_id: int | None = Form(None),
+    target_type: str = Form(...),
+    reaction_value: int = Form(...),
+    comment: str | None = Form(None)
+) -> JSONResponse:
+    """Payload:
+    guid
+    assessment_id
+    target_type
+    reaction_value
+    comment"""
+
+    _validate_feedback(guid, assessment_id, target_type,
+                       reaction_value, comment)
+
+    conn = sqlite3.connect('speech_assessments.db')
+    conn.execute(
+        '''INSERT INTO feedback (guid, assessment_id, target_type, reaction_value, comment)
+           VALUES (?, ?, ?, ?, ?)''',
+        (guid, assessment_id, target_type, reaction_value, comment)
+    )
+    conn.commit()
+    conn.close()
+
+    return JSONResponse(content={"status": "feedback recorded"}, status_code=201)
 
 
 @app.post("/speech/assess")
