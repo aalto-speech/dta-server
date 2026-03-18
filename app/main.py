@@ -18,6 +18,7 @@ from .validate import (
     _validate_wav_headers,
     _validate_wav_structure,
     _validate_audio_duration,
+    _validate_feedback
 )
 
 app = FastAPI()
