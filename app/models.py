@@ -35,11 +35,11 @@ class Gender(StrEnum):
 class AgeGroup(StrEnum):
     """Age group for onboarding background fields"""
 
-    AGE_18_28 = "age_18_28"
-    AGE_29_39 = "age_29_39"
-    AGE_40_50 = "age_40_50"
-    AGE_51_61 = "age_51_61"
-    AGE_62_PLUS = "age_62_plus"
+    AGE_18_28 = "18-28"
+    AGE_29_39 = "29-39"
+    AGE_40_50 = "40-50"
+    AGE_51_61 = "51-61"
+    AGE_62_OR_OLDER = "62_or_older"
 
 
 class LearningDuration(StrEnum):
@@ -55,18 +55,18 @@ class LearningDuration(StrEnum):
     YEARS_2_HALFS_TO_3 = "years_2.5_3"
     YEARS_3_TO_5 = "years_3_5"
     YEARS_5_TO_7 = "years_5_7"
-    YEARS_7_TO_10 = "years_7_10"
+    YEARS_7_PLUS = "years_7_plus"
     YEARS_10_PLUS = "years_10_plus"
 
 
 class CEFRLevel(StrEnum):
     """CEFR assessment levels for onboarding background fields"""
 
-    A1 = "a1"
-    A2 = "a2"
-    B1 = "b1"
-    B2 = "b2"
-    C1_PLUS = "c1_plus"
+    A1 = "A1"
+    A2 = "A2"
+    B1 = "B1"
+    B2 = "B2"
+    C1_OR_HIGHER = "C1_or_higher"
 
 
 MovedToFinland = Literal["before_2015"] | Annotated[int, Field(ge=2015)]
@@ -76,12 +76,12 @@ class OnboardingBackgroundFields(BaseModel):
     """Onboarding background fields type"""
 
     age_group: AgeGroup
+    finnish_learning_duration: LearningDuration
+    finnish_self_assessment: CEFRLevel
     gender: Gender
-    learning_duration: LearningDuration
     moved_to_finland: MovedToFinland
     native_languages: list[str]
     other_languages: list[str]
-    self_assessment: CEFRLevel
 
     @field_validator("moved_to_finland")
     @classmethod
@@ -103,7 +103,7 @@ class OnboardingBackgroundFields(BaseModel):
 class OnboardingRequest(BaseModel):
     """Onboarding request type"""
 
-    app_version: str
-    background_fields: OnboardingBackgroundFields | None  # ! None allowed temporarily
+    app_version: str | None
+    background_fields: OnboardingBackgroundFields
     consent_timestamp: datetime
     guid: UUID

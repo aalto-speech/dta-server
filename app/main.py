@@ -7,7 +7,7 @@ from random import uniform
 import whisper
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from .models import OnboardingRequest, SpeechAssessment, SpeechAssessmentScores
 from .validate import (
@@ -82,9 +82,9 @@ async def setup_database() -> None:
         proficiency REAL,
         pronunciation REAL,
         range REAL,
-    
+
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
         FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE
     );
 
@@ -94,7 +94,7 @@ async def setup_database() -> None:
         assessment_id INTEGER,                        -- nullable if feedback is not about a specific assessment
 
         target_type TEXT NOT NULL CHECK (
-            target_type IN ('assessment', 'rating_ui', 'comparison_ui', 'general_experience') -- insert more if needed 
+            target_type IN ('assessment', 'rating_ui', 'comparison_ui', 'general_experience') -- insert more if needed
         ),
 
         reaction_value INTEGER NOT NULL CHECK (
@@ -204,11 +204,10 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
 
 
 @app.post("/onboarding")
-async def onboarding(payload: OnboardingRequest) -> JSONResponse:
+async def onboarding(payload: OnboardingRequest) -> Response:
     """Onboarding endpoint for new users."""
 
-    # Temporary placeholder response until onboarding logic is implemented
-    return JSONResponse(
-        content={"payload": jsonable_encoder(payload)},
-        status_code=200
-    )
+    # Validation should be handled by Pydantic model parsing
+    create_user(payload)
+
+    return Response(status_code=200)

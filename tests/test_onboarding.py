@@ -11,22 +11,24 @@ def test_onboarding_accepts_valid_payload():
     payload = {
         "app_version": "1.0.0",
         "background_fields": {
-            "age_group": "age_29_39",
+            "age_group": "18-28",
+            "finnish_learning_duration": "months_0_3",
+            "finnish_self_assessment": "A1",
             "gender": "woman",
-            "learning_duration": "years_1_1.5",
-            "moved_to_finland": 2020,
-            "native_languages": ["fi"],
-            "other_languages": ["en"],
-            "self_assessment": "a2",
+            "moved_to_finland": "before_2015",
+            "native_languages": [
+                "Vietnamese"
+            ],
+            "other_languages": [
+                "English"
+            ]
         },
-        "consent_timestamp": "2026-03-16T12:34:56Z",
-        "guid": "550e8400-e29b-41d4-a716-446655440000",
+        "consent_timestamp": "2026-03-18T12:12:45.988Z",
+        "guid": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
     }
 
     response = client.post("/onboarding", json=payload)
     assert response.status_code == 200
-    expected_payload = payload
-    assert response.json() == {"payload": expected_payload}
 
 
 def test_onboarding_rejects_missing_payload():
