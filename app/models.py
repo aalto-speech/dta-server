@@ -105,5 +105,6 @@ class OnboardingRequest(BaseModel):
 
     app_version: str | None
     background_fields: OnboardingBackgroundFields
+    consent_accepted: bool
     consent_timestamp: datetime
     guid: UUID

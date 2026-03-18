@@ -5,19 +5,20 @@ import tempfile
 from random import uniform
 
 import whisper
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
+from .db import create_user
 from .models import OnboardingRequest, SpeechAssessment, SpeechAssessmentScores
 from .validate import (
     _validate_audio_duration,
     _validate_content_type,
+    _validate_feedback,
     _validate_file_name,
     _validate_file_size,
     _validate_wav_headers,
     _validate_wav_structure,
-    _validate_feedback
 )
 
 app = FastAPI()

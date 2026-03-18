@@ -15,13 +15,15 @@ def create_user(payload):
         int(payload.consent_accepted),
         payload.consent_timestamp,
         payload.app_version,
-        payload.gender,
-        payload.age_group,
-        json.dumps(payload.mother_tongues, separators=(",", ":")),
-        json.dumps(payload.other_languages, separators=(",", ":")),
-        payload.moved_to_finland,
-        payload.finnish_learning_duration,
-        payload.finnish_self_assessment
+        payload.background_fields.gender,
+        payload.background_fields.age_group,
+        json.dumps(payload.background_fields.native_languages,
+                   separators=(",", ":")),
+        json.dumps(payload.background_fields.other_languages,
+                   separators=(",", ":")),
+        payload.background_fields.moved_to_finland,
+        payload.background_fields.finnish_learning_duration,
+        payload.background_fields.finnish_self_assessment
     ))
     conn.commit()
     conn.close()

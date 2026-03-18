@@ -23,6 +23,7 @@ def test_onboarding_accepts_valid_payload():
                 "English"
             ]
         },
+        "consent_accepted": True,
         "consent_timestamp": "2026-03-18T12:12:45.988Z",
         "guid": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
     }
