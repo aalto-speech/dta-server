@@ -4,21 +4,21 @@ import sqlite3
 import tempfile
 from random import uniform
 
-
 import whisper
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
-from .models import SpeechAssessment, SpeechAssessmentScores
+from .db import create_user
+from .models import OnboardingRequest, SpeechAssessment, SpeechAssessmentScores
 from .validate import (
+    _validate_audio_duration,
     _validate_content_type,
+    _validate_feedback,
     _validate_file_name,
     _validate_file_size,
     _validate_wav_headers,
     _validate_wav_structure,
-    _validate_audio_duration,
-    _validate_feedback
 )
 
 app = FastAPI()
@@ -29,7 +29,10 @@ whisper_model = whisper.load_model("small")
 
 
 @app.on_event("startup")
-async def setup_database():
+# on_event is deprecated, use lifespan event handlers instead.
+#         Read more about it in the
+#         [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+async def setup_database() -> None:
     """Initialize database on app startup."""
 
     conn = sqlite3.connect('speech_assessments.db')
@@ -81,9 +84,9 @@ async def setup_database():
         proficiency REAL,
         pronunciation REAL,
         range REAL,
-    
+
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
         FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE
     );
 
@@ -93,7 +96,7 @@ async def setup_database():
         assessment_id INTEGER,                        -- nullable if feedback is not about a specific assessment
 
         target_type TEXT NOT NULL CHECK (
-            target_type IN ('assessment', 'rating_ui', 'comparison_ui', 'general_experience') -- insert more if needed 
+            target_type IN ('assessment', 'rating_ui', 'comparison_ui', 'general_experience') -- insert more if needed
         ),
 
         reaction_value INTEGER NOT NULL CHECK (
@@ -230,3 +233,13 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         # Always clean up the temporary file
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
+
+
+@app.post("/onboarding")
+async def onboarding(payload: OnboardingRequest) -> Response:
+    """Onboarding endpoint for new users."""
+
+    # Validation should be handled by Pydantic model parsing
+    create_user(payload)
+
+    return Response(status_code=200)
