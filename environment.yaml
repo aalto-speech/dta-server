@@ -13,3 +13,4 @@ dependencies:
   - gunicorn
   - python-levenshtein
   - fastapi
+  - python-dotenv

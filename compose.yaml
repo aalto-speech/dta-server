@@ -12,6 +12,7 @@ services:
       HUGGINGFACE_HUB_CACHE: /hf/cache/hub
       TRANSFORMERS_CACHE: /hf/cache/transformers
       HF_TOKEN: ${HF_TOKEN:-}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
 
   caddy:
     container_name: caddy
