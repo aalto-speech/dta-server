@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 # Load whisper model once at startup
 whisper_model = whisper.load_model("small")
 
+# Database file path (default to dta.db in current directory if not set)
+DATABASE = os.getenv("DATABASE", "dta.db")
+
 # Admin API key for protected endpoints
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 
@@ -45,19 +48,23 @@ def _validate_admin_access(api_key: str = Header(...)) -> None:
         HTTPException: If the API key is invalid or missing
     """
     if not ADMIN_API_KEY:
-        raise HTTPException(status_code=500, detail="Admin API key not configured")
+        raise HTTPException(
+            status_code=500, detail="Admin API key not configured")
     if api_key != ADMIN_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid or missing API key")
+        raise HTTPException(
+            status_code=403, detail="Invalid or missing API key")
 
 
 @app.on_event("startup")
 async def setup_database() -> None:
     """Initialize database on app startup."""
 
-    conn = sqlite3.connect("speech_assessments.db")
+    logger.info("Setting up database at %s", DATABASE)
+
+    conn = sqlite3.connect(DATABASE)
     conn.execute("PRAGMA journal_mode=WAL;")
-    conn.executescript(
-        """
+    # pylint: disable=line-too-long
+    conn.executescript("""
     CREATE TABLE IF NOT EXISTS users (
         guid TEXT PRIMARY KEY,                         -- pseudonymous user ID (GUID)
         consent_accepted INTEGER NOT NULL CHECK (consent_accepted IN (0, 1)),
@@ -129,8 +136,7 @@ async def setup_database() -> None:
         FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE,
         FOREIGN KEY (assessment_id) REFERENCES assessments(id) ON DELETE CASCADE
     );
-    """
-    )
+    """)
     conn.commit()
     conn.close()
 
@@ -156,9 +162,10 @@ async def feedback(
     reaction_value
     comment"""
 
-    _validate_feedback(guid, assessment_id, target_type, reaction_value, comment)
+    _validate_feedback(guid, assessment_id, target_type,
+                       reaction_value, comment)
 
-    conn = sqlite3.connect("speech_assessments.db")
+    conn = sqlite3.connect(DATABASE)
     conn.execute(
         """INSERT INTO feedback (guid, assessment_id, target_type, reaction_value, comment)
            VALUES (?, ?, ?, ?, ?)""",
@@ -292,7 +299,7 @@ async def delete_userdata(
         raise HTTPException(status_code=400, detail="Invalid or missing GUID")
 
     try:
-        conn = sqlite3.connect("speech_assessments.db")
+        conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
 
         # Check if user exists
@@ -306,12 +313,11 @@ async def delete_userdata(
 
         # Delete user (cascade will handle assessments and feedback)
         cursor.execute("DELETE FROM users WHERE guid = ?", (guid,))
-        deleted_count = cursor.rowcount
 
         conn.commit()
         conn.close()
 
-        logger.info(f"Admin deleted all data for user: {guid}")
+        logger.info("Admin deleted all data for user: %s", guid)
 
         return JSONResponse(
             content={
@@ -323,7 +329,7 @@ async def delete_userdata(
     except HTTPException:
         raise
     except Exception as err:  # pylint: disable=broad-exception-caught
-        logger.exception(f"Error deleting user data for {guid}: {err}")
+        logger.exception("Error deleting user data for %s: %s", guid, err)
         return JSONResponse(
             content={"detail": "Internal server error"}, status_code=500
         )
