@@ -1,7 +1,10 @@
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from fastapi import File, Form, UploadFile
+from pydantic import BaseModel, Field, field_validator
+
+from app.validators import audio
 
 Score = Annotated[float, Field(ge=0, le=5)]
 
@@ -10,16 +13,32 @@ class SpeechAssessmentRequest(BaseModel):
     """Speech assessment request type.
 
     Attributes:
-        audio_file: The path to the audio file to be assessed.
+        file: The path to the audio file to be assessed.
         guid: A unique identifier for the user.
     """
 
-    # pylint: disable=fixme
-    # TODO: Move audio file validation here instead of in the endpoint,
-    #  and ensure it is a valid WAV file.
-
-    audio_file: str
+    file: UploadFile
     guid: UUID
+
+    @field_validator("file")
+    @classmethod
+    def validate_file(cls, file: UploadFile) -> UploadFile:
+        """Validate the uploaded file is a WAV audio file and meets constraints."""
+
+        audio.validate_content_type(file)
+        audio.validate_file_extension(file.filename or "")
+
+        return file
+
+    @classmethod
+    def as_form(
+        cls,
+        guid: UUID = Form(...),
+        file: UploadFile = File(...),
+    ) -> "SpeechAssessmentRequest":
+        """Build model instance from multipart form fields."""
+
+        return cls(guid=guid, file=file)
 
 
 class SpeechAssessmentScores(BaseModel):

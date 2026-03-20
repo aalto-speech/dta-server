@@ -43,7 +43,7 @@ def _parse_app_env() -> AppEnv:
 def _database_for_env(env: AppEnv) -> str:
     if env == AppEnv.PRODUCTION:
         return os.getenv("DATABASE", "dta.db")
-    return f"{env.value}.db"
+    return f"{env}.db"
 
 
 def get_settings() -> Settings:

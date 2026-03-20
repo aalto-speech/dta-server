@@ -11,56 +11,15 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 MAX_AUDIO_DURATION = 90
 
 # MIME type accepted for WAV audio uploads
-ALLOWED_CONTENT_TYPES = {"application/octet-stream", "audio/wav"}
+ALLOWED_CONTENT_TYPES = {
+    "application/octet-stream", "audio/wav", "audio/vnd.wave"}
 
 # WAV files start with "RIFF" at offset 0 and "WAVE" at offset 8
 WAV_RIFF_MAGIC = b"RIFF"
 WAV_WAVE_MAGIC = b"WAVE"
 
-# $ FEEDBACK
-# feedback target_types
-FEEDBACK_TARGET_TYPES = ("assessment", "rating_ui",
-                         "comparison_ui", "general_experience")
-MAX_COMMENT_LENGTH = 500
 
-
-def _validate_feedback(guid: str, assessment_id: int | None, target_type: str,
-                       reaction_value: int, comment: str | None) -> None:
-    """Validate feedback form data before saving to database.
-
-    Raises:
-        HTTPException (400): If any field fails validation.
-    """
-    if not guid or not isinstance(guid, str):
-        raise HTTPException(
-            status_code=400, detail="guid is required and must be a string.")
-
-    if target_type not in FEEDBACK_TARGET_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"target_type must be one of {FEEDBACK_TARGET_TYPES}."
-        )
-
-    if not isinstance(reaction_value, int) or reaction_value < 1 or reaction_value > 5:
-        raise HTTPException(
-            status_code=400,
-            detail="reaction_value must be an integer between 1 and 5."
-        )
-
-    if assessment_id is not None and (not isinstance(assessment_id, int) or assessment_id < 0):
-        raise HTTPException(
-            status_code=400, detail="assessment_id must be a non-negative integer.")
-
-    if comment is not None:
-        if not isinstance(comment, str):
-            raise HTTPException(
-                status_code=400, detail="comment must be a string if provided.")
-        if len(comment) > MAX_COMMENT_LENGTH:
-            raise HTTPException(
-                status_code=400, detail=f"comment must not exceed {MAX_COMMENT_LENGTH} characters.")
-
-
-def _validate_content_type(file: UploadFile) -> None:
+def validate_content_type(file: UploadFile) -> None:
     """Reject uploads whose Content-Type is not application/octet-stream.
 
     Raises:
@@ -74,7 +33,7 @@ def _validate_content_type(file: UploadFile) -> None:
         )
 
 
-def _validate_file_name(filename: str) -> None:
+def validate_file_extension(filename: str) -> None:
     """Sanitise the filename and ensure it has a .wav extension.
 
     Directory components are stripped to prevent path-traversal attacks.
@@ -89,7 +48,7 @@ def _validate_file_name(filename: str) -> None:
         )
 
 
-async def _validate_file_size(file: UploadFile) -> bytes:
+async def validate_file_size(file: UploadFile) -> bytes:
     """Stream the upload in 64 KB chunks and enforce the size limit.
 
     Reading in chunks prevents an attacker from forcing the server to
@@ -122,7 +81,7 @@ async def _validate_file_size(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
-def _validate_wav_headers(data: bytes) -> None:
+def validate_wav_headers(data: bytes) -> None:
     """Validate that raw bytes begin with the RIFF/WAVE magic bytes.
 
     This guards against files that claim to be .wav via extension or
@@ -140,7 +99,7 @@ def _validate_wav_headers(data: bytes) -> None:
             status_code=400, detail="File does not have valid WAV headers.")
 
 
-def _validate_wav_structure(path: str) -> None:
+def validate_wav_structure(path: str) -> None:
     """Open the file with the stdlib `wave` module to confirm it is a
     structurally valid WAV file (correct chunks, sample params, etc.).
 
@@ -157,7 +116,7 @@ def _validate_wav_structure(path: str) -> None:
         ) from err
 
 
-def _validate_audio_duration(path: str) -> None:
+def validate_audio_duration(path: str) -> None:
     """Reject audio files longer than MAX_AUDIO_DURATION seconds.
 
     Uses torchaudio.load to obtain the waveform length and sample rate.

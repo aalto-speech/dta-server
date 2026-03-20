@@ -97,8 +97,8 @@ CREATE TABLE
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guid TEXT NOT NULL, -- user GUID to link feedback to a specific user
     assessment_id INTEGER, -- nullable if feedback is not about a specific assessment
-    feedback_type TEXT NOT NULL CHECK (
-      feedback_type IN (
+    type TEXT NOT NULL CHECK (
+      type IN (
         'self_assessment',
         'comparison_ui',
         'overall_experience',

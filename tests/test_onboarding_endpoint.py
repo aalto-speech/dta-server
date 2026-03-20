@@ -58,6 +58,8 @@ def test_onboarding_handler_calls_create_user(monkeypatch: pytest.MonkeyPatch):
     request_model = OnboardingRequest(
         app_version=payload["app_version"],
         background_fields=json.loads(payload["background_fields"]),
+        background_form_completed=True,
+        background_form_timestamp=payload["background_form_timestamp"],
         consent_accepted=True,
         consent_timestamp=payload["consent_timestamp"],
         guid=payload["guid"],

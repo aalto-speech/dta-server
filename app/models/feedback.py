@@ -2,14 +2,14 @@
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 
 class FeedbackType(StrEnum):
     """Feedback type enumeration.
 
     - `SELF_ASSESSMENT`: Feedback related to user's self-assessment experience.
-    - `COMPARISON`: Feedback related to comparison UI experience.
+    - `COMPARISON`: Feedback related to comparison experience.
     - `OVERALL`: Feedback related to overall app experience.
     - `RESULT`: Feedback related to speech assessment results.
     """
@@ -26,13 +26,23 @@ class FeedbackRequest(BaseModel):
     Attributes:
         assessment_id: Optional ID of the related assessment, if applicable.
         comment: Optional user comment providing additional feedback details.
-        feedback_type: Type of feedback being submitted.
         guid: Unique identifier for the user submitting feedback.
         reaction_value: Numerical value representing user's reaction (e.g., rating).
+        type: Type of feedback being submitted.
     """
 
-    assessment_id: int | None
-    comment: str | None
-    feedback_type: FeedbackType
+    assessment_id: int | None = Field(default=None, ge=1)
+    comment: str | None = None
     guid: UUID
-    reaction_value: int
+    reaction_value: int = Field(ge=1, le=5)
+    type: FeedbackType
+
+    @field_validator("comment")
+    @classmethod
+    def validate_comment(cls, value: str | None) -> str | None:
+        """Validate the comment length if provided."""
+
+        if value is not None and len(value) > 500:
+            raise ValueError("comment must not exceed 500 characters.")
+
+        return value

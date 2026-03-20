@@ -3,10 +3,9 @@ import os
 import tempfile
 from contextlib import asynccontextmanager
 from random import uniform
-from typing import Annotated
 
 import whisper
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Form
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
@@ -21,39 +20,18 @@ from .db import (
 from .error_handlers import register_error_handlers
 from .models.feedback import FeedbackRequest
 from .models.onboarding import OnboardingRequest
-from .models.speech_assessment import SpeechAssessmentResponse, SpeechAssessmentScores
-from .models.user_data_request import UserDataDeleteRequest
-from .validate import (
-    _validate_audio_duration,
-    _validate_content_type,
-    _validate_file_name,
-    _validate_file_size,
-    _validate_wav_headers,
-    _validate_wav_structure,
+from .models.speech_assessment import (
+    SpeechAssessmentRequest,
+    SpeechAssessmentResponse,
+    SpeechAssessmentScores,
 )
+from .models.user_requests import DeleteUserRequest, UserDataRequest
+from .validators import audio, auth
 
 logger = logging.getLogger(__name__)
 
 # Load whisper model once at startup
 whisper_model = whisper.load_model("small")
-
-
-def _validate_admin_access(api_key: str = Header(...)) -> None:
-    """Validate admin API key for protected endpoints.
-
-    Args:
-        api_key: The API key from the X-API-Key header
-
-    Raises:
-        HTTPException: If the API key is invalid
-    """
-
-    # pylint: disable=fixme
-    # TODO: Refactor into a helper function.
-
-    if api_key != SETTINGS.admin_api_key:
-        raise HTTPException(
-            status_code=403, detail="Invalid API key")
 
 
 @asynccontextmanager
@@ -81,20 +59,22 @@ async def ping() -> JSONResponse:
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
 
 
-@app.post("/request/delete/userdata")
-async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONResponse:
-    """User requests deletion of their personal data.
+@app.post("/request/user")
+async def request_user(data: UserDataRequest = Form()) -> JSONResponse:
+    """User request for deleting or exporting their data.
 
     The request is stored in the database and awaits admin approval.
 
     Args:
-        request: UserDataDeleteRequest containing the user's GUID
+        data: UserDataRequest containing the user's GUID
 
     Returns:
         JSONResponse with status message
     """
 
-    create_user_request(request.guid, "delete_data")
+    # * Pydantic and global error handlers handle validation and failures.
+    create_user_request(data)
+
     return JSONResponse(
         content={
             "status": "request_received",
@@ -108,46 +88,51 @@ async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONRespons
 
 
 @app.post("/feedback")
-async def feedback(data: Annotated[FeedbackRequest, Form()]) -> JSONResponse:
+async def feedback(data: FeedbackRequest = Form()) -> JSONResponse:
     """Submit feedback related to assessments or app experience.
 
     Args:
         data: FeedbackRequest containing feedback details
     """
 
-    # Pydantic and global error handlers handle validation and failures.
+    # * Pydantic and global error handlers handle validation and failures.
     create_feedback(data)
 
     return JSONResponse(content={"status": "feedback recorded"}, status_code=201)
 
 
 @app.post("/speech/assess")
-async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
-    """Assess speech using the AI model.
+async def assess_speech(
+    data: SpeechAssessmentRequest = Depends(SpeechAssessmentRequest.as_form)
+) -> JSONResponse:
+    """Assess the uploaded speech audio file and return scores and transcript.
 
-    Security checks performed before processing:
-    1. Content-Type must indicate a WAV audio file.
-    2. Filename must end with .wav (no path-traversal characters).
-    3. File size must not exceed MAX_FILE_SIZE (streamed in chunks).
-    4. RIFF/WAVE magic bytes must be present.
-    5. stdlib `wave` module must parse the file without errors.
-    6. Audio length must be within constraints, by default less than 90 seconds.
+    Args:
+        data: SpeechAssessmentRequest containing the uploaded file and user GUID
+
+    Security checks:
+        1. Validate the uploaded file is a WAV audio file with correct content type and extension.
+        2. Enforce file size limit by streaming the upload in chunks.
+        3. Validate RIFF/WAVE magic bytes are present in the file header.
+        4. Write the file to a secure temporary location and validate its structure using the stdlib `wave` module.
+        5. Validate the audio duration is within acceptable limits (e.g., less than 90 seconds).
+
+    Returns:
+        JSONResponse SpeechAssessmentResponse containing the assessment scores and transcript.
     """
 
-    # --- 1. Validate Content-Type to reject obviously wrong uploads ---
-    _validate_content_type(file)
+    # * Pydantic validation ensures the content type and file extension are correct.
+    # * Validation checks which require access to the file content are not performed by Pydantic.
 
-    # --- 2. Validate and sanitise the filename ---
-    filename = file.filename or ""
-    _validate_file_name(filename)
+    file = data.file
 
-    # --- 3. Stream the upload in chunks and enforce the size limit ---
-    content = await _validate_file_size(file)
+    # Stream the upload in chunks and enforce the size limit
+    content = await audio.validate_file_size(file)
 
-    # --- 4. Validate RIFF/WAVE magic bytes ---
-    _validate_wav_headers(content)
+    # Validate RIFF/WAVE magic bytes
+    audio.validate_wav_headers(content)
 
-    # --- 5. Write to a secure temp file and validate WAV structure ---
+    # Write to a secure temp file and validate WAV structure
     temp_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -160,12 +145,12 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         os.chmod(temp_path, 0o600)
 
         # Parse with stdlib wave to confirm structural validity
-        _validate_wav_structure(temp_path)
+        audio.validate_wav_structure(temp_path)
 
-        # --- 6. Validate audio duration ---
-        _validate_audio_duration(temp_path)
+        # Validate audio duration
+        audio.validate_audio_duration(temp_path)
 
-        # --- Processing ---
+        # TODO: Move to an asynchronous method for better performance and scalability.
         # Transcribe audio using whisper (force Finnish language for better accuracy)
         result = whisper_model.transcribe(temp_path, language="fi")
         text = result["text"]
@@ -197,49 +182,45 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
 
 
 @app.post("/onboarding")
-async def onboarding(data: Annotated[OnboardingRequest, Form()]) -> Response:
-    """Onboarding endpoint for new users."""
+async def onboarding(data: OnboardingRequest = Form()) -> Response:
+    """Onboarding endpoint for new users.
 
+    Args:
+        data: OnboardingRequest containing the user's onboarding information
+
+    Returns:
+        Response with status code 201 on success
+    """
+
+    # * Pydantic and global error handlers handle validation and failures.
     create_user(data)
 
     return Response(status_code=201)
 
 
-# ? Should admin endpoints be structured under an /admin path? e.g. POST /admin/delete/userdata
-@app.delete("/delete/userdata")
-async def delete_userdata(guid: str = Form(...),
-                          x_api_key: str = Header(..., alias="X-API-Key"),
-                          ) -> JSONResponse:
+@app.delete("/users")
+async def delete_users(
+    data: DeleteUserRequest = Depends(
+        DeleteUserRequest.as_form)
+) -> JSONResponse:
     """Delete all data for a user with the given GUID.
 
     This endpoint is admin-only and requires a valid API key.
     Deletes all associated data from users, assessments, and feedback tables.
 
     Args:
-        guid: The user GUID to delete all data for
-        x_api_key: Admin API key passed in X-API-Key header
+        data: DeleteUserRequest containing the user's GUID and admin API key
 
     Returns:
         JSONResponse with deletion summary
-
-    Raises:
-        HTTPException: If API key is invalid or user not found
     """
 
     # Validate admin access
-    _validate_admin_access(x_api_key)
+    auth.validate_admin_access(data.api_key)
 
-    if not guid or not isinstance(guid, str) or not guid.strip():
-        raise HTTPException(status_code=400, detail="Invalid or missing GUID")
+    # * Pydantic and global error handlers handle validation and failures.
+    delete_user_data(data)
 
-    delete_user_data(guid)
+    logger.info("Admin deleted all data for user: %s", data.guid)
 
-    logger.info("Admin deleted all data for user: %s", guid)
-
-    return JSONResponse(
-        content={
-            "status": "success",
-            "message": f"User data deleted for GUID: {guid}",
-        },
-        status_code=200,
-    )
+    return Response(status_code=204)

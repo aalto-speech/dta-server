@@ -1,7 +1,10 @@
 import json
 import sqlite3
 from pathlib import Path
-from uuid import UUID
+
+from app.models.feedback import FeedbackRequest
+from app.models.onboarding import OnboardingRequest
+from app.models.user_requests import DeleteUserRequest, UserDataRequest
 
 from .config import SETTINGS
 
@@ -28,7 +31,7 @@ def initialize_database() -> bool:
     return True
 
 
-def create_user(payload) -> None:
+def create_user(payload: OnboardingRequest) -> None:
     """Inserts a new user record into the database based on the onboarding payload."""
 
     conn = sqlite3.connect(SETTINGS.database)
@@ -56,12 +59,11 @@ def create_user(payload) -> None:
     conn.close()
 
 
-def create_user_request(guid: UUID, request_type: str) -> None:
+def create_user_request(data: UserDataRequest) -> None:
     """Creates a new user request in the database.
 
     Args:
-        guid: User's GUID
-        request_type: Type of request ('delete_data', 'data_export', etc.)
+        data: UserDataRequest containing the user's GUID and request type
     """
 
     conn = sqlite3.connect(SETTINGS.database)
@@ -69,12 +71,12 @@ def create_user_request(guid: UUID, request_type: str) -> None:
     cursor.execute("""
         INSERT INTO user_requests (guid, type)
         VALUES (?, ?)
-    """, (str(guid), request_type))
+    """, (str(data.guid), data.type))
     conn.commit()
     conn.close()
 
 
-def delete_user_data(guid: UUID) -> None:
+def delete_user_data(data: DeleteUserRequest) -> None:
     """Deletes all data associated with the given GUID.
 
     This is used to fulfill user data deletion requests.
@@ -85,18 +87,16 @@ def delete_user_data(guid: UUID) -> None:
 
     conn = sqlite3.connect(SETTINGS.database)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM users WHERE guid = ?", (str(guid),))
+    cursor.execute("DELETE FROM users WHERE guid = ?", (str(data.guid),))
     conn.commit()
     conn.close()
 
 
-def create_feedback(data) -> None:
+def create_feedback(data: FeedbackRequest) -> None:
     """Inserts a new feedback record into the database.
 
     Args:
-        guid: User's GUID.
-        feedback_type: Type of feedback ('assessment', 'app_experience', etc.).
-        content: The feedback content provided by the user.
+        data: FeedbackRequest containing feedback details
     """
 
     conn = sqlite3.connect(SETTINGS.database)
@@ -105,14 +105,14 @@ def create_feedback(data) -> None:
     INSERT INTO feedback (
         guid,
         assessment_id,
-        feedback_type,
+        type,
         reaction_value,
         comment
     ) VALUES (?, ?, ?, ?, ?)
     """, (
         str(data.guid),
         data.assessment_id,
-        data.feedback_type,
+        data.type,
         data.reaction_value,
         data.comment
     ))

@@ -103,13 +103,17 @@ class OnboardingRequest(BaseModel):
     Attributes:
         app_version: Optional and can be used to track the app version for analytics or debugging.
         background_fields: Contains the user's responses to the onboarding questions.
+        background_form_completed: Indicates whether the user completed the background fields section of onboarding.
+        background_form_timestamp: Records the time when the user completed the background fields.
         consent_accepted: Indicates whether the user accepted the consent form.
         consent_timestamp: Records the time when the user accepted the consent.
         guid: A unique identifier for the user.
     """
 
-    app_version: str | None
+    app_version: str | None = None
     background_fields: OnboardingBackgroundFields
+    background_form_completed: bool
+    background_form_timestamp: datetime
     consent_accepted: bool
     consent_timestamp: datetime
     guid: UUID
