@@ -2,46 +2,35 @@ import logging
 import os
 import sqlite3
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from random import uniform
+from typing import Annotated
 
 import whisper
-from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
+from .config import ADMIN_API_KEY, DATABASE
 from .db import create_user, create_user_request
-from .models import (
-    OnboardingRequest,
-    SpeechAssessment,
-    SpeechAssessmentScores,
-    UserDataDeleteRequest,
-)
+from .models.feedback import FeedbackRequest
+from .models.onboarding import OnboardingRequest
+from .models.speech_assessment import SpeechAssessment, SpeechAssessmentScores
+from .models.user_data_request import UserDataDeleteRequest
 from .validate import (
     _validate_audio_duration,
     _validate_content_type,
-    _validate_feedback,
     _validate_file_name,
     _validate_file_size,
     _validate_wav_headers,
     _validate_wav_structure,
 )
 
-# Load environment variables from .env file (if present)
-load_dotenv()
-
-app = FastAPI()
 logger = logging.getLogger(__name__)
 
 # Load whisper model once at startup
 whisper_model = whisper.load_model("small")
-
-# Database file path (default to dta.db in current directory if not set)
-DATABASE = os.getenv("DATABASE", "dta.db")
-
-# Admin API key for protected endpoints
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 
 
 def _validate_admin_access(api_key: str = Header(...)) -> None:
@@ -53,6 +42,7 @@ def _validate_admin_access(api_key: str = Header(...)) -> None:
     Raises:
         HTTPException: If the API key is invalid or missing
     """
+
     if not ADMIN_API_KEY:
         raise HTTPException(
             status_code=500, detail="Admin API key not configured")
@@ -61,8 +51,7 @@ def _validate_admin_access(api_key: str = Header(...)) -> None:
             status_code=403, detail="Invalid or missing API key")
 
 
-@app.on_event("startup")
-async def setup_database() -> None:
+def initialize_database() -> None:
     """Initialize database on app startup."""
 
     conn = sqlite3.connect(DATABASE)
@@ -72,6 +61,17 @@ async def setup_database() -> None:
     conn.executescript(schema_sql)
     conn.commit()
     conn.close()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Run startup/shutdown logic for the FastAPI app."""
+
+    initialize_database()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/ping")
@@ -107,27 +107,27 @@ async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONRespons
 
 @app.post("/feedback")
 async def feedback(
-    guid: str = Form(...),
-    assessment_id: int | None = Form(None),
-    target_type: str = Form(...),
-    reaction_value: int = Form(...),
-    comment: str | None = Form(None),
+    payload: FeedbackRequest = Form(...),
 ) -> JSONResponse:
-    """Payload:
-    guid
-    assessment_id
-    target_type
-    reaction_value
-    comment"""
+    """Submit feedback related to assessments or app experience.
 
-    _validate_feedback(guid, assessment_id, target_type,
-                       reaction_value, comment)
+    Args:
+        payload: FeedbackRequest containing feedback details
+    """
+
+    # Pydantic will handle validation of the request body.
 
     conn = sqlite3.connect(DATABASE)
     conn.execute(
-        """INSERT INTO feedback (guid, assessment_id, target_type, reaction_value, comment)
-           VALUES (?, ?, ?, ?, ?)""",
-        (guid, assessment_id, target_type, reaction_value, comment),
+        """INSERT INTO feedback (
+            guid,
+            assessment_id,
+            feedback_type,
+            reaction_value,
+            comment
+        ) VALUES (?, ?, ?, ?, ?)""",
+        (payload.guid, payload.assessment_id, payload.feedback_type,
+         payload.reaction_value, payload.comment),
     )
     conn.commit()
     conn.close()
@@ -221,7 +221,9 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
 
 
 @app.post("/onboarding")
-async def onboarding(payload: OnboardingRequest) -> Response:
+async def onboarding(
+    payload: Annotated[OnboardingRequest, Depends(OnboardingRequest.as_form)]
+) -> Response:
     """Onboarding endpoint for new users."""
 
     # Validation should be handled by Pydantic model parsing

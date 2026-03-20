@@ -1,15 +1,11 @@
-import os
 import sqlite3
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
-DATABASE = os.getenv("DATABASE", "dta.db")
+from .config import DATABASE
 
 
 def main() -> None:
     """Verify the database schema and print table information."""
+    # pylint: disable=too-many-locals
 
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()

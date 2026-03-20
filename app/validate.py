@@ -1,8 +1,8 @@
-import wave
 import os
+import wave
 
 import torchaudio
-from fastapi import UploadFile, HTTPException
+from fastapi import HTTPException, UploadFile
 
 # Maximum allowed upload size: 10 MB
 MAX_FILE_SIZE = 10 * 1024 * 1024

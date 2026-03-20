@@ -8,7 +8,13 @@ CREATE TABLE
       gender IN ('woman', 'man', 'other', 'prefer_not_to_answer')
     ),
     age_group TEXT NOT NULL CHECK (
-      age_group IN ('18-28', '29-39', '40-50', '51-61', '64_plus')
+      age_group IN (
+        'age_18_28',
+        'age_29_39',
+        'age_40_50',
+        'age_51_61',
+        'age_62_plus'
+      )
     ),
     -- Store multi-select fields as JSON text arrays, e.g. '["Vietnamese","English"]'
     mother_tongues TEXT NOT NULL CHECK (
@@ -31,17 +37,17 @@ CREATE TABLE
     ), -- e.g. '2025', '2024', ... '2015', 'before_2015'
     finnish_learning_duration TEXT NOT NULL CHECK (
       finnish_learning_duration IN (
-        'months_0-3',
-        'months_3-6',
-        'months_6-9',
-        'months_9-12',
-        'years_1-1.5',
-        'years_1.5-2',
-        'years_2-2.5',
-        'years_2.5-3',
-        'years_3-5',
-        'years_5-7',
-        'years_7-10',
+        'months_0_3',
+        'months_3_6',
+        'months_6_9',
+        'months_9_12',
+        'years_1_1.5',
+        'years_1.5_2',
+        'years_2_2.5',
+        'years_2.5_3',
+        'years_3_5',
+        'years_5_7',
+        'years_7_10',
         'years_10_plus'
       )
     ), -- use the exact questionnaire options
@@ -91,12 +97,12 @@ CREATE TABLE
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guid TEXT NOT NULL, -- user GUID to link feedback to a specific user
     assessment_id INTEGER, -- nullable if feedback is not about a specific assessment
-    target_type TEXT NOT NULL CHECK (
-      target_type IN (
-        'assessment',
-        'rating_ui',
+    feedback_type TEXT NOT NULL CHECK (
+      feedback_type IN (
+        'self_assessment',
         'comparison_ui',
-        'general_experience'
+        'overall_experience',
+        'result'
       ) -- insert more if needed
     ),
     reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5), -- 1 = very sad ... 5 = very happy

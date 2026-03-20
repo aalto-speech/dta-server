@@ -1,12 +1,8 @@
 import json
-import os
 import sqlite3
 from uuid import UUID
 
-from dotenv import load_dotenv
-load_dotenv()
-
-DATABASE = os.getenv("DATABASE", "dta.db")
+from .config import DATABASE
 
 
 def create_user(payload):
@@ -14,13 +10,14 @@ def create_user(payload):
 
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    cursor.execute('''
+    consent_timestamp = payload.consent_timestamp.isoformat()
+    cursor.execute("""
         INSERT INTO users (guid, consent_accepted, consent_timestamp, app_version, gender, age_group, mother_tongues, other_languages, moved_to_finland, finnish_learning_duration, finnish_self_assessment)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
+    """, (
         str(payload.guid),
         int(payload.consent_accepted),
-        payload.consent_timestamp,
+        consent_timestamp,
         payload.app_version,
         payload.background_fields.gender,
         payload.background_fields.age_group,
@@ -43,11 +40,12 @@ def create_user_request(guid: UUID, request_type: str) -> None:
         guid: User's GUID
         request_type: Type of request ('delete_data', 'data_export', etc.)
     """
-    conn = sqlite3.connect('speech_assessments.db')
+
+    conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    cursor.execute('''
+    cursor.execute("""
         INSERT INTO user_requests (guid, type)
         VALUES (?, ?)
-    ''', (str(guid), request_type))
+    """, (str(guid), request_type))
     conn.commit()
     conn.close()
