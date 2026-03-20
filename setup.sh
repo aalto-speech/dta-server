@@ -583,6 +583,8 @@ setup_env_file() {
 DOMAIN=${DOMAIN:-}
 ACME_EMAIL=${ACME_EMAIL:-}
 UPSTREAM=${UPSTREAM:-}
+DATABASE=${DATABASE:-dta-server.db}
+ADMIN_API_KEY=${ADMIN_API_KEY:-}
 ENV_EOF
     chmod 600 /home/ubuntu/.config/dta/env
 }
