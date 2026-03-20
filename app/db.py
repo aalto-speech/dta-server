@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from uuid import UUID
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -31,5 +32,22 @@ def create_user(payload):
         payload.background_fields.finnish_learning_duration,
         payload.background_fields.finnish_self_assessment
     ))
+    conn.commit()
+    conn.close()
+
+
+def create_user_request(guid: UUID, request_type: str) -> None:
+    """Creates a new user request in the database.
+
+    Args:
+        guid: User's GUID
+        request_type: Type of request ('delete_data', 'data_export', etc.)
+    """
+    conn = sqlite3.connect('speech_assessments.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO user_requests (guid, type)
+        VALUES (?, ?)
+    ''', (str(guid), request_type))
     conn.commit()
     conn.close()

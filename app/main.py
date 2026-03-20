@@ -10,8 +10,13 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
-from .db import create_user
-from .models import OnboardingRequest, SpeechAssessment, SpeechAssessmentScores
+from .db import create_user, create_user_request
+from .models import (
+    OnboardingRequest,
+    SpeechAssessment,
+    SpeechAssessmentScores,
+    UserDataDeleteRequest,
+)
 from .validate import (
     _validate_audio_duration,
     _validate_content_type,
@@ -48,11 +53,9 @@ def _validate_admin_access(api_key: str = Header(...)) -> None:
         HTTPException: If the API key is invalid or missing
     """
     if not ADMIN_API_KEY:
-        raise HTTPException(
-            status_code=500, detail="Admin API key not configured")
+        raise HTTPException(status_code=500, detail="Admin API key not configured")
     if api_key != ADMIN_API_KEY:
-        raise HTTPException(
-            status_code=403, detail="Invalid or missing API key")
+        raise HTTPException(status_code=403, detail="Invalid or missing API key")
 
 
 @app.on_event("startup")
@@ -64,7 +67,8 @@ async def setup_database() -> None:
     conn = sqlite3.connect(DATABASE)
     conn.execute("PRAGMA journal_mode=WAL;")
     # pylint: disable=line-too-long
-    conn.executescript("""
+    conn.executescript(
+        """
     CREATE TABLE IF NOT EXISTS users (
         guid TEXT PRIMARY KEY,                         -- pseudonymous user ID (GUID)
         consent_accepted INTEGER NOT NULL CHECK (consent_accepted IN (0, 1)),
@@ -136,7 +140,24 @@ async def setup_database() -> None:
         FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE,
         FOREIGN KEY (assessment_id) REFERENCES assessments(id) ON DELETE CASCADE
     );
-    """)
+
+    CREATE TABLE IF NOT EXISTS user_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,         -- request_id
+        guid TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (
+            type IN ('delete_data', 'data_export')
+        ),                                            -- type of user request
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (
+            status IN ('pending', 'approved', 'denied', 'completed')
+        ),                                            -- request processing status
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        processed_at TEXT,                            -- timestamp when admin processed the request
+        admin_notes TEXT,                             -- optional notes from admin
+
+        FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE
+    );
+    """
+    )
     conn.commit()
     conn.close()
 
@@ -145,6 +166,31 @@ async def setup_database() -> None:
 async def ping() -> JSONResponse:
     """Ping-pong endpoint for checking if the server is running."""
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
+
+
+@app.post("/request/delete_userdata")
+async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONResponse:
+    """User requests deletion of their personal data.
+
+    The request is stored in the database and awaits admin approval.
+
+    Args:
+        request: UserDataDeleteRequest containing the user's GUID
+
+    Returns:
+        JSONResponse with status message
+    """
+    create_user_request(request.guid, "delete_data")
+    return JSONResponse(
+        content={
+            "status": "request_received",
+            "message": (
+                "Your data deletion request has been received "
+                + "and is awaiting admin approval"
+            ),
+        },
+        status_code=202,
+    )
 
 
 @app.post("/feedback")
@@ -162,8 +208,7 @@ async def feedback(
     reaction_value
     comment"""
 
-    _validate_feedback(guid, assessment_id, target_type,
-                       reaction_value, comment)
+    _validate_feedback(guid, assessment_id, target_type, reaction_value, comment)
 
     conn = sqlite3.connect(DATABASE)
     conn.execute(
