@@ -55,7 +55,7 @@ class LearningDuration(StrEnum):
     YEARS_2_HALFS_TO_3 = "years_2.5_3"
     YEARS_3_TO_5 = "years_3_5"
     YEARS_5_TO_7 = "years_5_7"
-    YEARS_7_PLUS = "years_7_plus"
+    YEARS_7_TO_10 = "years_7_10"
     YEARS_10_PLUS = "years_10_plus"
 
 

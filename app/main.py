@@ -2,6 +2,7 @@ import logging
 import os
 import sqlite3
 import tempfile
+from pathlib import Path
 from random import uniform
 
 import whisper
@@ -64,102 +65,11 @@ def _validate_admin_access(api_key: str = Header(...)) -> None:
 async def setup_database() -> None:
     """Initialize database on app startup."""
 
-    logger.info("Setting up database at %s", DATABASE)
-
     conn = sqlite3.connect(DATABASE)
     conn.execute("PRAGMA journal_mode=WAL;")
-    # pylint: disable=line-too-long
-    conn.executescript(
-        """
-    CREATE TABLE IF NOT EXISTS users (
-        guid TEXT PRIMARY KEY,                         -- pseudonymous user ID (GUID)
-        consent_accepted INTEGER NOT NULL CHECK (consent_accepted IN (0, 1)),
-        consent_timestamp TEXT NOT NULL,              -- ISO 8601 timestamp
-        app_version TEXT,                             -- app version shown during consent
-        gender TEXT NOT NULL CHECK (
-            gender IN ('woman', 'man', 'other', 'prefer_not_to_answer')
-        ),
-        age_group TEXT NOT NULL CHECK (
-            age_group IN ('18-28', '29-39', '40-50', '51-61', '62_or_older')
-        ),
-
-        -- Store multi-select fields as JSON text arrays, e.g. '["Vietnamese","English"]'
-        mother_tongues TEXT NOT NULL,
-        other_languages TEXT NOT NULL,
-        moved_to_finland TEXT NOT NULL,               -- e.g. '2025', '2024', ... '2015', 'before_2015'
-        finnish_learning_duration TEXT NOT NULL,      -- use the exact questionnaire options
-        finnish_self_assessment TEXT NOT NULL CHECK (
-            finnish_self_assessment IN ('A1', 'A2', 'B1', 'B2', 'C1_or_higher')
-        ),
-
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-
-    -- 2) ASSESSMENTS TABLE
-    -- Stores one row per ASA attempt.
-    -- Audio file itself is stored in persistent storage outside the container.
-    -- audio_id and audio_path are metadata pointing to that stored file.
-    -- =========================================================
-    CREATE TABLE IF NOT EXISTS assessments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,         -- assessment_id
-        guid TEXT NOT NULL,
-        task_id TEXT NOT NULL,                        -- speaking task ID / prompt ID
-
-        audio_id TEXT NOT NULL UNIQUE,                -- unique ID for audio file
-        audio_path TEXT NOT NULL,                     -- persistent storage path / object key
-
-        transcript TEXT,                              -- optional ASR transcript
-
-        -- ASA model outputs
-        accuracy REAL,
-        fluency REAL,
-        proficiency REAL,
-        pronunciation REAL,
-        range REAL,
-
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-        FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS feedback (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,         -- feedback_id
-        guid TEXT NOT NULL,
-        assessment_id INTEGER,                        -- nullable if feedback is not about a specific assessment
-
-        target_type TEXT NOT NULL CHECK (
-            target_type IN ('assessment', 'rating_ui', 'comparison_ui', 'general_experience') -- insert more if needed
-        ),
-
-        reaction_value INTEGER NOT NULL CHECK (
-            reaction_value BETWEEN 1 AND 5
-        ),                                            -- 1 = very sad ... 5 = very happy
-
-        comment TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-        FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE,
-        FOREIGN KEY (assessment_id) REFERENCES assessments(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS user_requests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,         -- request_id
-        guid TEXT NOT NULL,
-        type TEXT NOT NULL CHECK (
-            type IN ('delete_data', 'data_export')
-        ),                                            -- type of user request
-        status TEXT NOT NULL DEFAULT 'pending' CHECK (
-            status IN ('pending', 'approved', 'denied', 'completed')
-        ),                                            -- request processing status
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        processed_at TEXT,                            -- timestamp when admin processed the request
-        admin_notes TEXT,                             -- optional notes from admin
-
-        FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE
-    );
-    """
-    )
+    schema_sql = Path(__file__).with_name(
+        "schema.sql").read_text(encoding="utf-8")
+    conn.executescript(schema_sql)
     conn.commit()
     conn.close()
 
