@@ -53,9 +53,11 @@ def _validate_admin_access(api_key: str = Header(...)) -> None:
         HTTPException: If the API key is invalid or missing
     """
     if not ADMIN_API_KEY:
-        raise HTTPException(status_code=500, detail="Admin API key not configured")
+        raise HTTPException(
+            status_code=500, detail="Admin API key not configured")
     if api_key != ADMIN_API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid or missing API key")
+        raise HTTPException(
+            status_code=403, detail="Invalid or missing API key")
 
 
 @app.on_event("startup")
@@ -168,7 +170,7 @@ async def ping() -> JSONResponse:
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
 
 
-@app.post("/request/delete_userdata")
+@app.post("/request/delete/userdata")
 async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONResponse:
     """User requests deletion of their personal data.
 
@@ -208,7 +210,8 @@ async def feedback(
     reaction_value
     comment"""
 
-    _validate_feedback(guid, assessment_id, target_type, reaction_value, comment)
+    _validate_feedback(guid, assessment_id, target_type,
+                       reaction_value, comment)
 
     conn = sqlite3.connect(DATABASE)
     conn.execute(
