@@ -4,8 +4,8 @@ import sqlite3
 import tempfile
 from random import uniform
 
-from dotenv import load_dotenv
 import whisper
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
@@ -320,6 +320,7 @@ async def onboarding(payload: OnboardingRequest) -> Response:
     return Response(status_code=200)
 
 
+# ? Should admin endpoints be structured under an /admin path? e.g. POST /admin/delete/userdata
 @app.delete("/delete/userdata")
 async def delete_userdata(
     guid: str = Form(...),
