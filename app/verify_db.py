@@ -1,13 +1,16 @@
 import sqlite3
 
-from .config import DATABASE
+from .config import SETTINGS
 
 
 def main() -> None:
-    """Verify the database schema and print table information."""
-    # pylint: disable=too-many-locals
+    """Verify the database schema and print table information.
+    This is a utility script to check that the database
+    has been initialized correctly and to inspect its structure.
+    """
 
-    conn = sqlite3.connect(DATABASE)
+    # pylint: disable=too-many-locals
+    conn = sqlite3.connect(SETTINGS.database)
     cursor = conn.cursor()
 
     # Get all table names (excluding internal SQLite tables)

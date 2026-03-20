@@ -19,8 +19,8 @@ WAV_WAVE_MAGIC = b"WAVE"
 
 # $ FEEDBACK
 # feedback target_types
-FEEDBACK_TARGET_TYPES = ('assessment', 'rating_ui',
-                         'comparison_ui', 'general_experience')
+FEEDBACK_TARGET_TYPES = ("assessment", "rating_ui",
+                         "comparison_ui", "general_experience")
 MAX_COMMENT_LENGTH = 500
 
 

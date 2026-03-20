@@ -8,6 +8,7 @@ services:
       - hf-models:/hf/models
       - hf-cache:/hf/cache
     environment:
+      APP_ENV: ${APP_ENV:-development}
       DATABASE: ${DATABASE:-dta.db}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
 

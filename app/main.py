@@ -1,22 +1,27 @@
 import logging
 import os
-import sqlite3
 import tempfile
 from contextlib import asynccontextmanager
-from pathlib import Path
 from random import uniform
 from typing import Annotated
 
 import whisper
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
-from .config import ADMIN_API_KEY, DATABASE
-from .db import create_user, create_user_request
+from .config import SETTINGS
+from .db import (
+    create_feedback,
+    create_user,
+    create_user_request,
+    delete_user_data,
+    initialize_database,
+)
+from .error_handlers import register_error_handlers
 from .models.feedback import FeedbackRequest
 from .models.onboarding import OnboardingRequest
-from .models.speech_assessment import SpeechAssessment, SpeechAssessmentScores
+from .models.speech_assessment import SpeechAssessmentResponse, SpeechAssessmentScores
 from .models.user_data_request import UserDataDeleteRequest
 from .validate import (
     _validate_audio_duration,
@@ -40,43 +45,39 @@ def _validate_admin_access(api_key: str = Header(...)) -> None:
         api_key: The API key from the X-API-Key header
 
     Raises:
-        HTTPException: If the API key is invalid or missing
+        HTTPException: If the API key is invalid
     """
 
-    if not ADMIN_API_KEY:
+    # pylint: disable=fixme
+    # TODO: Refactor into a helper function.
+
+    if api_key != SETTINGS.admin_api_key:
         raise HTTPException(
-            status_code=500, detail="Admin API key not configured")
-    if api_key != ADMIN_API_KEY:
-        raise HTTPException(
-            status_code=403, detail="Invalid or missing API key")
-
-
-def initialize_database() -> None:
-    """Initialize database on app startup."""
-
-    conn = sqlite3.connect(DATABASE)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    schema_sql = Path(__file__).with_name(
-        "schema.sql").read_text(encoding="utf-8")
-    conn.executescript(schema_sql)
-    conn.commit()
-    conn.close()
+            status_code=403, detail="Invalid API key")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Run startup/shutdown logic for the FastAPI app."""
 
-    initialize_database()
+    status = initialize_database()
+    db_status_message = "initialized" if status else "already exists"
+
+    logger.info("Database %s at %s", db_status_message, SETTINGS.database)
+    logger.info("Application started in %s environment", SETTINGS.env)
+
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+# Set root_path to /api/v1 to ensure correct routing when behind a reverse proxy with a base path.
+app = FastAPI(lifespan=lifespan, root_path="/api/v1",)
+register_error_handlers(app, logger)
 
 
 @app.get("/ping")
 async def ping() -> JSONResponse:
     """Ping-pong endpoint for checking if the server is running."""
+
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
 
 
@@ -92,6 +93,7 @@ async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONRespons
     Returns:
         JSONResponse with status message
     """
+
     create_user_request(request.guid, "delete_data")
     return JSONResponse(
         content={
@@ -106,31 +108,15 @@ async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONRespons
 
 
 @app.post("/feedback")
-async def feedback(
-    payload: FeedbackRequest = Form(...),
-) -> JSONResponse:
+async def feedback(data: Annotated[FeedbackRequest, Form()]) -> JSONResponse:
     """Submit feedback related to assessments or app experience.
 
     Args:
-        payload: FeedbackRequest containing feedback details
+        data: FeedbackRequest containing feedback details
     """
 
-    # Pydantic will handle validation of the request body.
-
-    conn = sqlite3.connect(DATABASE)
-    conn.execute(
-        """INSERT INTO feedback (
-            guid,
-            assessment_id,
-            feedback_type,
-            reaction_value,
-            comment
-        ) VALUES (?, ?, ?, ?, ?)""",
-        (payload.guid, payload.assessment_id, payload.feedback_type,
-         payload.reaction_value, payload.comment),
-    )
-    conn.commit()
-    conn.close()
+    # Pydantic and global error handlers handle validation and failures.
+    create_feedback(data)
 
     return JSONResponse(content={"status": "feedback recorded"}, status_code=201)
 
@@ -192,28 +178,18 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         pronunciation = round(uniform(0, 5), 1)
         range_score = round(uniform(0, 5), 1)
 
-        json = jsonable_encoder(
-            SpeechAssessment(
-                scores=SpeechAssessmentScores(
-                    accuracy=accuracy,
-                    fluency=fluency,
-                    proficiency=proficiency,
-                    pronunciation=pronunciation,
-                    range=range_score,
-                ),
-                transcript=transcript,
-            )
+        data = SpeechAssessmentResponse(
+            scores=SpeechAssessmentScores(
+                accuracy=accuracy,
+                fluency=fluency,
+                proficiency=proficiency,
+                pronunciation=pronunciation,
+                range=range_score,
+            ),
+            transcript=transcript
         )
-        return JSONResponse(content=json, status_code=200)
-    except HTTPException:
-        # Re-raise validation errors as-is
-        raise
-    except Exception as err:  # pylint: disable=broad-exception-caught
-        # Log the real error for debugging but never leak internals
-        logger.exception(err)
-        return JSONResponse(
-            content={"detail": "Internal server error"}, status_code=500
-        )
+
+        return JSONResponse(content=jsonable_encoder(data), status_code=200)
     finally:
         # Always clean up the temporary file
         if temp_path and os.path.exists(temp_path):
@@ -221,23 +197,19 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
 
 
 @app.post("/onboarding")
-async def onboarding(
-    payload: Annotated[OnboardingRequest, Depends(OnboardingRequest.as_form)]
-) -> Response:
+async def onboarding(data: Annotated[OnboardingRequest, Form()]) -> Response:
     """Onboarding endpoint for new users."""
 
-    # Validation should be handled by Pydantic model parsing
-    create_user(payload)
+    create_user(data)
 
-    return Response(status_code=200)
+    return Response(status_code=201)
 
 
 # ? Should admin endpoints be structured under an /admin path? e.g. POST /admin/delete/userdata
 @app.delete("/delete/userdata")
-async def delete_userdata(
-    guid: str = Form(...),
-    x_api_key: str = Header(..., alias="X-API-Key"),
-) -> JSONResponse:
+async def delete_userdata(guid: str = Form(...),
+                          x_api_key: str = Header(..., alias="X-API-Key"),
+                          ) -> JSONResponse:
     """Delete all data for a user with the given GUID.
 
     This endpoint is admin-only and requires a valid API key.
@@ -253,44 +225,21 @@ async def delete_userdata(
     Raises:
         HTTPException: If API key is invalid or user not found
     """
+
     # Validate admin access
     _validate_admin_access(x_api_key)
 
     if not guid or not isinstance(guid, str) or not guid.strip():
         raise HTTPException(status_code=400, detail="Invalid or missing GUID")
 
-    try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
+    delete_user_data(guid)
 
-        # Check if user exists
-        cursor.execute("SELECT guid FROM users WHERE guid = ?", (guid,))
-        user = cursor.fetchone()
+    logger.info("Admin deleted all data for user: %s", guid)
 
-        if not user:
-            raise HTTPException(
-                status_code=404, detail=f"User with GUID {guid} not found"
-            )
-
-        # Delete user (cascade will handle assessments and feedback)
-        cursor.execute("DELETE FROM users WHERE guid = ?", (guid,))
-
-        conn.commit()
-        conn.close()
-
-        logger.info("Admin deleted all data for user: %s", guid)
-
-        return JSONResponse(
-            content={
-                "status": "success",
-                "message": f"User data deleted for GUID: {guid}",
-            },
-            status_code=200,
-        )
-    except HTTPException:
-        raise
-    except Exception as err:  # pylint: disable=broad-exception-caught
-        logger.exception("Error deleting user data for %s: %s", guid, err)
-        return JSONResponse(
-            content={"detail": "Internal server error"}, status_code=500
-        )
+    return JSONResponse(
+        content={
+            "status": "success",
+            "message": f"User data deleted for GUID: {guid}",
+        },
+        status_code=200,
+    )

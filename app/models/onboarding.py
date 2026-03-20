@@ -3,12 +3,11 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from fastapi import Depends, Form
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class Gender(StrEnum):
-    """Gender for onboarding background fields"""
+    """Gender for onboarding background fields."""
 
     WOMAN = "woman"
     MAN = "man"
@@ -17,7 +16,7 @@ class Gender(StrEnum):
 
 
 class AgeGroup(StrEnum):
-    """Age group for onboarding background fields"""
+    """Age group for onboarding background fields."""
 
     AGE_18_28 = "age_18_28"
     AGE_29_39 = "age_29_39"
@@ -27,7 +26,7 @@ class AgeGroup(StrEnum):
 
 
 class LearningDuration(StrEnum):
-    """Duration of time learned Finnish for onboarding background fields"""
+    """Duration of time learned Finnish for onboarding background fields."""
 
     MONTHS_0_TO_3 = "months_0_3"
     MONTHS_3_TO_6 = "months_3_6"
@@ -44,7 +43,7 @@ class LearningDuration(StrEnum):
 
 
 class CEFRLevel(StrEnum):
-    """CEFR assessment levels for onboarding background fields"""
+    """CEFR assessment levels for onboarding background fields."""
 
     A1 = "A1"
     A2 = "A2"
@@ -57,15 +56,25 @@ MovedToFinland = Literal["before_2015"] | int
 
 
 class OnboardingBackgroundFields(BaseModel):
-    """Onboarding background fields type"""
+    """Onboarding background fields type.
 
-    age_group: AgeGroup = Field(...)
-    finnish_learning_duration: LearningDuration = Field(...)
-    finnish_self_assessment: CEFRLevel = Field(...)
-    gender: Gender = Field(...)
-    moved_to_finland: MovedToFinland = Field(...)
-    native_languages: list[str] = Field(...)
-    other_languages: list[str] = Field(...)
+    Attributes:
+        age_group: The user's age group.
+        finnish_learning_duration: How long the user has been learning Finnish.
+        finnish_self_assessment: The user's self-assessed CEFR level in Finnish.
+        gender: The user's gender.
+        moved_to_finland: Either a year or "before_2015" if they moved before 2015.
+        native_languages: A list of the user's native languages.
+        other_languages: A list of other languages the user speaks.
+    """
+
+    age_group: AgeGroup
+    finnish_learning_duration: LearningDuration
+    finnish_self_assessment: CEFRLevel
+    gender: Gender
+    moved_to_finland: MovedToFinland
+    native_languages: list[str]
+    other_languages: list[str]
 
     @field_validator("moved_to_finland")
     @classmethod
@@ -75,8 +84,9 @@ class OnboardingBackgroundFields(BaseModel):
         if value == "before_2015":
             return value
 
+        # Treat any year before 2015 as "before_2015"
         if value < 2015:
-            raise ValueError("year must be greater than or equal to 2015")
+            return "before_2015"
 
         # Checking an edge case if the server's clock is configured wrong
         max_year = max(datetime.now().year, 2100)
@@ -86,70 +96,20 @@ class OnboardingBackgroundFields(BaseModel):
 
         return value
 
-    @classmethod
-    def as_form(
-        cls,
-        age_group: AgeGroup = Form(..., alias="background_fields.age_group"),
-        finnish_learning_duration: LearningDuration = Form(
-            ..., alias="background_fields.finnish_learning_duration"
-        ),
-        finnish_self_assessment: CEFRLevel = Form(
-            ..., alias="background_fields.finnish_self_assessment"
-        ),
-        gender: Gender = Form(..., alias="background_fields.gender"),
-        moved_to_finland: str = Form(...,
-                                     alias="background_fields.moved_to_finland"),
-        native_languages: list[str] = Form(...,
-                                           alias="background_fields.native_languages"),
-        other_languages: list[str] = Form(...,
-                                          alias="background_fields.other_languages"),
-    ) -> "OnboardingBackgroundFields":
-        """Build background fields from multipart/form-data."""
-
-        parsed_moved_to_finland: MovedToFinland
-        parsed_moved_to_finland = (
-            int(moved_to_finland)
-            if moved_to_finland.isdigit()
-            else moved_to_finland
-        )
-
-        return cls(
-            age_group=age_group,
-            finnish_learning_duration=finnish_learning_duration,
-            finnish_self_assessment=finnish_self_assessment,
-            gender=gender,
-            moved_to_finland=parsed_moved_to_finland,
-            native_languages=native_languages,
-            other_languages=other_languages,
-        )
-
 
 class OnboardingRequest(BaseModel):
-    """Onboarding request type"""
+    """Onboarding request type.
 
-    app_version: str | None = Field(None)
-    background_fields: OnboardingBackgroundFields = Field(...)
-    consent_accepted: bool = Field(...)
-    consent_timestamp: datetime = Field(...)
-    guid: UUID = Field(...)
+    Attributes:
+        app_version: Optional and can be used to track the app version for analytics or debugging.
+        background_fields: Contains the user's responses to the onboarding questions.
+        consent_accepted: Indicates whether the user accepted the consent form.
+        consent_timestamp: Records the time when the user accepted the consent.
+        guid: A unique identifier for the user.
+    """
 
-    @classmethod
-    def as_form(
-        cls,
-        app_version: str | None = Form(None),
-        consent_accepted: bool = Form(...),
-        consent_timestamp: datetime = Form(...),
-        guid: UUID = Form(...),
-        background_fields: OnboardingBackgroundFields = Depends(
-            OnboardingBackgroundFields.as_form
-        ),
-    ) -> "OnboardingRequest":
-        """Build onboarding request from multipart/form-data."""
-
-        return cls(
-            app_version=app_version,
-            background_fields=background_fields,
-            consent_accepted=consent_accepted,
-            consent_timestamp=consent_timestamp,
-            guid=guid,
-        )
+    app_version: str | None
+    background_fields: OnboardingBackgroundFields
+    consent_accepted: bool
+    consent_timestamp: datetime
+    guid: UUID
