@@ -1,6 +1,13 @@
 import sqlite3
+import os
 
-conn = sqlite3.connect('speech_assessments.db')
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASE = os.getenv("DATABASE", "dta.db")
+
+conn = sqlite3.connect(DATABASE)
 cursor = conn.cursor()
 
 # Get all table names (excluding internal SQLite tables)

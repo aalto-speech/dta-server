@@ -8,10 +8,8 @@ services:
       - hf-models:/hf/models
       - hf-cache:/hf/cache
     environment:
-      HF_HOME: /hf
-      HUGGINGFACE_HUB_CACHE: /hf/cache/hub
-      TRANSFORMERS_CACHE: /hf/cache/transformers
-      HF_TOKEN: ${HF_TOKEN:-}
+      DATABASE: ${DATABASE:-dta.db}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
 
   caddy:
     container_name: caddy
@@ -25,7 +23,7 @@ services:
     environment:
       # See Caddyfile for usage of these variables
       DOMAIN: ${DOMAIN:-localhost}
-      ACME_EMAIL: ${ACME_EMAIL:-nhan.phan@aalto.fi}
+      ACME_EMAIL: ${ACME_EMAIL:-}
       UPSTREAM: ${UPSTREAM:-dta:8000} # [service|IP]:port
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

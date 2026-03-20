@@ -143,7 +143,7 @@ CADDY_LOGS_VOLUME="${CADDY_LOGS_VOLUME:-caddy-logs}" # Podman volume name
 TARGET_OS_VERSION="${TARGET_OS_VERSION:-24.04}"      # Target OS version for package selection (e.g., for podman-compose vs docker-compose)
 
 # Model settings
-MODEL_REPO="${MODEL_REPO:-}"             # LLM repository
+MODEL_REPO="${MODEL_REPO:-}"            # LLM repository
 MODEL_REV="${MODEL_REV:-main}"          # LLM revision (branch, tag, or commit)
 MODEL_NAME="${MODEL_NAME:-CaptainA_v0}" # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_NAME})
 # Sanitize MODEL_NAME to prevent path traversal
@@ -168,6 +168,15 @@ SERVICE_FILE=${SERVICE_FILE:-dta-compose.service} # Name of the systemd service 
 if [[ ${#CONFIG_FILES[@]} -eq 0 ]]; then
   CONFIG_FILES=(Caddyfile "${COMPOSE_FILE}" "${SERVICE_FILE}") # Default configuration files to fetch from the repository
 fi
+
+# Environment variables for Caddy
+DOMAIN=${DOMAIN:-localhost}
+ACME_EMAIL=${ACME_EMAIL:-}
+UPSTREAM=${UPSTREAM:-dta:8000}
+
+# Environment variables for the application
+DATABASE=${DATABASE:-dta.db}
+ADMIN_API_KEY=${ADMIN_API_KEY:-}
 
 # Validate critical inputs to prevent command injection
 validate_input "GIT_REPO" "${GIT_REPO}" '^$|^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
@@ -583,6 +592,10 @@ setup_env_file() {
 DOMAIN=${DOMAIN:-}
 ACME_EMAIL=${ACME_EMAIL:-}
 UPSTREAM=${UPSTREAM:-}
+
+# Environment variables for the application
+DATABASE=${DATABASE:-}
+ADMIN_API_KEY=${ADMIN_API_KEY:-}
 ENV_EOF
   chmod 600 /home/ubuntu/.config/dta/env
 }

@@ -108,3 +108,9 @@ class OnboardingRequest(BaseModel):
     consent_accepted: bool
     consent_timestamp: datetime
     guid: UUID
+
+
+class UserDataDeleteRequest(BaseModel):
+    """User data deletion request type"""
+
+    guid: UUID

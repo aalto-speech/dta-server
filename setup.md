@@ -61,7 +61,7 @@ You can also manually copy the script by displaying its contents and pasting the
 
   ```bash
   set +o history
-  GITHUB_TOKEN=github_pat HF_TOKEN=hf_pat ./setup.sh
+  DOMAIN=example.com GITHUB_TOKEN=github_pat HF_TOKEN=hf_pat ./setup.sh
   set -o history
   ```
 

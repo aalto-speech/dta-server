@@ -5,12 +5,18 @@ import tempfile
 from random import uniform
 
 import whisper
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
-from .db import create_user
-from .models import OnboardingRequest, SpeechAssessment, SpeechAssessmentScores
+from .db import create_user, create_user_request
+from .models import (
+    OnboardingRequest,
+    SpeechAssessment,
+    SpeechAssessmentScores,
+    UserDataDeleteRequest,
+)
 from .validate import (
     _validate_audio_duration,
     _validate_content_type,
@@ -21,23 +27,50 @@ from .validate import (
     _validate_wav_structure,
 )
 
+# Load environment variables from .env file (if present)
+load_dotenv()
+
 app = FastAPI()
 logger = logging.getLogger(__name__)
 
 # Load whisper model once at startup
 whisper_model = whisper.load_model("small")
 
+# Database file path (default to dta.db in current directory if not set)
+DATABASE = os.getenv("DATABASE", "dta.db")
+
+# Admin API key for protected endpoints
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
+
+
+def _validate_admin_access(api_key: str = Header(...)) -> None:
+    """Validate admin API key for protected endpoints.
+
+    Args:
+        api_key: The API key from the X-API-Key header
+
+    Raises:
+        HTTPException: If the API key is invalid or missing
+    """
+    if not ADMIN_API_KEY:
+        raise HTTPException(
+            status_code=500, detail="Admin API key not configured")
+    if api_key != ADMIN_API_KEY:
+        raise HTTPException(
+            status_code=403, detail="Invalid or missing API key")
+
 
 @app.on_event("startup")
-# on_event is deprecated, use lifespan event handlers instead.
-#         Read more about it in the
-#         [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
 async def setup_database() -> None:
     """Initialize database on app startup."""
 
-    conn = sqlite3.connect('speech_assessments.db')
-    conn.execute('PRAGMA journal_mode=WAL;')
-    conn.executescript('''
+    logger.info("Setting up database at %s", DATABASE)
+
+    conn = sqlite3.connect(DATABASE)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    # pylint: disable=line-too-long
+    conn.executescript(
+        """
     CREATE TABLE IF NOT EXISTS users (
         guid TEXT PRIMARY KEY,                         -- pseudonymous user ID (GUID)
         consent_accepted INTEGER NOT NULL CHECK (consent_accepted IN (0, 1)),
@@ -109,7 +142,24 @@ async def setup_database() -> None:
         FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE,
         FOREIGN KEY (assessment_id) REFERENCES assessments(id) ON DELETE CASCADE
     );
-    ''')
+
+    CREATE TABLE IF NOT EXISTS user_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,         -- request_id
+        guid TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (
+            type IN ('delete_data', 'data_export')
+        ),                                            -- type of user request
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (
+            status IN ('pending', 'approved', 'denied', 'completed')
+        ),                                            -- request processing status
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        processed_at TEXT,                            -- timestamp when admin processed the request
+        admin_notes TEXT,                             -- optional notes from admin
+
+        FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE
+    );
+    """
+    )
     conn.commit()
     conn.close()
 
@@ -120,13 +170,38 @@ async def ping() -> JSONResponse:
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
 
 
+@app.post("/request/delete/userdata")
+async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONResponse:
+    """User requests deletion of their personal data.
+
+    The request is stored in the database and awaits admin approval.
+
+    Args:
+        request: UserDataDeleteRequest containing the user's GUID
+
+    Returns:
+        JSONResponse with status message
+    """
+    create_user_request(request.guid, "delete_data")
+    return JSONResponse(
+        content={
+            "status": "request_received",
+            "message": (
+                "Your data deletion request has been received "
+                + "and is awaiting admin approval"
+            ),
+        },
+        status_code=202,
+    )
+
+
 @app.post("/feedback")
 async def feedback(
     guid: str = Form(...),
     assessment_id: int | None = Form(None),
     target_type: str = Form(...),
     reaction_value: int = Form(...),
-    comment: str | None = Form(None)
+    comment: str | None = Form(None),
 ) -> JSONResponse:
     """Payload:
     guid
@@ -138,11 +213,11 @@ async def feedback(
     _validate_feedback(guid, assessment_id, target_type,
                        reaction_value, comment)
 
-    conn = sqlite3.connect('speech_assessments.db')
+    conn = sqlite3.connect(DATABASE)
     conn.execute(
-        '''INSERT INTO feedback (guid, assessment_id, target_type, reaction_value, comment)
-           VALUES (?, ?, ?, ?, ?)''',
-        (guid, assessment_id, target_type, reaction_value, comment)
+        """INSERT INTO feedback (guid, assessment_id, target_type, reaction_value, comment)
+           VALUES (?, ?, ?, ?, ?)""",
+        (guid, assessment_id, target_type, reaction_value, comment),
     )
     conn.commit()
     conn.close()
@@ -243,3 +318,67 @@ async def onboarding(payload: OnboardingRequest) -> Response:
     create_user(payload)
 
     return Response(status_code=200)
+
+
+# ? Should admin endpoints be structured under an /admin path? e.g. POST /admin/delete/userdata
+@app.delete("/delete/userdata")
+async def delete_userdata(
+    guid: str = Form(...),
+    x_api_key: str = Header(..., alias="X-API-Key"),
+) -> JSONResponse:
+    """Delete all data for a user with the given GUID.
+
+    This endpoint is admin-only and requires a valid API key.
+    Deletes all associated data from users, assessments, and feedback tables.
+
+    Args:
+        guid: The user GUID to delete all data for
+        x_api_key: Admin API key passed in X-API-Key header
+
+    Returns:
+        JSONResponse with deletion summary
+
+    Raises:
+        HTTPException: If API key is invalid or user not found
+    """
+    # Validate admin access
+    _validate_admin_access(x_api_key)
+
+    if not guid or not isinstance(guid, str) or not guid.strip():
+        raise HTTPException(status_code=400, detail="Invalid or missing GUID")
+
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+
+        # Check if user exists
+        cursor.execute("SELECT guid FROM users WHERE guid = ?", (guid,))
+        user = cursor.fetchone()
+
+        if not user:
+            raise HTTPException(
+                status_code=404, detail=f"User with GUID {guid} not found"
+            )
+
+        # Delete user (cascade will handle assessments and feedback)
+        cursor.execute("DELETE FROM users WHERE guid = ?", (guid,))
+
+        conn.commit()
+        conn.close()
+
+        logger.info("Admin deleted all data for user: %s", guid)
+
+        return JSONResponse(
+            content={
+                "status": "success",
+                "message": f"User data deleted for GUID: {guid}",
+            },
+            status_code=200,
+        )
+    except HTTPException:
+        raise
+    except Exception as err:  # pylint: disable=broad-exception-caught
+        logger.exception("Error deleting user data for %s: %s", guid, err)
+        return JSONResponse(
+            content={"detail": "Internal server error"}, status_code=500
+        )
