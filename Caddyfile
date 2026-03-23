@@ -3,29 +3,17 @@
 	email {$ACME_EMAIL}
 
 	servers {
+		# TODO: HTTP1 support will be removed in the future
+		protocols h1 h2
 		timeouts {
 			read_body 10s
 			read_header 5s
 			idle 30s
 		}
 	}
-
-	servers :443 {
-		# TODO: HTTP1 support will be removed in the future
-		protocols h1 h2
-	}
-
-	servers :80 {
-		protocols h1 h2
-	}
 }
 
-{$DOMAIN}:80 {
-	# Redirect all HTTP requests to HTTPS
-	redir https://{host}{uri} 308
-}
-
-{$DOMAIN}:443 {
+{$DOMAIN} {
 	# Limit request body size to 10 MB
 	request_body {
 		max_size 10MB
@@ -35,12 +23,6 @@
 	log {
 		output file /var/log/caddy/access.log
 		format console
-	}
-
-	# /openapi.json -> {$UPSTREAM}/openapi.json
-	@openapi path /openapi.json
-	handle @openapi {
-		reverse_proxy {$UPSTREAM}
 	}
 
 	# /api/v1/* -> {$UPSTREAM}/*
