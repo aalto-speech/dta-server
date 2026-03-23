@@ -3,13 +3,20 @@
 	email {$ACME_EMAIL}
 
 	servers {
-		# TODO: HTTP1 support will be removed in the future
-		protocols h1 h2
 		timeouts {
 			read_body 10s
 			read_header 5s
 			idle 30s
 		}
+	}
+
+	servers :443 {
+		# TODO: HTTP1 support will be removed in the future
+		protocols h1 h2
+	}
+
+	servers :80 {
+		protocols h1 h2
 	}
 }
 
