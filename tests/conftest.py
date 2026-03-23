@@ -1,13 +1,13 @@
-import asyncio
+from pathlib import Path
 
 import pytest
 
-from app.main import app
+from app.config import SETTINGS
 
 
-@pytest.fixture(scope="session", autouse=True)
-def run_app_startup_shutdown() -> None:
-    """Run FastAPI startup/shutdown events once for the test session."""
-    asyncio.run(app.router.startup())
-    yield
-    asyncio.run(app.router.shutdown())
+@pytest.fixture
+def reset_database() -> None:
+    """Reset DB file so tests start from a clean state."""
+
+    db_path = Path(SETTINGS.database)
+    db_path.unlink(missing_ok=True)

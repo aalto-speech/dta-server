@@ -1,188 +1,80 @@
 import logging
 import os
-import sqlite3
 import tempfile
+from contextlib import asynccontextmanager
 from random import uniform
 
 import whisper
-from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Form
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
-from .db import create_user, create_user_request
-from .models import (
-    OnboardingRequest,
-    SpeechAssessment,
+from .config import SETTINGS
+from .db import (
+    create_feedback,
+    create_user,
+    create_user_request,
+    delete_user_data,
+    initialize_database,
+)
+from .error_handlers import register_error_handlers
+from .models.feedback import FeedbackRequest
+from .models.onboarding import OnboardingRequest
+from .models.speech_assessment import (
+    SpeechAssessmentRequest,
+    SpeechAssessmentResponse,
     SpeechAssessmentScores,
-    UserDataDeleteRequest,
 )
-from .validate import (
-    _validate_audio_duration,
-    _validate_content_type,
-    _validate_feedback,
-    _validate_file_name,
-    _validate_file_size,
-    _validate_wav_headers,
-    _validate_wav_structure,
-)
+from .models.user_requests import DeleteUserRequest, UserDataRequest
+from .validators import audio, auth
 
-# Load environment variables from .env file (if present)
-load_dotenv()
-
-app = FastAPI()
 logger = logging.getLogger(__name__)
 
 # Load whisper model once at startup
 whisper_model = whisper.load_model("small")
 
-# Database file path (default to dta.db in current directory if not set)
-DATABASE = os.getenv("DATABASE", "dta.db")
 
-# Admin API key for protected endpoints
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Run startup/shutdown logic for the FastAPI app."""
 
+    status = initialize_database()
+    db_status_message = "initialized" if status else "already exists"
 
-def _validate_admin_access(api_key: str = Header(...)) -> None:
-    """Validate admin API key for protected endpoints.
+    logger.info("Database %s at %s", db_status_message, SETTINGS.database)
+    logger.info("Application started in %s environment", SETTINGS.env)
 
-    Args:
-        api_key: The API key from the X-API-Key header
-
-    Raises:
-        HTTPException: If the API key is invalid or missing
-    """
-    if not ADMIN_API_KEY:
-        raise HTTPException(
-            status_code=500, detail="Admin API key not configured")
-    if api_key != ADMIN_API_KEY:
-        raise HTTPException(
-            status_code=403, detail="Invalid or missing API key")
+    yield
 
 
-@app.on_event("startup")
-async def setup_database() -> None:
-    """Initialize database on app startup."""
-
-    logger.info("Setting up database at %s", DATABASE)
-
-    conn = sqlite3.connect(DATABASE)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    # pylint: disable=line-too-long
-    conn.executescript(
-        """
-    CREATE TABLE IF NOT EXISTS users (
-        guid TEXT PRIMARY KEY,                         -- pseudonymous user ID (GUID)
-        consent_accepted INTEGER NOT NULL CHECK (consent_accepted IN (0, 1)),
-        consent_timestamp TEXT NOT NULL,              -- ISO 8601 timestamp
-        app_version TEXT,                             -- app version shown during consent
-        gender TEXT NOT NULL CHECK (
-            gender IN ('woman', 'man', 'other', 'prefer_not_to_answer')
-        ),
-        age_group TEXT NOT NULL CHECK (
-            age_group IN ('18-28', '29-39', '40-50', '51-61', '62_or_older')
-        ),
-
-        -- Store multi-select fields as JSON text arrays, e.g. '["Vietnamese","English"]'
-        mother_tongues TEXT NOT NULL,
-        other_languages TEXT NOT NULL,
-        moved_to_finland TEXT NOT NULL,               -- e.g. '2025', '2024', ... '2015', 'before_2015'
-        finnish_learning_duration TEXT NOT NULL,      -- use the exact questionnaire options
-        finnish_self_assessment TEXT NOT NULL CHECK (
-            finnish_self_assessment IN ('A1', 'A2', 'B1', 'B2', 'C1_or_higher')
-        ),
-
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-
-    -- 2) ASSESSMENTS TABLE
-    -- Stores one row per ASA attempt.
-    -- Audio file itself is stored in persistent storage outside the container.
-    -- audio_id and audio_path are metadata pointing to that stored file.
-    -- =========================================================
-    CREATE TABLE IF NOT EXISTS assessments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,         -- assessment_id
-        guid TEXT NOT NULL,
-        task_id TEXT NOT NULL,                        -- speaking task ID / prompt ID
-
-        audio_id TEXT NOT NULL UNIQUE,                -- unique ID for audio file
-        audio_path TEXT NOT NULL,                     -- persistent storage path / object key
-
-        transcript TEXT,                              -- optional ASR transcript
-
-        -- ASA model outputs
-        accuracy REAL,
-        fluency REAL,
-        proficiency REAL,
-        pronunciation REAL,
-        range REAL,
-
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-        FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS feedback (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,         -- feedback_id
-        guid TEXT NOT NULL,
-        assessment_id INTEGER,                        -- nullable if feedback is not about a specific assessment
-
-        target_type TEXT NOT NULL CHECK (
-            target_type IN ('assessment', 'rating_ui', 'comparison_ui', 'general_experience') -- insert more if needed
-        ),
-
-        reaction_value INTEGER NOT NULL CHECK (
-            reaction_value BETWEEN 1 AND 5
-        ),                                            -- 1 = very sad ... 5 = very happy
-
-        comment TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-        FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE,
-        FOREIGN KEY (assessment_id) REFERENCES assessments(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS user_requests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,         -- request_id
-        guid TEXT NOT NULL,
-        type TEXT NOT NULL CHECK (
-            type IN ('delete_data', 'data_export')
-        ),                                            -- type of user request
-        status TEXT NOT NULL DEFAULT 'pending' CHECK (
-            status IN ('pending', 'approved', 'denied', 'completed')
-        ),                                            -- request processing status
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        processed_at TEXT,                            -- timestamp when admin processed the request
-        admin_notes TEXT,                             -- optional notes from admin
-
-        FOREIGN KEY (guid) REFERENCES users(guid) ON DELETE CASCADE
-    );
-    """
-    )
-    conn.commit()
-    conn.close()
+# Set root_path to /api/v1 to ensure correct routing when behind a reverse proxy with a base path.
+app = FastAPI(lifespan=lifespan, root_path="/api/v1",)
+register_error_handlers(app, logger)
 
 
 @app.get("/ping")
 async def ping() -> JSONResponse:
     """Ping-pong endpoint for checking if the server is running."""
+
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
 
 
-@app.post("/request/delete/userdata")
-async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONResponse:
-    """User requests deletion of their personal data.
+@app.post("/request/user")
+async def request_user(data: UserDataRequest = Form()) -> JSONResponse:
+    """User request for deleting or exporting their data.
 
     The request is stored in the database and awaits admin approval.
 
     Args:
-        request: UserDataDeleteRequest containing the user's GUID
+        data: UserDataRequest containing the user's GUID
 
     Returns:
         JSONResponse with status message
     """
-    create_user_request(request.guid, "delete_data")
+
+    # * Pydantic and global error handlers handle validation and failures.
+    create_user_request(data)
+
     return JSONResponse(
         content={
             "status": "request_received",
@@ -196,62 +88,51 @@ async def request_delete_userdata(request: UserDataDeleteRequest) -> JSONRespons
 
 
 @app.post("/feedback")
-async def feedback(
-    guid: str = Form(...),
-    assessment_id: int | None = Form(None),
-    target_type: str = Form(...),
-    reaction_value: int = Form(...),
-    comment: str | None = Form(None),
-) -> JSONResponse:
-    """Payload:
-    guid
-    assessment_id
-    target_type
-    reaction_value
-    comment"""
+async def feedback(data: FeedbackRequest = Form()) -> JSONResponse:
+    """Submit feedback related to assessments or app experience.
 
-    _validate_feedback(guid, assessment_id, target_type,
-                       reaction_value, comment)
+    Args:
+        data: FeedbackRequest containing feedback details
+    """
 
-    conn = sqlite3.connect(DATABASE)
-    conn.execute(
-        """INSERT INTO feedback (guid, assessment_id, target_type, reaction_value, comment)
-           VALUES (?, ?, ?, ?, ?)""",
-        (guid, assessment_id, target_type, reaction_value, comment),
-    )
-    conn.commit()
-    conn.close()
+    # * Pydantic and global error handlers handle validation and failures.
+    create_feedback(data)
 
     return JSONResponse(content={"status": "feedback recorded"}, status_code=201)
 
 
 @app.post("/speech/assess")
-async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
-    """Assess speech using the AI model.
+async def assess_speech(
+    data: SpeechAssessmentRequest = Depends(SpeechAssessmentRequest.as_form)
+) -> JSONResponse:
+    """Assess the uploaded speech audio file and return scores and transcript.
 
-    Security checks performed before processing:
-    1. Content-Type must indicate a WAV audio file.
-    2. Filename must end with .wav (no path-traversal characters).
-    3. File size must not exceed MAX_FILE_SIZE (streamed in chunks).
-    4. RIFF/WAVE magic bytes must be present.
-    5. stdlib `wave` module must parse the file without errors.
-    6. Audio length must be within constraints, by default less than 90 seconds.
+    Args:
+        data: SpeechAssessmentRequest containing the uploaded file and user GUID
+
+    Security checks:
+        1. Validate the uploaded file is a WAV audio file with correct content type and extension.
+        2. Enforce file size limit by streaming the upload in chunks.
+        3. Validate RIFF/WAVE magic bytes are present in the file header.
+        4. Write the file to a secure temporary location and validate its structure using the stdlib `wave` module.
+        5. Validate the audio duration is within acceptable limits (e.g., less than 90 seconds).
+
+    Returns:
+        JSONResponse SpeechAssessmentResponse containing the assessment scores and transcript.
     """
 
-    # --- 1. Validate Content-Type to reject obviously wrong uploads ---
-    _validate_content_type(file)
+    # * Pydantic validation ensures the content type and file extension are correct.
+    # * Validation checks which require access to the file content are not performed by Pydantic.
 
-    # --- 2. Validate and sanitise the filename ---
-    filename = file.filename or ""
-    _validate_file_name(filename)
+    file = data.file
 
-    # --- 3. Stream the upload in chunks and enforce the size limit ---
-    content = await _validate_file_size(file)
+    # Stream the upload in chunks and enforce the size limit
+    content = await audio.validate_file_size(file)
 
-    # --- 4. Validate RIFF/WAVE magic bytes ---
-    _validate_wav_headers(content)
+    # Validate RIFF/WAVE magic bytes
+    audio.validate_wav_headers(content)
 
-    # --- 5. Write to a secure temp file and validate WAV structure ---
+    # Write to a secure temp file and validate WAV structure
     temp_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -264,12 +145,12 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         os.chmod(temp_path, 0o600)
 
         # Parse with stdlib wave to confirm structural validity
-        _validate_wav_structure(temp_path)
+        audio.validate_wav_structure(temp_path)
 
-        # --- 6. Validate audio duration ---
-        _validate_audio_duration(temp_path)
+        # Validate audio duration
+        audio.validate_audio_duration(temp_path)
 
-        # --- Processing ---
+        # TODO: Move to an asynchronous method for better performance and scalability.
         # Transcribe audio using whisper (force Finnish language for better accuracy)
         result = whisper_model.transcribe(temp_path, language="fi")
         text = result["text"]
@@ -282,28 +163,18 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
         pronunciation = round(uniform(0, 5), 1)
         range_score = round(uniform(0, 5), 1)
 
-        json = jsonable_encoder(
-            SpeechAssessment(
-                scores=SpeechAssessmentScores(
-                    accuracy=accuracy,
-                    fluency=fluency,
-                    proficiency=proficiency,
-                    pronunciation=pronunciation,
-                    range=range_score,
-                ),
-                transcript=transcript,
-            )
+        data = SpeechAssessmentResponse(
+            scores=SpeechAssessmentScores(
+                accuracy=accuracy,
+                fluency=fluency,
+                proficiency=proficiency,
+                pronunciation=pronunciation,
+                range=range_score,
+            ),
+            transcript=transcript
         )
-        return JSONResponse(content=json, status_code=200)
-    except HTTPException:
-        # Re-raise validation errors as-is
-        raise
-    except Exception as err:  # pylint: disable=broad-exception-caught
-        # Log the real error for debugging but never leak internals
-        logger.exception(err)
-        return JSONResponse(
-            content={"detail": "Internal server error"}, status_code=500
-        )
+
+        return JSONResponse(content=jsonable_encoder(data), status_code=200)
     finally:
         # Always clean up the temporary file
         if temp_path and os.path.exists(temp_path):
@@ -311,20 +182,26 @@ async def assess_speech(file: UploadFile = File(...)) -> JSONResponse:
 
 
 @app.post("/onboarding")
-async def onboarding(payload: OnboardingRequest) -> Response:
-    """Onboarding endpoint for new users."""
+async def onboarding(data: OnboardingRequest = Form()) -> Response:
+    """Onboarding endpoint for new users.
 
-    # Validation should be handled by Pydantic model parsing
-    create_user(payload)
+    Args:
+        data: OnboardingRequest containing the user's onboarding information
 
-    return Response(status_code=200)
+    Returns:
+        Response with status code 201 on success
+    """
+
+    # * Pydantic and global error handlers handle validation and failures.
+    create_user(data)
+
+    return Response(status_code=201)
 
 
-# ? Should admin endpoints be structured under an /admin path? e.g. POST /admin/delete/userdata
-@app.delete("/delete/userdata")
-async def delete_userdata(
-    guid: str = Form(...),
-    x_api_key: str = Header(..., alias="X-API-Key"),
+@app.delete("/users")
+async def delete_users(
+    data: DeleteUserRequest = Depends(
+        DeleteUserRequest.as_form)
 ) -> JSONResponse:
     """Delete all data for a user with the given GUID.
 
@@ -332,53 +209,18 @@ async def delete_userdata(
     Deletes all associated data from users, assessments, and feedback tables.
 
     Args:
-        guid: The user GUID to delete all data for
-        x_api_key: Admin API key passed in X-API-Key header
+        data: DeleteUserRequest containing the user's GUID and admin API key
 
     Returns:
         JSONResponse with deletion summary
-
-    Raises:
-        HTTPException: If API key is invalid or user not found
     """
+
     # Validate admin access
-    _validate_admin_access(x_api_key)
+    auth.validate_admin_access(data.api_key)
 
-    if not guid or not isinstance(guid, str) or not guid.strip():
-        raise HTTPException(status_code=400, detail="Invalid or missing GUID")
+    # * Pydantic and global error handlers handle validation and failures.
+    delete_user_data(data)
 
-    try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
+    logger.info("Admin deleted all data for user: %s", data.guid)
 
-        # Check if user exists
-        cursor.execute("SELECT guid FROM users WHERE guid = ?", (guid,))
-        user = cursor.fetchone()
-
-        if not user:
-            raise HTTPException(
-                status_code=404, detail=f"User with GUID {guid} not found"
-            )
-
-        # Delete user (cascade will handle assessments and feedback)
-        cursor.execute("DELETE FROM users WHERE guid = ?", (guid,))
-
-        conn.commit()
-        conn.close()
-
-        logger.info("Admin deleted all data for user: %s", guid)
-
-        return JSONResponse(
-            content={
-                "status": "success",
-                "message": f"User data deleted for GUID: {guid}",
-            },
-            status_code=200,
-        )
-    except HTTPException:
-        raise
-    except Exception as err:  # pylint: disable=broad-exception-caught
-        logger.exception("Error deleting user data for %s: %s", guid, err)
-        return JSONResponse(
-            content={"detail": "Internal server error"}, status_code=500
-        )
+    return Response(status_code=204)
