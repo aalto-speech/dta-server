@@ -52,13 +52,14 @@ class CEFRLevel(StrEnum):
     C1_PLUS = "C1_plus"
 
 
-MovedToFinland = Literal["before_2015"] | int
+MovedToFinland = Literal["before_2015"] | str | int
 
 
-class OnboardingBackgroundFields(BaseModel):
-    """Onboarding background fields type.
+class OnboardingRequest(BaseModel):
+    """Onboarding request type.
 
     Attributes:
+        app_version: Optional and can be used to track the app version for analytics or debugging.
         age_group: The user's age group.
         finnish_learning_duration: How long the user has been learning Finnish.
         finnish_self_assessment: The user's self-assessed CEFR level in Finnish.
@@ -66,8 +67,14 @@ class OnboardingBackgroundFields(BaseModel):
         moved_to_finland: Either a year or "before_2015" if they moved before 2015.
         native_languages: A list of the user's native languages.
         other_languages: A list of other languages the user speaks.
+        background_form_completed: Indicates whether the user completed the background fields section of onboarding.
+        background_form_timestamp: Records the time when the user completed the background fields.
+        consent_accepted: Indicates whether the user accepted the consent form.
+        consent_timestamp: Records the time when the user accepted the consent.
+        guid: A unique identifier for the user.
     """
 
+    app_version: str | None = None
     age_group: AgeGroup
     finnish_learning_duration: LearningDuration
     finnish_self_assessment: CEFRLevel
@@ -75,14 +82,26 @@ class OnboardingBackgroundFields(BaseModel):
     moved_to_finland: MovedToFinland
     native_languages: list[str]
     other_languages: list[str]
+    background_form_completed: bool
+    background_form_timestamp: datetime
+    consent_accepted: bool
+    consent_timestamp: datetime
+    guid: UUID
 
     @field_validator("moved_to_finland")
     @classmethod
     def validate_moved_to_finland(cls, value: MovedToFinland) -> MovedToFinland:
         """Validate moved_to_finland against the current year at request time."""
 
-        if value == "before_2015":
+        if isinstance(value, str) and value == "before_2015":
             return value
+
+        if isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError as exc:
+                raise ValueError(
+                    "year must be an integer or 'before_2015'") from exc
 
         # Treat any year before 2015 as "before_2015"
         if value < 2015:
@@ -95,25 +114,3 @@ class OnboardingBackgroundFields(BaseModel):
             raise ValueError(f"year must be less than or equal to {max_year}")
 
         return value
-
-
-class OnboardingRequest(BaseModel):
-    """Onboarding request type.
-
-    Attributes:
-        app_version: Optional and can be used to track the app version for analytics or debugging.
-        background_fields: Contains the user's responses to the onboarding questions.
-        background_form_completed: Indicates whether the user completed the background fields section of onboarding.
-        background_form_timestamp: Records the time when the user completed the background fields.
-        consent_accepted: Indicates whether the user accepted the consent form.
-        consent_timestamp: Records the time when the user accepted the consent.
-        guid: A unique identifier for the user.
-    """
-
-    app_version: str | None = None
-    background_fields: OnboardingBackgroundFields
-    background_form_completed: bool
-    background_form_timestamp: datetime
-    consent_accepted: bool
-    consent_timestamp: datetime
-    guid: UUID

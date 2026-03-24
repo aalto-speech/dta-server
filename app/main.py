@@ -163,7 +163,7 @@ async def assess_speech(
         pronunciation = round(uniform(0, 5), 1)
         range_score = round(uniform(0, 5), 1)
 
-        data = SpeechAssessmentResponse(
+        results = SpeechAssessmentResponse(
             scores=SpeechAssessmentScores(
                 accuracy=accuracy,
                 fluency=fluency,
@@ -174,7 +174,7 @@ async def assess_speech(
             transcript=transcript
         )
 
-        return JSONResponse(content=jsonable_encoder(data), status_code=200)
+        return JSONResponse(content=jsonable_encoder(results), status_code=200)
     finally:
         # Always clean up the temporary file
         if temp_path and os.path.exists(temp_path):
@@ -202,7 +202,7 @@ async def onboarding(data: OnboardingRequest = Form()) -> Response:
 async def delete_users(
     data: DeleteUserRequest = Depends(
         DeleteUserRequest.as_form)
-) -> JSONResponse:
+) -> Response:
     """Delete all data for a user with the given GUID.
 
     This endpoint is admin-only and requires a valid API key.

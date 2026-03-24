@@ -31,29 +31,29 @@ def initialize_database() -> bool:
     return True
 
 
-def create_user(payload: OnboardingRequest) -> None:
-    """Inserts a new user record into the database based on the onboarding payload."""
+def create_user(data: OnboardingRequest) -> None:
+    """Inserts a new user record into the database based on the onboarding data."""
+
+    # Format consent_timestamp as ISO 8601 string for storage
+    consent_timestamp = data.consent_timestamp.isoformat()
 
     conn = sqlite3.connect(SETTINGS.database)
     cursor = conn.cursor()
-    consent_timestamp = payload.consent_timestamp.isoformat()
     cursor.execute("""
-        INSERT INTO users (guid, consent_accepted, consent_timestamp, app_version, gender, age_group, mother_tongues, other_languages, moved_to_finland, finnish_learning_duration, finnish_self_assessment)
+        INSERT INTO users (guid, consent_accepted, consent_timestamp, app_version, gender, age_group, native_languages, other_languages, moved_to_finland, finnish_learning_duration, finnish_self_assessment)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        str(payload.guid),
-        int(payload.consent_accepted),
+        str(data.guid),
+        int(data.consent_accepted),
         consent_timestamp,
-        payload.app_version,
-        payload.background_fields.gender,
-        payload.background_fields.age_group,
-        json.dumps(payload.background_fields.native_languages,
-                   separators=(",", ":")),
-        json.dumps(payload.background_fields.other_languages,
-                   separators=(",", ":")),
-        payload.background_fields.moved_to_finland,
-        payload.background_fields.finnish_learning_duration,
-        payload.background_fields.finnish_self_assessment
+        data.app_version,
+        data.gender,
+        data.age_group,
+        json.dumps(data.native_languages),
+        json.dumps(data.other_languages),
+        data.moved_to_finland,
+        data.finnish_learning_duration,
+        data.finnish_self_assessment
     ))
     conn.commit()
     conn.close()

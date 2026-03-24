@@ -17,10 +17,10 @@ CREATE TABLE
       )
     ),
     -- Store multi-select fields as JSON text arrays, e.g. '["Vietnamese","English"]'
-    mother_tongues TEXT NOT NULL CHECK (
-      json_valid (mother_tongues)
-      AND json_type (mother_tongues) = 'array'
-      AND json_array_length (mother_tongues) > 0
+    native_languages TEXT NOT NULL CHECK (
+      json_valid (native_languages)
+      AND json_type (native_languages) = 'array'
+      AND json_array_length (native_languages) > 0
     ),
     other_languages TEXT NOT NULL CHECK (
       json_valid (other_languages)
