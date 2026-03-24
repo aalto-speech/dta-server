@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from pathlib import Path
+from uuid import UUID
 
 from app.models.feedback import FeedbackRequest
 from app.models.onboarding import OnboardingRequest
@@ -119,3 +120,17 @@ def create_feedback(data: FeedbackRequest) -> None:
 
     conn.commit()
     conn.close()
+
+
+def get_user_guid(guid: UUID) -> bool:
+    with sqlite3.connect(SETTINGS.database) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM users WHERE guid = ? LIMIT 1", (str(guid),)).fetchone()
+    return row is not None
+
+
+def get_user_consent(guid: UUID) -> bool:
+    with sqlite3.connect(SETTINGS.database) as conn:
+        row = conn.execute(
+            "SELECT consent_accepted FROM users WHERE guid = ? LIMIT 1", (str(guid),)).fetchone()
+    return True if row == "1" else False
