@@ -3,11 +3,13 @@ import os
 import tempfile
 from contextlib import asynccontextmanager
 from random import uniform
+from uuid import UUID
 
 import whisper
-from fastapi import Depends, FastAPI, Form
+from fastapi import Depends, FastAPI, Form, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
+from pydantic import ValidationError
 
 from .config import SETTINGS
 from .db import (
@@ -15,8 +17,10 @@ from .db import (
     create_user,
     create_user_request,
     delete_user_data,
+    get_comparison_stats_by_self_assessment,
     initialize_database,
 )
+from .models.analytics import ComparisonQuery, ComparisonResponse, CohortType
 from .error_handlers import register_error_handlers
 from .models.feedback import FeedbackRequest
 from .models.onboarding import OnboardingRequest
@@ -57,6 +61,38 @@ async def ping() -> JSONResponse:
     """Ping-pong endpoint for checking if the server is running."""
 
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
+
+
+@app.get("/analytics/comparison")
+async def analytics_comparison(guid: str, days: int | None = None) -> JSONResponse:
+    """Return privacy-safe comparison statistics for one user against a cohort."""
+
+    try:
+        query = ComparisonQuery(guid=UUID(guid), days=days)
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid comparison query parameters",
+        ) from exc
+
+    # Ensure only users who completed onboarding and consent can access comparison.
+    auth.validate_user_access(query.guid)
+
+    stats = get_comparison_stats_by_self_assessment(query.guid, query.days)
+
+    payload = ComparisonResponse(
+        comparisonAvailable=stats.comparison_available,
+        cohortType=CohortType(stats.cohort_type),
+        cohortLabel=stats.cohort_label,
+        cohortSize=stats.cohort_size,
+        userAverageScore=stats.user_average_score,
+        cohortAverage=stats.cohort_average,
+        percentile=stats.percentile,
+        rankBand=None,
+        distributionSummary=stats.distribution_summary,
+    )
+
+    return JSONResponse(content=jsonable_encoder(payload), status_code=200)
 
 
 @app.post("/request/user")
