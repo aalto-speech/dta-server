@@ -26,7 +26,8 @@ def test_comparison_query_rejects_days_above_configured_range():
     except ValidationError:
         return
 
-    raise AssertionError("Expected ValidationError when days exceed max window")
+    raise AssertionError(
+        "Expected ValidationError when days exceed max window")
 
 
 def test_comparison_response_rounds_percentile_to_two_decimals():
@@ -62,4 +63,5 @@ def test_comparison_response_rejects_negative_distribution_values():
     except ValidationError:
         return
 
-    raise AssertionError("Expected ValidationError for negative distribution bucket count")
+    raise AssertionError(
+        "Expected ValidationError for negative distribution bucket count")
