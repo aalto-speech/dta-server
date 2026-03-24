@@ -151,3 +151,5 @@ conda-bld/
 
 # Database files
 *.db
+*.db-shm
+*.db-wal
