@@ -30,6 +30,9 @@ class Settings:
     env: AppEnv
     database: str
     admin_api_key: str
+    minimum_cohort_size: int
+    analytics_min_window_days: int
+    analytics_max_window_days: int
 
 
 def _parse_app_env() -> AppEnv:
@@ -46,11 +49,36 @@ def _database_for_env(env: AppEnv) -> str:
     return f"{env}.db"
 
 
+def _parse_int_env(name: str, default: int, minimum: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return default
+
+    if value < minimum:
+        return default
+
+    return value
+
+
 def get_settings() -> Settings:
     """Build settings once so the rest of the app can import stable values."""
 
     env = _parse_app_env()
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
+    minimum_cohort_size = _parse_int_env(
+        "MINIMUM_COHORT_SIZE", default=10, minimum=2)
+    analytics_min_window_days = _parse_int_env(
+        "ANALYTICS_MIN_WINDOW_DAYS", default=1, minimum=1)
+    analytics_max_window_days = _parse_int_env(
+        "ANALYTICS_MAX_WINDOW_DAYS", default=3650, minimum=1)
+
+    if analytics_max_window_days < analytics_min_window_days:
+        analytics_max_window_days = analytics_min_window_days
 
     if env == AppEnv.PRODUCTION and not admin_api_key:
         raise RuntimeError("ADMIN_API_KEY must be set in production")
@@ -59,6 +87,9 @@ def get_settings() -> Settings:
         env=env,
         database=_database_for_env(env),
         admin_api_key=admin_api_key,
+        minimum_cohort_size=minimum_cohort_size,
+        analytics_min_window_days=analytics_min_window_days,
+        analytics_max_window_days=analytics_max_window_days,
     )
 
 
