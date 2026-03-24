@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from pathlib import Path
+from uuid import UUID
 
 from app.models.feedback import FeedbackRequest
 from app.models.onboarding import OnboardingRequest
@@ -119,3 +120,35 @@ def create_feedback(data: FeedbackRequest) -> None:
 
     conn.commit()
     conn.close()
+
+
+def get_user(guid: UUID) -> bool:
+    """Check whether a user row exists for a GUID.
+
+    Args:
+        guid: The user's GUID.
+
+    Returns:
+        True if a users row exists, otherwise False.
+    """
+
+    with sqlite3.connect(SETTINGS.database) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM users WHERE guid = ? LIMIT 1", (str(guid),)).fetchone()
+    return row is not None
+
+
+def get_user_consent(guid: UUID) -> bool:
+    """Check whether a user has an accepted consent record.
+
+    Args:
+        guid: The user's GUID.
+
+    Returns:
+        True if a users row exists with consent_accepted=1, otherwise False.
+    """
+
+    with sqlite3.connect(SETTINGS.database) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1", (str(guid),)).fetchone()
+    return row is not None

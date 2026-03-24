@@ -124,6 +124,9 @@ async def assess_speech(
     # * Pydantic validation ensures the content type and file extension are correct.
     # * Validation checks which require access to the file content are not performed by Pydantic.
 
+    # Check if the user requesting the assessment exists and has given consent
+    auth.validate_user_access(data.guid)
+
     file = data.file
 
     # Stream the upload in chunks and enforce the size limit
