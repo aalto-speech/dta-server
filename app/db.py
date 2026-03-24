@@ -122,7 +122,16 @@ def create_feedback(data: FeedbackRequest) -> None:
     conn.close()
 
 
-def get_user_guid(guid: UUID) -> bool:
+def get_user(guid: UUID) -> bool:
+    """Check whether a user row exists for a GUID.
+
+    Args:
+        guid: The user's GUID.
+
+    Returns:
+        True if a users row exists, otherwise False.
+    """
+
     with sqlite3.connect(SETTINGS.database) as conn:
         row = conn.execute(
             "SELECT 1 FROM users WHERE guid = ? LIMIT 1", (str(guid),)).fetchone()
@@ -130,7 +139,16 @@ def get_user_guid(guid: UUID) -> bool:
 
 
 def get_user_consent(guid: UUID) -> bool:
+    """Check whether a user has an accepted consent record.
+
+    Args:
+        guid: The user's GUID.
+
+    Returns:
+        True if a users row exists with consent_accepted=1, otherwise False.
+    """
+
     with sqlite3.connect(SETTINGS.database) as conn:
         row = conn.execute(
-            "SELECT consent_accepted FROM users WHERE guid = ? LIMIT 1", (str(guid),)).fetchone()
-    return True if row == "1" else False
+            "SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1", (str(guid),)).fetchone()
+    return row is not None
