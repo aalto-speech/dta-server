@@ -1,4 +1,3 @@
-import pytest
 from pydantic import ValidationError
 
 from app.config import SETTINGS
@@ -19,11 +18,15 @@ def test_comparison_query_accepts_days_within_configured_range():
 def test_comparison_query_rejects_days_above_configured_range():
     """Reject days that exceed configured maximum analytics window."""
 
-    with pytest.raises(ValidationError):
+    try:
         ComparisonQuery(
             guid="4f536be2-5f5f-4310-b24f-9d7d44e91243",
             days=SETTINGS.analytics_max_window_days + 1,
         )
+    except ValidationError:
+        return
+
+    raise AssertionError("Expected ValidationError when days exceed max window")
 
 
 def test_comparison_response_rounds_percentile_to_two_decimals():
@@ -45,7 +48,7 @@ def test_comparison_response_rounds_percentile_to_two_decimals():
 def test_comparison_response_rejects_negative_distribution_values():
     """Reject invalid distribution buckets with negative counts."""
 
-    with pytest.raises(ValidationError):
+    try:
         ComparisonResponse(
             comparisonAvailable=True,
             cohortType=CohortType.SELF_ASSESSMENT,
@@ -56,3 +59,7 @@ def test_comparison_response_rejects_negative_distribution_values():
             percentile=80,
             distributionSummary={"0-1": -1},
         )
+    except ValidationError:
+        return
+
+    raise AssertionError("Expected ValidationError for negative distribution bucket count")
