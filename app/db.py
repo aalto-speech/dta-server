@@ -13,7 +13,27 @@ from .config import SETTINGS
 
 @dataclass(frozen=True)
 class ComparisonStats:
-    """Privacy-safe analytics output for user-to-cohort comparison."""
+    """Privacy-safe analytics output for user-to-cohort comparison.
+    
+    Extension Notes for Future Cohort Types:
+    To support additional cohort strategies (e.g., performance band), create parallel
+    functions following the pattern of get_comparison_stats_by_self_assessment():
+    
+    1. get_comparison_stats_by_performance_band(guid: UUID, days: int | None) -> ComparisonStats
+       - Query ASA performance band from assessments (e.g., "above_average", "average", etc).
+       - Match user against peers in the same performance band.
+       - Apply same privacy gating (minimum cohort size).
+       - Return ComparisonStats with cohort_type="performance_band".
+    
+    2. Routing in main.py:
+       - Accept cohort_type query parameter in analytics endpoint.
+       - Route to appropriate DB helper based on selected cohort_type.
+       - Default to self_assessment for backward compatibility.
+    
+    3. Testing:
+       - Mirror existing test suite for new cohort type.
+       - Verify privacy boundaries apply equally.
+    """
 
     comparison_available: bool
     cohort_type: str
@@ -94,7 +114,24 @@ def _get_distribution_summary(
     cohort_label: str,
     days: int | None = None,
 ) -> dict[str, int]:
-    """Build coarse score buckets for cohort charting without exposing peer-level rows."""
+    """Build coarse score buckets for cohort charting without exposing peer-level rows.
+    
+    Current Implementation (Phase 3+):
+    - Returns fixed buckets: 0-1, 1-2, 2-3, 3-4, 4-5 (user average scores).
+    - No privacy filtering: all buckets included regardless of count.
+    
+    Future Enhancement (Phase 5+):
+    - Add config setting: MIN_DISTRIBUTION_BUCKET_SIZE (e.g., 5).
+    - If any bucket count < MIN_DISTRIBUTION_BUCKET_SIZE, suppress distribution entirely.
+    - Prevents re-identification risk when cohorts are near minimum threshold.
+    - Update endpoint response to suppress distributionSummary when privacy rules triggered.
+    
+    To implement:
+    1. Add MIN_DISTRIBUTION_BUCKET_SIZE to config.py (default: 5).
+    2. Pass config value as parameter to this function.
+    3. Check if min(bucket_counts) < threshold; return None instead of dict.
+    4. Caller (get_comparison_stats_by_self_assessment) sets distribution_summary=None when filtered.
+    """
 
     window_sql, window_params = _window_filter_sql(days)
     score_expr = _score_expression()

@@ -65,7 +65,24 @@ async def ping() -> JSONResponse:
 
 @app.get("/analytics/comparison")
 async def analytics_comparison(guid: str, days: int | None = None) -> JSONResponse:
-    """Return privacy-safe comparison statistics for one user against a cohort."""
+    """Return privacy-safe comparison statistics for one user against a cohort.
+
+    Current Behavior (Phase 3+):
+    - Compares user against cohort defined by their self-assessed Finnish level (CEFR).
+    - Returns aggregated metrics only (no peer identifiers, no raw scores).
+    - Enforces minimum cohort size privacy threshold before exposing metrics.
+
+    Future Extensions (Phase 5+):
+    - Add optional query parameter: cohort_type (default: "self_assessment").
+    - Route to appropriate DB helper based on cohort_type:
+      - "self_assessment" → get_comparison_stats_by_self_assessment() [current]
+      - "performance_band" → get_comparison_stats_by_performance_band() [future]
+    - Update endpoint signature: cohort_type: str | None = None
+    - Add conditional routing logic before DB call.
+
+    Example future usage:
+      GET /analytics/comparison?guid=...&days=30&cohort_type=performance_band
+    """
 
     try:
         query = ComparisonQuery(guid=UUID(guid), days=days)
@@ -78,6 +95,10 @@ async def analytics_comparison(guid: str, days: int | None = None) -> JSONRespon
     # Ensure only users who completed onboarding and consent can access comparison.
     auth.validate_user_access(query.guid)
 
+    # TODO: Future routing for cohort_type parameter
+    # if cohort_type == "performance_band":
+    #     stats = get_comparison_stats_by_performance_band(query.guid, query.days)
+    # else:
     stats = get_comparison_stats_by_self_assessment(query.guid, query.days)
 
     payload = ComparisonResponse(

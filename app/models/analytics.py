@@ -7,9 +7,21 @@ from app.config import SETTINGS
 
 
 class CohortType(StrEnum):
-    """Supported comparison cohort definitions."""
+    """Supported comparison cohort definitions.
+
+    Future Extension Points:
+    - SELF_ASSESSMENT: Default cohort grouping by user's self-reported Finnish level (CEFR).
+    - PERFORMANCE_BAND: (Future) Cohort based on user's inferred performance band from ASA results.
+    
+    To add a new cohort type:
+    1. Add a new enum member here.
+    2. Implement corresponding logic in db.py (e.g., get_comparison_stats_by_performance_band).
+    3. Add query parameter to ComparisonQuery to select cohort strategy.
+    4. Update analytics endpoint in main.py to route to the appropriate DB helper.
+    """
 
     SELF_ASSESSMENT = "self_assessment"
+    # PERFORMANCE_BAND = "performance_band"  # Future sprint
 
 
 class ComparisonQuery(BaseModel):
@@ -42,7 +54,23 @@ class ComparisonQuery(BaseModel):
 
 
 class ComparisonResponse(BaseModel):
-    """Privacy-safe response contract for user-to-cohort comparison."""
+    """Privacy-safe response contract for user-to-cohort comparison.
+
+    Field Adoption Timeline:
+    - Phase 3 (Current): comparisonAvailable, cohortType, cohortLabel, cohortSize, 
+      userAverageScore, cohortAverage, percentile (primary metric).
+    - Phase 5+ (Future): rankBand - human-readable percentile band (e.g., 'top 10%', 'around average').
+      The UI can compute rankBand from percentile independently until backend adoption.
+    - Phase 5+ (Future): distributionSummary only when privacy guardrails allow (min bucket size).
+
+    Extension Notes on Optional Fields:
+    - rankBand: Kept nullable to allow deferred UI adoption. Once UI is ready, endpoint can
+      populate this field without breaking existing clients. Derive from percentile using
+      configurable band thresholds (e.g., >90→'top 10%', 70-90→'top 30%', etc).
+    - distributionSummary: Currently always returned when comparisonAvailable=true. Future
+      privacy refinement can suppress if any bucket would contain too few users to be safe
+      (e.g., <5). Add config setting MIN_DISTRIBUTION_BUCKET_SIZE to enforce this.
+    """
 
     comparisonAvailable: bool
     cohortType: CohortType
@@ -51,8 +79,8 @@ class ComparisonResponse(BaseModel):
     userAverageScore: float | None = Field(default=None, ge=0, le=5)
     cohortAverage: float | None = Field(default=None, ge=0, le=5)
     percentile: float | None = Field(default=None, ge=0, le=100)
-    rankBand: str | None = None
-    distributionSummary: dict[str, int] | None = None
+    rankBand: str | None = None  # Future: Derive from percentile using configurable bands
+    distributionSummary: dict[str, int] | None = None  # Future: Suppress if bucket < MIN_SIZE
 
     @field_validator("percentile")
     @classmethod
