@@ -153,3 +153,6 @@ conda-bld/
 *.db
 *.db-shm
 *.db-wal
+
+# Local
+.local*
