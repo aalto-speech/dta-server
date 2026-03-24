@@ -177,3 +177,94 @@ def test_analytics_comparison_returns_404_for_unknown_user(client: TestClient, r
 
     assert response.status_code == 404
     assert response.json()["detail"] == "User not found"
+
+
+def test_analytics_comparison_rejects_invalid_guid_format(client: TestClient, reset_database):
+    """Return 422 when guid is not a valid UUID format."""
+
+    _ = reset_database
+    initialize_database()
+
+    response = client.get("/analytics/comparison",
+                          params={"guid": "not-a-valid-uuid"})
+
+    assert response.status_code == 422
+
+
+def test_analytics_comparison_user_with_no_assessments_comparison_unavailable(client: TestClient, reset_database):
+    """User with no assessments returns comparison unavailable even if cohort exists."""
+
+    _ = reset_database
+    initialize_database()
+    target_guid = uuid4()
+
+    with sqlite3.connect(SETTINGS.database) as conn:
+        cursor = conn.cursor()
+        # Create target user with no assessments
+        _insert_user(cursor, str(target_guid), level="B1")
+
+        # Create enough cohort members to meet threshold
+        for idx in range(SETTINGS.minimum_cohort_size):
+            peer_guid = uuid4()
+            _insert_user(cursor, str(peer_guid), level="B1")
+            _insert_assessment(
+                cursor,
+                str(peer_guid),
+                3.0,
+                f"2026-03-{idx + 1:02d} 10:00:00",
+                f"peer-{idx}",
+            )
+        conn.commit()
+
+    response = client.get("/analytics/comparison",
+                          params={"guid": str(target_guid)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["comparisonAvailable"] is False
+    assert payload["userAverageScore"] is None
+    assert payload["cohortAverage"] is None
+    assert payload["percentile"] is None
+
+
+def test_analytics_comparison_response_does_not_expose_peer_data(client: TestClient, reset_database):
+    """Response payload never contains individual peer GUIDs or raw scores."""
+
+    _ = reset_database
+    initialize_database()
+    target_guid = uuid4()
+
+    with sqlite3.connect(SETTINGS.database) as conn:
+        cursor = conn.cursor()
+        _insert_user(cursor, str(target_guid), level="B1")
+        _insert_assessment(cursor, str(target_guid), 4.0,
+                           "2026-03-10 10:00:00", "target")
+
+        for idx in range(SETTINGS.minimum_cohort_size - 1):
+            peer_guid = uuid4()
+            _insert_user(cursor, str(peer_guid), level="B1")
+            _insert_assessment(
+                cursor,
+                str(peer_guid),
+                2.0,
+                f"2026-03-{idx + 1:02d} 10:00:00",
+                f"peer-{idx}",
+            )
+        conn.commit()
+
+    response = client.get("/analytics/comparison",
+                          params={"guid": str(target_guid)})
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    # Verify response contains no lists of GUIDs or raw peer scores
+    response_str = str(payload)
+    assert "peer-" not in response_str
+
+    # Verify distribution summary contains only aggregate counts, not individual values
+    if payload["distributionSummary"] is not None:
+        for bucket_key, count in payload["distributionSummary"].items():
+            assert isinstance(bucket_key, str)
+            assert isinstance(count, int)
+            assert count >= 0

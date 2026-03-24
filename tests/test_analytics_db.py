@@ -200,3 +200,111 @@ def test_comparison_stats_respects_configurable_days_window(reset_database):
     assert recent_stats.user_average_score == 5.0
     assert all_time_stats.cohort_average == 2.1
     assert recent_stats.cohort_average == 3.2
+
+
+def test_comparison_stats_handles_percentile_ties(reset_database):
+    """Percentile computation handles ties (multiple users with same score)."""
+
+    _ = reset_database
+    initialize_database()
+    target_guid = uuid4()
+
+    with sqlite3.connect(SETTINGS.database) as conn:
+        cursor = conn.cursor()
+
+        _insert_user(cursor, str(target_guid), level="B1")
+        _insert_assessment(cursor, str(target_guid), 3.0,
+                           "2026-03-10 10:00:00", "target")
+
+        # Create all peers with same score as target (all tied)
+        for idx in range(SETTINGS.minimum_cohort_size - 1):
+            peer_guid = uuid4()
+            _insert_user(cursor, str(peer_guid), level="B1")
+            _insert_assessment(
+                cursor,
+                str(peer_guid),
+                3.0,
+                f"2026-03-{idx + 1:02d} 10:00:00",
+                f"peer-tied-{idx}",
+            )
+
+        conn.commit()
+
+    stats = get_comparison_stats_by_self_assessment(target_guid)
+
+    assert stats.comparison_available is True
+    assert stats.percentile == 100.0
+    assert stats.user_average_score == 3.0
+    assert stats.cohort_average == 3.0
+
+
+def test_comparison_stats_boundary_percentiles(reset_database):
+    """Percentile correctly computes for users at min and max boundaries."""
+
+    _ = reset_database
+    initialize_database()
+    min_guid = uuid4()
+    max_guid = uuid4()
+
+    with sqlite3.connect(SETTINGS.database) as conn:
+        cursor = conn.cursor()
+
+        # Create user at minimum score
+        _insert_user(cursor, str(min_guid), level="B1")
+        _insert_assessment(cursor, str(min_guid), 0.0,
+                           "2026-03-01 10:00:00", "min-user")
+
+        # Create user at maximum score
+        _insert_user(cursor, str(max_guid), level="B1")
+        _insert_assessment(cursor, str(max_guid), 5.0,
+                           "2026-03-02 10:00:00", "max-user")
+
+        # Add required cohort members in middle range
+        for idx in range(SETTINGS.minimum_cohort_size - 2):
+            peer_guid = uuid4()
+            _insert_user(cursor, str(peer_guid), level="B1")
+            _insert_assessment(
+                cursor,
+                str(peer_guid),
+                2.5,
+                f"2026-03-{idx + 3:02d} 10:00:00",
+                f"peer-{idx}",
+            )
+
+        conn.commit()
+
+    min_stats = get_comparison_stats_by_self_assessment(min_guid)
+    max_stats = get_comparison_stats_by_self_assessment(max_guid)
+
+    assert min_stats.percentile < max_stats.percentile
+    assert min_stats.percentile > 0
+    assert max_stats.percentile == 100.0
+
+
+def test_comparison_stats_privacy_distribution_suppressed_below_threshold(reset_database):
+    """Distribution and cohort stats are excluded when cohort size is below privacy threshold."""
+
+    _ = reset_database
+    initialize_database()
+
+    with sqlite3.connect(SETTINGS.database) as conn:
+        cursor = conn.cursor()
+        for idx in range(SETTINGS.minimum_cohort_size - 1):
+            guid = uuid4()
+            _insert_user(cursor, str(guid), level="B1")
+            _insert_assessment(
+                cursor,
+                str(guid),
+                2.5,
+                f"2026-03-{idx + 1:02d} 10:00:00",
+                f"below-threshold-{idx}",
+            )
+        conn.commit()
+
+    target_guid = guid
+    stats = get_comparison_stats_by_self_assessment(target_guid)
+
+    assert stats.comparison_available is False
+    assert stats.cohort_average is None
+    assert stats.percentile is None
+    assert stats.distribution_summary is None
