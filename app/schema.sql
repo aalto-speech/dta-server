@@ -134,3 +134,5 @@ CREATE INDEX IF NOT EXISTS idx_assessments_task_id ON assessments (task_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_guid_created_at ON feedback (guid, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_feedback_assessment_id ON feedback (assessment_id);
+
+CREATE INDEX IF NOT EXISTS idx_users_finnish_self_assessment ON users (finnish_self_assessment);
