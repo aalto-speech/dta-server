@@ -80,13 +80,23 @@ class OnboardingRequest(BaseModel):
     finnish_self_assessment: CEFRLevel
     gender: Gender
     moved_to_finland: MovedToFinland
-    native_languages: list[str]
-    other_languages: list[str]
+    native_languages: str | list[str]
+    other_languages: str | list[str] | None = None
     background_form_completed: bool
     background_form_timestamp: datetime
     consent_accepted: bool
     consent_timestamp: datetime
     guid: UUID
+
+    @field_validator("native_languages", "other_languages")
+    @classmethod
+    def validate_languages(cls, value: str | list[str] | None) -> str | list[str] | None:
+        """Validate that the language lists are comma-separated strings."""
+
+        if isinstance(value, str):
+            return [lang.strip() for lang in value.split("\n")]
+
+        return value
 
     @field_validator("moved_to_finland")
     @classmethod

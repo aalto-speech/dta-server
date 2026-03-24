@@ -39,6 +39,18 @@ def _valid_onboarding_form_data(**overrides):
     return data
 
 
+def test_onboarding_handler_accepts_valid_native_languages(client: TestClient):
+    """Test /onboarding accepts valid native_languages as a list."""
+
+    response = client.post(
+        "/onboarding",
+        data=_valid_onboarding_form_data(
+            native_languages="Vietnamese\nFinnish\nEnglish"),
+    )
+
+    assert response.status_code == 201
+
+
 def test_onboarding_handler_calls_create_user(monkeypatch: pytest.MonkeyPatch):
     """Test handler success path calls create_user and returns 201."""
 
