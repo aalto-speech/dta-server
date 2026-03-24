@@ -31,7 +31,7 @@ class FeedbackRequest(BaseModel):
         type: Type of feedback being submitted.
     """
 
-    assessment_id: int | None = Field(default=None, ge=1)
+    assessment_id: int | None = Field(default=None, ge=0)
     comment: str | None = None
     guid: UUID
     reaction_value: int = Field(ge=1, le=5)
