@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import ValidationError
 
 from app.config import SETTINGS
@@ -8,7 +10,7 @@ def test_comparison_query_accepts_days_within_configured_range():
     """Accept valid days values inside configured analytics bounds."""
 
     query = ComparisonQuery(
-        guid="1cfdd122-4422-4f11-bf1f-e7c25d0d77ca",
+        guid=UUID("1cfdd122-4422-4f11-bf1f-e7c25d0d77ca"),
         days=SETTINGS.analytics_min_window_days,
     )
 
@@ -20,7 +22,7 @@ def test_comparison_query_rejects_days_above_configured_range():
 
     try:
         ComparisonQuery(
-            guid="4f536be2-5f5f-4310-b24f-9d7d44e91243",
+            guid=UUID("4f536be2-5f5f-4310-b24f-9d7d44e91243"),
             days=SETTINGS.analytics_max_window_days + 1,
         )
     except ValidationError:

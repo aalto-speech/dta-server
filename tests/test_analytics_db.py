@@ -276,6 +276,8 @@ def test_comparison_stats_boundary_percentiles(reset_database):
     min_stats = get_comparison_stats_by_self_assessment(min_guid)
     max_stats = get_comparison_stats_by_self_assessment(max_guid)
 
+    assert min_stats.percentile is not None
+    assert max_stats.percentile is not None
     assert min_stats.percentile < max_stats.percentile
     assert min_stats.percentile > 0
     assert max_stats.percentile == 100.0
