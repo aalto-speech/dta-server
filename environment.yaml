@@ -14,3 +14,4 @@ dependencies:
   - python-levenshtein
   - fastapi
   - python-dotenv
+  - pydantic>=2,<3
