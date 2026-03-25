@@ -67,12 +67,12 @@ async def ping() -> JSONResponse:
 async def analytics_comparison(guid: str, days: int | None = None) -> JSONResponse:
     """Return privacy-safe comparison statistics for one user against a cohort.
 
-    Current Behavior (Phase 3+):
+    Current Behavior:
     - Compares user against cohort defined by their self-assessed Finnish level (CEFR).
     - Returns aggregated metrics only (no peer identifiers, no raw scores).
     - Enforces minimum cohort size privacy threshold before exposing metrics.
 
-    Future Extensions (Phase 5+):
+    Future Extensions:
     - Add optional query parameter: cohort_type (default: "self_assessment").
     - Route to appropriate DB helper based on cohort_type:
       - "self_assessment" → get_comparison_stats_by_self_assessment() [current]
