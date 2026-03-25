@@ -77,8 +77,8 @@ def get_settings() -> Settings:
     analytics_max_window_days = _parse_int_env(
         "ANALYTICS_MAX_WINDOW_DAYS", default=3650, minimum=1)
 
-    if analytics_max_window_days < analytics_min_window_days:
-        analytics_max_window_days = analytics_min_window_days
+    analytics_max_window_days = max(
+        analytics_max_window_days, analytics_min_window_days)
 
     if env == AppEnv.PRODUCTION and not admin_api_key:
         raise RuntimeError("ADMIN_API_KEY must be set in production")

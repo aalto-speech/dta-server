@@ -1,6 +1,5 @@
 from enum import StrEnum
 from uuid import UUID
-
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import SETTINGS
@@ -12,7 +11,7 @@ class CohortType(StrEnum):
     Future Extension Points:
     - SELF_ASSESSMENT: Default cohort grouping by user's self-reported Finnish level (CEFR).
     - PERFORMANCE_BAND: (Future) Cohort based on user's inferred performance band from ASA results.
-    
+
     To add a new cohort type:
     1. Add a new enum member here.
     2. Implement corresponding logic in db.py (e.g., get_comparison_stats_by_performance_band).
@@ -53,6 +52,39 @@ class ComparisonQuery(BaseModel):
         return value
 
 
+class ComparisonStats(BaseModel):
+    """Privacy-safe analytics output for user-to-cohort comparison.
+
+    Extension Notes for Future Cohort Types:
+    To support additional cohort strategies (e.g., performance band), create parallel
+    functions following the pattern of get_comparison_stats_by_self_assessment():
+
+    1. get_comparison_stats_by_performance_band(guid: UUID, days: int | None) -> ComparisonStats
+       - Query ASA performance band from assessments (e.g., "above_average", "average", etc).
+       - Match user against peers in the same performance band.
+       - Apply same privacy gating (minimum cohort size).
+       - Return ComparisonStats with cohort_type="performance_band".
+
+    2. Routing in main.py:
+       - Accept cohort_type query parameter in analytics endpoint.
+       - Route to appropriate DB helper based on selected cohort_type.
+       - Default to self_assessment for backward compatibility.
+
+    3. Testing:
+       - Mirror existing test suite for new cohort type.
+       - Verify privacy boundaries apply equally.
+    """
+
+    comparison_available: bool
+    cohort_type: str
+    cohort_label: str
+    cohort_size: int
+    user_average_score: float | None
+    cohort_average: float | None
+    percentile: float | None
+    distribution_summary: dict[str, int] | None
+
+
 class ComparisonResponse(BaseModel):
     """Privacy-safe response contract for user-to-cohort comparison.
 
@@ -80,7 +112,8 @@ class ComparisonResponse(BaseModel):
     cohortAverage: float | None = Field(default=None, ge=0, le=5)
     percentile: float | None = Field(default=None, ge=0, le=100)
     rankBand: str | None = None  # Future: Derive from percentile using configurable bands
-    distributionSummary: dict[str, int] | None = None  # Future: Suppress if bucket < MIN_SIZE
+    # Future: Suppress if bucket < MIN_SIZE
+    distributionSummary: dict[str, int] | None = None
 
     @field_validator("percentile")
     @classmethod
