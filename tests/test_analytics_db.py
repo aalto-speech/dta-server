@@ -119,7 +119,9 @@ def test_comparison_stats_hidden_when_cohort_is_below_privacy_threshold(reset_da
     assert stats.distribution_summary is None
 
 
-def test_comparison_stats_returns_percentile_when_privacy_threshold_is_met(reset_database):
+def test_comparison_stats_returns_percentile_when_privacy_threshold_is_met(
+    reset_database,
+):
     """Comparison includes percentile and cohort average when cohort is large enough."""
 
     _ = reset_database
@@ -130,8 +132,9 @@ def test_comparison_stats_returns_percentile_when_privacy_threshold_is_met(reset
         cursor = conn.cursor()
 
         _insert_user(cursor, str(target_guid))
-        _insert_assessment(cursor, str(target_guid), 4.0,
-                           "2026-03-10 10:00:00", "target")
+        _insert_assessment(
+            cursor, str(target_guid), 4.0, "2026-03-10 10:00:00", "target"
+        )
 
         for idx in range(SETTINGS.minimum_cohort_size - 1):
             guid = uuid4()
@@ -167,10 +170,12 @@ def test_comparison_stats_respects_configurable_days_window(reset_database):
         cursor = conn.cursor()
 
         _insert_user(cursor, str(target_guid))
-        _insert_assessment(cursor, str(target_guid), 5.0,
-                           "2099-01-01 10:00:00", "target-new")
-        _insert_assessment(cursor, str(target_guid), 1.0,
-                           "2000-01-01 10:00:00", "target-old")
+        _insert_assessment(
+            cursor, str(target_guid), 5.0, "2099-01-01 10:00:00", "target-new"
+        )
+        _insert_assessment(
+            cursor, str(target_guid), 1.0, "2000-01-01 10:00:00", "target-old"
+        )
 
         for idx in range(SETTINGS.minimum_cohort_size - 1):
             guid = uuid4()
@@ -213,8 +218,9 @@ def test_comparison_stats_handles_percentile_ties(reset_database):
         cursor = conn.cursor()
 
         _insert_user(cursor, str(target_guid), level="B1")
-        _insert_assessment(cursor, str(target_guid), 3.0,
-                           "2026-03-10 10:00:00", "target")
+        _insert_assessment(
+            cursor, str(target_guid), 3.0, "2026-03-10 10:00:00", "target"
+        )
 
         # Create all peers with same score as target (all tied)
         for idx in range(SETTINGS.minimum_cohort_size - 1):
@@ -251,13 +257,15 @@ def test_comparison_stats_boundary_percentiles(reset_database):
 
         # Create user at minimum score
         _insert_user(cursor, str(min_guid), level="B1")
-        _insert_assessment(cursor, str(min_guid), 0.0,
-                           "2026-03-01 10:00:00", "min-user")
+        _insert_assessment(
+            cursor, str(min_guid), 0.0, "2026-03-01 10:00:00", "min-user"
+        )
 
         # Create user at maximum score
         _insert_user(cursor, str(max_guid), level="B1")
-        _insert_assessment(cursor, str(max_guid), 5.0,
-                           "2026-03-02 10:00:00", "max-user")
+        _insert_assessment(
+            cursor, str(max_guid), 5.0, "2026-03-02 10:00:00", "max-user"
+        )
 
         # Add required cohort members in middle range
         for idx in range(SETTINGS.minimum_cohort_size - 2):
@@ -283,7 +291,9 @@ def test_comparison_stats_boundary_percentiles(reset_database):
     assert max_stats.percentile == 100.0
 
 
-def test_comparison_stats_privacy_distribution_suppressed_below_threshold(reset_database):
+def test_comparison_stats_privacy_distribution_suppressed_below_threshold(
+    reset_database,
+):
     """Distribution and cohort stats are excluded when cohort size is below privacy threshold."""
 
     _ = reset_database

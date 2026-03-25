@@ -66,4 +66,5 @@ def test_comparison_response_rejects_negative_distribution_values():
         return
 
     raise AssertionError(
-        "Expected ValidationError for negative distribution bucket count")
+        "Expected ValidationError for negative distribution bucket count"
+    )

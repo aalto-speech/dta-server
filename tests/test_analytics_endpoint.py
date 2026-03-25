@@ -80,7 +80,9 @@ def _insert_assessment(
     )
 
 
-def test_analytics_comparison_returns_aggregate_metrics(client: TestClient, reset_database):
+def test_analytics_comparison_returns_aggregate_metrics(
+    client: TestClient, reset_database
+):
     """Return user and cohort aggregate stats when privacy threshold is met."""
 
     _ = reset_database
@@ -90,8 +92,9 @@ def test_analytics_comparison_returns_aggregate_metrics(client: TestClient, rese
     with sqlite3.connect(SETTINGS.database) as conn:
         cursor = conn.cursor()
         _insert_user(cursor, str(target_guid), level="B1")
-        _insert_assessment(cursor, str(target_guid), 4.0,
-                           "2026-03-10 10:00:00", "target")
+        _insert_assessment(
+            cursor, str(target_guid), 4.0, "2026-03-10 10:00:00", "target"
+        )
 
         for idx in range(SETTINGS.minimum_cohort_size - 1):
             peer_guid = uuid4()
@@ -121,7 +124,9 @@ def test_analytics_comparison_returns_aggregate_metrics(client: TestClient, rese
     assert isinstance(payload["distributionSummary"], dict)
 
 
-def test_analytics_comparison_hides_details_for_small_cohort(client: TestClient, reset_database):
+def test_analytics_comparison_hides_details_for_small_cohort(
+    client: TestClient, reset_database
+):
     """Return comparisonAvailable false when cohort size is below privacy threshold."""
 
     _ = reset_database
@@ -166,7 +171,9 @@ def test_analytics_comparison_rejects_invalid_days(client: TestClient):
     assert response.status_code == 422
 
 
-def test_analytics_comparison_returns_404_for_unknown_user(client: TestClient, reset_database):
+def test_analytics_comparison_returns_404_for_unknown_user(
+    client: TestClient, reset_database
+):
     """Return 404 for GUIDs that do not exist in the users table."""
 
     _ = reset_database
@@ -179,7 +186,9 @@ def test_analytics_comparison_returns_404_for_unknown_user(client: TestClient, r
     assert response.json()["detail"] == "User not found"
 
 
-def test_analytics_comparison_rejects_invalid_guid_format(client: TestClient, reset_database):
+def test_analytics_comparison_rejects_invalid_guid_format(
+    client: TestClient, reset_database
+):
     """Return 422 when guid is not a valid UUID format."""
 
     _ = reset_database
@@ -191,7 +200,9 @@ def test_analytics_comparison_rejects_invalid_guid_format(client: TestClient, re
     assert response.status_code == 422
 
 
-def test_analytics_comparison_user_with_no_assessments_comparison_unavailable(client: TestClient, reset_database):
+def test_analytics_comparison_user_with_no_assessments_comparison_unavailable(
+    client: TestClient, reset_database
+):
     """User with no assessments returns comparison unavailable even if cohort exists."""
 
     _ = reset_database
@@ -227,7 +238,9 @@ def test_analytics_comparison_user_with_no_assessments_comparison_unavailable(cl
     assert payload["percentile"] is None
 
 
-def test_analytics_comparison_response_does_not_expose_peer_data(client: TestClient, reset_database):
+def test_analytics_comparison_response_does_not_expose_peer_data(
+    client: TestClient, reset_database
+):
     """Response payload never contains individual peer GUIDs or raw scores."""
 
     _ = reset_database
@@ -237,8 +250,9 @@ def test_analytics_comparison_response_does_not_expose_peer_data(client: TestCli
     with sqlite3.connect(SETTINGS.database) as conn:
         cursor = conn.cursor()
         _insert_user(cursor, str(target_guid), level="B1")
-        _insert_assessment(cursor, str(target_guid), 4.0,
-                           "2026-03-10 10:00:00", "target")
+        _insert_assessment(
+            cursor, str(target_guid), 4.0, "2026-03-10 10:00:00", "target"
+        )
 
         for idx in range(SETTINGS.minimum_cohort_size - 1):
             peer_guid = uuid4()
