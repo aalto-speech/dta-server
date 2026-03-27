@@ -117,9 +117,11 @@ def test_analytics_comparison_returns_aggregate_metrics(
     assert payload["comparisonAvailable"] is True
     assert payload["cohortType"] == "self_assessment"
     assert payload["cohortLabel"] == "B1"
-    assert payload["cohortSize"] == SETTINGS.minimum_cohort_size
+    cohort_size = SETTINGS.minimum_cohort_size
+    expected_cohort_average = (4.0 + 2.0 * (cohort_size - 1)) / cohort_size
+    assert payload["cohortSize"] == cohort_size
     assert payload["userAverageScore"] == 4.0
-    assert payload["cohortAverage"] == 2.2
+    assert payload["cohortAverage"] == expected_cohort_average
     assert payload["percentile"] == 100.0
     assert isinstance(payload["distributionSummary"], dict)
 
