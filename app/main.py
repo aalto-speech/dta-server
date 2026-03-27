@@ -103,7 +103,7 @@ async def analytics_comparison(guid: str, days: int | None = None) -> JSONRespon
 
     payload = ComparisonResponse(
         comparisonAvailable=stats.comparison_available,
-        cohortType=CohortType(stats.cohort_type),
+        cohortType=stats.cohort_type,
         cohortLabel=stats.cohort_label,
         cohortSize=stats.cohort_size,
         userAverageScore=stats.user_average_score,

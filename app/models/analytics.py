@@ -76,7 +76,7 @@ class ComparisonStats(BaseModel):
     """
 
     comparison_available: bool
-    cohort_type: str
+    cohort_type: CohortType
     cohort_label: str
     cohort_size: int
     user_average_score: float | None

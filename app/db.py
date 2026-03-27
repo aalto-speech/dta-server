@@ -6,7 +6,7 @@ from uuid import UUID
 from app.models.feedback import FeedbackRequest
 from app.models.onboarding import OnboardingRequest
 from app.models.user_requests import DeleteUserRequest, UserDataRequest
-from app.models.analytics import ComparisonStats
+from app.models.analytics import ComparisonStats, CohortType
 
 from .config import SETTINGS
 
@@ -156,9 +156,8 @@ def get_comparison_stats_by_self_assessment(
     if cohort_label is None:
         return ComparisonStats(
             comparison_available=False,
-            cohort_type="self_assessment",
+            cohort_type=CohortType.SELF_ASSESSMENT,
             cohort_label="",
-            cohort_size=0,
             user_average_score=None,
             cohort_average=None,
             percentile=None,
@@ -222,7 +221,7 @@ def get_comparison_stats_by_self_assessment(
     if not comparison_available:
         return ComparisonStats(
             comparison_available=False,
-            cohort_type="self_assessment",
+            cohort_type=CohortType.SELF_ASSESSMENT,
             cohort_label=cohort_label,
             cohort_size=cohort_size,
             user_average_score=user_average,
@@ -233,7 +232,7 @@ def get_comparison_stats_by_self_assessment(
 
     return ComparisonStats(
         comparison_available=True,
-        cohort_type="self_assessment",
+        cohort_type=CohortType.SELF_ASSESSMENT,
         cohort_label=cohort_label,
         cohort_size=cohort_size,
         user_average_score=user_average,
