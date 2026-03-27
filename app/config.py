@@ -33,7 +33,7 @@ class Settings:
     env: AppEnv
     database: str
     admin_api_key: str
-    minimum_cohort_size: int
+    min_cohort_size: int
     analytics_min_window_days: int
     analytics_max_window_days: int
 
@@ -81,8 +81,8 @@ def get_settings() -> Settings:
 
     env = _parse_app_env()
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
-    minimum_cohort_size = _parse_int_env(
-        "MINIMUM_COHORT_SIZE", default=10, minimum=2)
+    min_cohort_size = _parse_int_env(
+        "MIN_COHORT_SIZE", default=100, minimum=2)
     analytics_min_window_days = _parse_int_env(
         "ANALYTICS_MIN_WINDOW_DAYS", default=1, minimum=1)
     analytics_max_window_days = _parse_int_env(
@@ -98,7 +98,7 @@ def get_settings() -> Settings:
         env=env,
         database=_database_for_env(env),
         admin_api_key=admin_api_key,
-        minimum_cohort_size=minimum_cohort_size,
+        min_cohort_size=min_cohort_size,
         analytics_min_window_days=analytics_min_window_days,
         analytics_max_window_days=analytics_max_window_days,
     )

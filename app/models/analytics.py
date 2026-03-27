@@ -1,5 +1,6 @@
 from enum import StrEnum
 from uuid import UUID
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import SETTINGS
@@ -23,8 +24,8 @@ class CohortType(StrEnum):
     # PERFORMANCE_BAND = "performance_band"  # Future sprint
 
 
-class ComparisonQuery(BaseModel):
-    """Query contract for comparison analytics endpoint."""
+class ComparisonRequest(BaseModel):
+    """Request type for comparison analytics endpoint."""
 
     guid: UUID
     days: int | None = Field(default=None, ge=1)
@@ -75,25 +76,22 @@ class ComparisonStats(BaseModel):
        - Verify privacy boundaries apply equally.
     """
 
-    comparison_available: bool
-    cohort_type: CohortType
     cohort_label: str
     cohort_size: int
     user_average_score: float | None
     cohort_average: float | None
     percentile: float | None
-    distribution_summary: dict[str, int] | None
 
 
 class ComparisonResponse(BaseModel):
     """Privacy-safe response contract for user-to-cohort comparison.
 
     Field Adoption Timeline:
-    - Phase 3 (Current): comparisonAvailable, cohortType, cohortLabel, cohortSize, 
-      userAverageScore, cohortAverage, percentile (primary metric).
-    - Phase 5+ (Future): rankBand - human-readable percentile band (e.g., 'top 10%', 'around average').
-      The UI can compute rankBand from percentile independently until backend adoption.
-    - Phase 5+ (Future): distributionSummary only when privacy guardrails allow (min bucket size).
+    - Phase 3 (Current): cohort_type, cohort_label, cohort_size,
+      user_average_score, cohort_average, percentile (primary metric).
+    - Phase 5+ (Future): rank_band - human-readable percentile band (e.g., 'top 10%', 'around average').
+      The UI can compute rank_band from percentile independently until backend adoption.
+    - Phase 5+ (Future): distribution_summary only when privacy guardrails allow (min bucket size).
 
     Extension Notes on Optional Fields:
     - rankBand: Kept nullable to allow deferred UI adoption. Once UI is ready, endpoint can
@@ -104,16 +102,13 @@ class ComparisonResponse(BaseModel):
       (e.g., <5). Add config setting MIN_DISTRIBUTION_BUCKET_SIZE to enforce this.
     """
 
-    comparisonAvailable: bool
-    cohortType: CohortType
-    cohortLabel: str
-    cohortSize: int = Field(ge=0)
-    userAverageScore: float | None = Field(default=None, ge=0, le=5)
-    cohortAverage: float | None = Field(default=None, ge=0, le=5)
-    percentile: float | None = Field(default=None, ge=0, le=100)
-    rankBand: str | None = None  # Future: Derive from percentile using configurable bands
+    cohort_label: str
+    cohort_size: int = Field(ge=SETTINGS.min_cohort_size)
+    cohort_average: float = Field(ge=0, le=5)
+    percentile: float = Field(ge=0, le=1)
+    # Future: Derive from percentile using configurable bands
+    rank_band: str
     # Future: Suppress if bucket < MIN_SIZE
-    distributionSummary: dict[str, int] | None = None
 
     @field_validator("percentile")
     @classmethod
@@ -125,20 +120,12 @@ class ComparisonResponse(BaseModel):
 
         return round(value, 2)
 
-    @field_validator("distributionSummary")
+    @field_validator("cohort_size")
     @classmethod
-    def validate_distribution_summary(
-        cls, value: dict[str, int] | None
-    ) -> dict[str, int] | None:
-        """Ensure optional distribution buckets cannot contain negative counts."""
+    def normalize_cohort_size(cls, value: int) -> int:
+        """Enforce non-negative cohort size."""
 
-        if value is None:
-            return value
-
-        for bucket, count in value.items():
-            if count < 0:
-                raise ValueError(
-                    f"distributionSummary bucket '{bucket}' cannot be negative"
-                )
+        if value < 0:
+            raise ValueError("cohort_size cannot be negative")
 
         return value

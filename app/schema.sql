@@ -50,9 +50,6 @@ CREATE TABLE
         'years_7_10',
         'years_10_plus'
       )
-    ), -- use the exact questionnaire options
-    finnish_self_assessment TEXT NOT NULL CHECK (
-      finnish_self_assessment IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')
     ),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -123,6 +120,16 @@ CREATE TABLE
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     processed_at TEXT, -- timestamp when admin processed the request
     admin_notes TEXT, -- optional notes from admin
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
+  );
+
+CREATE TABLE
+  IF NOT EXISTS user_cefr_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guid TEXT NOT NULL,
+    cefr_level TEXT NOT NULL CHECK (cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')),
+    source TEXT NOT NULL CHECK (source IN ('self_report', 'model')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );
 

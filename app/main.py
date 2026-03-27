@@ -3,13 +3,11 @@ import os
 import tempfile
 from contextlib import asynccontextmanager
 from random import uniform
-from uuid import UUID
 
 import whisper
-from fastapi import Depends, FastAPI, Form, HTTPException
+from fastapi import Depends, FastAPI, Form
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
-from pydantic import ValidationError
 
 from .config import SETTINGS
 from .db import (
@@ -20,8 +18,8 @@ from .db import (
     get_comparison_stats_by_self_assessment,
     initialize_database,
 )
-from .models.analytics import ComparisonQuery, ComparisonResponse, CohortType
 from .error_handlers import register_error_handlers
+from .models.analytics import ComparisonRequest, ComparisonResponse
 from .models.feedback import FeedbackRequest
 from .models.onboarding import OnboardingRequest
 from .models.speech_assessment import (
@@ -64,7 +62,7 @@ async def ping() -> JSONResponse:
 
 
 @app.get("/analytics/comparison")
-async def analytics_comparison(guid: str, days: int | None = None) -> JSONResponse:
+async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse:
     """Return privacy-safe comparison statistics for one user against a cohort.
 
     Current Behavior:
@@ -83,34 +81,33 @@ async def analytics_comparison(guid: str, days: int | None = None) -> JSONRespon
     Example future usage:
       GET /analytics/comparison?guid=...&days=30&cohort_type=performance_band
     """
-
-    try:
-        query = ComparisonQuery(guid=UUID(guid), days=days)
-    except (ValueError, ValidationError) as exc:
-        raise HTTPException(
-            status_code=422,
-            detail="Invalid comparison query parameters",
-        ) from exc
-
     # Ensure only users who completed onboarding and consent can access comparison.
-    auth.validate_user_access(query.guid)
+    auth.validate_user_access(data.guid)
 
     # TODO: Future routing for cohort_type parameter
     # if cohort_type == "performance_band":
     #     stats = get_comparison_stats_by_performance_band(query.guid, query.days)
     # else:
-    stats = get_comparison_stats_by_self_assessment(query.guid, query.days)
+    stats = get_comparison_stats_by_self_assessment(data.guid, data.days)
+
+    if not stats:
+        return JSONResponse(
+            content={
+                "status": "comparison_unavailable",
+                "message": (
+                    "Comparison statistics are not available for your cohorts size at this time."
+                )
+            },
+            status_code=200
+        )
 
     payload = ComparisonResponse(
-        comparisonAvailable=stats.comparison_available,
-        cohortType=stats.cohort_type,
-        cohortLabel=stats.cohort_label,
-        cohortSize=stats.cohort_size,
-        userAverageScore=stats.user_average_score,
-        cohortAverage=stats.cohort_average,
+        cohort_label=stats.cohort_label,
+        cohort_size=stats.cohort_size,
+        cohort_average=stats.cohort_average,
         percentile=stats.percentile,
-        rankBand=None,
-        distributionSummary=stats.distribution_summary,
+        rank_band=stats.rank_band,
+        distribution_summary=stats.distribution_summary,
     )
 
     return JSONResponse(content=jsonable_encoder(payload), status_code=200)

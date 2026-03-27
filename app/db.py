@@ -1,12 +1,7 @@
-import json
 import sqlite3
-from pathlib import Path
 from uuid import UUID
 
-from app.models.feedback import FeedbackRequest
-from app.models.onboarding import OnboardingRequest
-from app.models.user_requests import DeleteUserRequest, UserDataRequest
-from app.models.analytics import ComparisonStats, CohortType
+from app.models.analytics import ComparisonRequest, ComparisonStats
 
 from .config import SETTINGS
 
@@ -33,7 +28,7 @@ def get_user_self_assessment_level(guid: UUID) -> str | None:
 
     with sqlite3.connect(SETTINGS.database) as conn:
         row = conn.execute(
-            "SELECT finnish_self_assessment FROM users WHERE guid = ? LIMIT 1",
+            "SELECT cefr_level FROM user_cefr_history WHERE guid = ? LIMIT 1 ORDER BY created_at DESC",
             (str(guid),),
         ).fetchone()
 
@@ -43,166 +38,94 @@ def get_user_self_assessment_level(guid: UUID) -> str | None:
     return str(row[0])
 
 
-def get_user_average_score(guid: UUID, days: int | None = None) -> float | None:
-    """Compute a user's average performance score over all qualifying attempts."""
+def get_user_average_score(data: ComparisonRequest) -> float | None:
+    """Compute a user's average proficiency score over all qualifying attempts."""
 
-    score_expr = _score_expression()
-    window_sql, window_params = _window_filter_sql(days)
+    window_sql, window_params = _window_filter_sql(data.days)
 
     query = f"""
-        WITH user_attempts AS (
-            SELECT {score_expr} AS attempt_score
-            FROM assessments a
-            WHERE a.guid = ?
-              AND a.accuracy IS NOT NULL
-              AND a.fluency IS NOT NULL
-              AND a.proficiency IS NOT NULL
-              AND a.pronunciation IS NOT NULL
-              AND a.range_score IS NOT NULL
-              {window_sql}
-        )
-        SELECT ROUND(AVG(attempt_score), 4) AS user_average
-        FROM user_attempts
+        SELECT AVG(a.proficiency)
+        FROM assessments a
+        WHERE a.guid = ?
+            AND a.proficiency IS NOT NULL
+            {window_sql}
     """
 
-    params: tuple[str, ...] = (str(guid), *window_params)
+    params: tuple[str, ...] = (str(data.guid), *window_params)
 
     with sqlite3.connect(SETTINGS.database) as conn:
         row = conn.execute(query, params).fetchone()
 
-    if row is None or row[0] is None:
+    if not row or not row[0]:
         return None
 
     return float(row[0])
 
 
-def _get_distribution_summary(
-    cohort_label: str,
-    days: int | None = None,
-) -> dict[str, int]:
-    """Build coarse score buckets for cohort charting without exposing peer-level rows.
+def get_cohort_comparison_rank(guid: UUID) -> ComparisonStats | None:
+    """Get comparison stats for a user against their cohort."""
 
-    Current Implementation (Phase 3+):
-    - Returns fixed buckets: 0-1, 1-2, 2-3, 3-4, 4-5 (user average scores).
-    - No privacy filtering: all buckets included regardless of count.
-
-    Future Enhancement (Phase 5+):
-    - Add config setting: MIN_DISTRIBUTION_BUCKET_SIZE (e.g., 5).
-    - If any bucket count < MIN_DISTRIBUTION_BUCKET_SIZE, suppress distribution entirely.
-    - Prevents re-identification risk when cohorts are near minimum threshold.
-    - Update endpoint response to suppress distributionSummary when privacy rules triggered.
-
-    To implement:
-    1. Add MIN_DISTRIBUTION_BUCKET_SIZE to config.py (default: 5).
-    2. Pass config value as parameter to this function.
-    3. Check if min(bucket_counts) < threshold; return None instead of dict.
-    4. Caller (get_comparison_stats_by_self_assessment) sets distribution_summary=None when filtered.
+    query = """
+        SELECT ROUND(AVG(proficiency), 2) AS avg
+        FROM assessments
+        WHERE proficiency IS NOT NULL
+        GROUP BY guid
+        ORDER BY avg DESC;
     """
-
-    window_sql, window_params = _window_filter_sql(days)
-    score_expr = _score_expression()
-
-    query = f"""
-        WITH cohort_attempts AS (
-            SELECT a.guid, {score_expr} AS attempt_score
-            FROM assessments a
-            JOIN users u ON u.guid = a.guid
-            WHERE u.finnish_self_assessment = ?
-              AND a.accuracy IS NOT NULL
-              AND a.fluency IS NOT NULL
-              AND a.proficiency IS NOT NULL
-              AND a.pronunciation IS NOT NULL
-              AND a.range_score IS NOT NULL
-              {window_sql}
-        ),
-        cohort_user_averages AS (
-            SELECT guid, AVG(attempt_score) AS avg_score
-            FROM cohort_attempts
-            GROUP BY guid
-        )
-        SELECT
-            SUM(CASE WHEN avg_score < 1 THEN 1 ELSE 0 END) AS bucket_0_1,
-            SUM(CASE WHEN avg_score >= 1 AND avg_score < 2 THEN 1 ELSE 0 END) AS bucket_1_2,
-            SUM(CASE WHEN avg_score >= 2 AND avg_score < 3 THEN 1 ELSE 0 END) AS bucket_2_3,
-            SUM(CASE WHEN avg_score >= 3 AND avg_score < 4 THEN 1 ELSE 0 END) AS bucket_3_4,
-            SUM(CASE WHEN avg_score >= 4 THEN 1 ELSE 0 END) AS bucket_4_5
-        FROM cohort_user_averages
-    """
-
-    params: tuple[str, ...] = (cohort_label, *window_params)
 
     with sqlite3.connect(SETTINGS.database) as conn:
-        row = conn.execute(query, params).fetchone()
-
-    if row is None:
-        return {"0-1": 0, "1-2": 0, "2-3": 0, "3-4": 0, "4-5": 0}
-
-    return {
-        "0-1": int(row[0] or 0),
-        "1-2": int(row[1] or 0),
-        "2-3": int(row[2] or 0),
-        "3-4": int(row[3] or 0),
-        "4-5": int(row[4] or 0),
-    }
+        row = conn.execute(query).fetchall()
 
 
 def get_comparison_stats_by_self_assessment(
     guid: UUID,
     days: int | None = None,
-) -> ComparisonStats:
+) -> ComparisonStats | None:
     """Compute user-vs-cohort analytics with privacy-safe minimum-cohort gating."""
 
     cohort_label = get_user_self_assessment_level(guid)
     if cohort_label is None:
         return ComparisonStats(
-            comparison_available=False,
-            cohort_type=CohortType.SELF_ASSESSMENT,
             cohort_label="",
             cohort_size=0,
             user_average_score=None,
             cohort_average=None,
             percentile=None,
-            distribution_summary=None,
         )
 
     window_sql, window_params = _window_filter_sql(days)
-    score_expr = _score_expression()
 
-    query = f"""
-        WITH cohort_attempts AS (
-            SELECT a.guid, {score_expr} AS attempt_score
-            FROM assessments a
-            JOIN users u ON u.guid = a.guid
-            WHERE u.finnish_self_assessment = ?
-              AND a.accuracy IS NOT NULL
-              AND a.fluency IS NOT NULL
-              AND a.proficiency IS NOT NULL
-              AND a.pronunciation IS NOT NULL
-              AND a.range_score IS NOT NULL
-              {window_sql}
-        ),
-        cohort_user_averages AS (
-            SELECT guid, AVG(attempt_score) AS avg_score
-            FROM cohort_attempts
-            GROUP BY guid
-        ),
-        target_user AS (
-            SELECT avg_score AS target_score
-            FROM cohort_user_averages
-            WHERE guid = ?
-            LIMIT 1
-        )
-        SELECT
-            COUNT(*) AS cohort_size,
-            ROUND(AVG(avg_score), 4) AS cohort_average,
-            (SELECT ROUND(target_score, 4) FROM target_user) AS user_average,
-            (
-                SELECT ROUND((100.0 * SUM(CASE WHEN cua.avg_score <= tu.target_score THEN 1 ELSE 0 END)) / COUNT(*), 2)
-                FROM cohort_user_averages cua
-                CROSS JOIN target_user tu
-            ) AS percentile
-        FROM cohort_user_averages
-    """
+    # query = f"""
+    #     WITH cohort_attempts AS(
+    #         SELECT ROUND(AVG(proficiency), 2) AS avg
+    #         FROM assessments
+    #         WHERE proficiency IS NOT NULL
+    #         {window_sql}
+    #         GROUP BY guid
+    #         ORDER BY avg DESC;
+    #     ),
+    #     cohort_user_averages AS(
+    #         SELECT guid, AVG(attempt_score) AS avg_score
+    #         FROM cohort_attempts
+    #         GROUP BY guid
+    #     ),
+    #     target_user AS(
+    #         SELECT avg_score AS target_score
+    #         FROM cohort_user_averages
+    #         WHERE guid=?
+    #         LIMIT 1
+    #     )
+    #     SELECT
+    #         COUNT(*) AS cohort_size,
+    #         ROUND(AVG(avg_score), 4) AS cohort_average,
+    #         (SELECT ROUND(target_score, 4) FROM target_user) AS user_average,
+    #         (
+    #             SELECT ROUND((100.0 * SUM(CASE WHEN cua.avg_score <= tu.target_score THEN 1 ELSE 0 END)) / COUNT(*), 2)
+    #             FROM cohort_user_averages cua
+    #             CROSS JOIN target_user tu
+    #         ) AS percentile
+    #     FROM cohort_user_averages
+    # """
 
     params: tuple[str, ...] = (cohort_label, *window_params, str(guid))
 
@@ -219,28 +142,16 @@ def get_comparison_stats_by_self_assessment(
         and user_average is not None
     )
 
-    if not comparison_available:
-        return ComparisonStats(
-            comparison_available=False,
-            cohort_type=CohortType.SELF_ASSESSMENT,
-            cohort_label=cohort_label,
-            cohort_size=cohort_size,
-            user_average_score=user_average,
-            cohort_average=None,
-            percentile=None,
-            distribution_summary=None,
-        )
-
     return ComparisonStats(
-        comparison_available=True,
         cohort_type=CohortType.SELF_ASSESSMENT,
         cohort_label=cohort_label,
         cohort_size=cohort_size,
         user_average_score=user_average,
         cohort_average=cohort_average,
         percentile=percentile,
-        distribution_summary=_get_distribution_summary(cohort_label, days),
-    )
+        distribution_summary=_get_distribution_summary(
+            cohort_label, days)
+    ) if comparison_available else None
 
 
 def initialize_database() -> bool:
@@ -274,8 +185,8 @@ def create_user(data: OnboardingRequest) -> None:
     conn = sqlite3.connect(SETTINGS.database)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO users (guid, consent_accepted, consent_timestamp, app_version, gender, age_group, native_languages, other_languages, moved_to_finland, finnish_learning_duration, finnish_self_assessment)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users(guid, consent_accepted, consent_timestamp, app_version, gender, age_group, native_languages, other_languages, moved_to_finland, finnish_learning_duration, finnish_self_assessment)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         str(data.guid),
         int(data.consent_accepted),

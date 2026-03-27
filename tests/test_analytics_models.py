@@ -3,7 +3,7 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from app.config import SETTINGS
-from app.models.analytics import ComparisonQuery, ComparisonResponse, CohortType
+from app.models.analytics import CohortType, ComparisonQuery, ComparisonResponse
 
 
 def test_comparison_query_accepts_days_within_configured_range():
@@ -37,10 +37,10 @@ def test_comparison_response_rounds_percentile_to_two_decimals():
 
     response = ComparisonResponse(
         comparisonAvailable=True,
-        cohortType=CohortType.SELF_ASSESSMENT,
-        cohortLabel="B1",
-        cohortSize=42,
-        userAverageScore=3.42,
+        cohort_type=CohortType.SELF_ASSESSMENT,
+        cohort_label="B1",
+        cohort_size=42,
+        user_average_score=3.42,
         cohortAverage=3.1,
         percentile=88.666,
     )
@@ -54,10 +54,10 @@ def test_comparison_response_rejects_negative_distribution_values():
     try:
         ComparisonResponse(
             comparisonAvailable=True,
-            cohortType=CohortType.SELF_ASSESSMENT,
-            cohortLabel="B1",
-            cohortSize=42,
-            userAverageScore=3.42,
+            cohort_type=CohortType.SELF_ASSESSMENT,
+            cohort_label="B1",
+            cohort_size=42,
+            user_average_score=3.42,
             cohortAverage=3.1,
             percentile=80,
             distributionSummary={"0-1": -1},
