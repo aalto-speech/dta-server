@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+FEEDBACK_COMMENT_MAX_LENGTH = 500
+
 
 class FeedbackClassification(StrEnum):
     """Feedback type enumeration.
@@ -42,7 +44,9 @@ class FeedbackRequest(BaseModel):
     def validate_comment(cls, value: str | None) -> str | None:
         """Validate the comment length if provided."""
 
-        if value is not None and len(value) > 500:
-            raise ValueError("comment must not exceed 500 characters.")
+        if value is not None and len(value) > FEEDBACK_COMMENT_MAX_LENGTH:
+            raise ValueError(
+                f"comment must not exceed {FEEDBACK_COMMENT_MAX_LENGTH} characters."
+            )
 
         return value
