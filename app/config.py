@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass
 from enum import StrEnum
@@ -5,6 +6,8 @@ from enum import StrEnum
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class AppEnv(StrEnum):
@@ -57,9 +60,17 @@ def _parse_int_env(name: str, default: int, minimum: int) -> int:
     try:
         value = int(raw_value)
     except ValueError:
+        logger.warning(
+            "Environment variable %s has invalid value %r (not an integer). Using default %d.",
+            name, raw_value, default,
+        )
         return default
 
     if value < minimum:
+        logger.warning(
+            "Value for %s (%d) is below minimum (%d). Using default %d.",
+            name, value, minimum, default,
+        )
         return default
 
     return value

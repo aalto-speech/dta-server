@@ -154,7 +154,8 @@ def test_comparison_stats_returns_percentile_when_privacy_threshold_is_met(
     assert stats.comparison_available is True
     assert stats.cohort_size == SETTINGS.minimum_cohort_size
     assert stats.user_average_score == 4.0
-    assert stats.cohort_average == 2.2
+    n = SETTINGS.minimum_cohort_size
+    assert stats.cohort_average == round((4.0 + 2.0 * (n - 1)) / n, 4)
     assert stats.percentile == 100.0
     assert stats.distribution_summary is not None
 

@@ -159,6 +159,7 @@ def get_comparison_stats_by_self_assessment(
             cohort_type=CohortType.SELF_ASSESSMENT,
             cohort_label="",
             cohort_size=0,
+            user_average_score=None,
             cohort_average=None,
             percentile=None,
             distribution_summary=None,

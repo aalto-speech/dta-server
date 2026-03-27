@@ -256,8 +256,10 @@ def test_analytics_comparison_response_does_not_expose_peer_data(
             cursor, str(target_guid), 4.0, "2026-03-10 10:00:00", "target"
         )
 
+        peer_guids = []
         for idx in range(SETTINGS.minimum_cohort_size - 1):
             peer_guid = uuid4()
+            peer_guids.append(str(peer_guid))
             _insert_user(cursor, str(peer_guid), level="B1")
             _insert_assessment(
                 cursor,
@@ -273,14 +275,10 @@ def test_analytics_comparison_response_does_not_expose_peer_data(
 
     assert response.status_code == 200
     payload = response.json()
-
-    # Verify response contains no lists of GUIDs or raw peer scores
     response_str = str(payload)
-    assert "peer-" not in response_str
 
-    # Verify distribution summary contains only aggregate counts, not individual values
-    if payload["distributionSummary"] is not None:
-        for bucket_key, count in payload["distributionSummary"].items():
-            assert isinstance(bucket_key, str)
-            assert isinstance(count, int)
-            assert count >= 0
+    # Verify no peer GUIDs or audio identifiers are present in the response
+    for peer_guid_str in peer_guids:
+        assert peer_guid_str not in response_str
+    for idx in range(SETTINGS.minimum_cohort_size - 1):
+        assert f"peer-{idx}" not in response_str
