@@ -203,8 +203,9 @@ def test_comparison_stats_respects_configurable_days_window(reset_database):
 
     assert all_time_stats.user_average_score == 3.0
     assert recent_stats.user_average_score == 5.0
-    assert all_time_stats.cohort_average == 2.1
-    assert recent_stats.cohort_average == 3.2
+    n = SETTINGS.minimum_cohort_size
+    assert all_time_stats.cohort_average == (2 * n + 1) / n
+    assert recent_stats.cohort_average == (3 * n + 2) / n
 
 
 def test_comparison_stats_handles_percentile_ties(reset_database):
