@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 
-class FeedbackType(StrEnum):
+class FeedbackClassification(StrEnum):
     """Feedback type enumeration.
 
     - `SELF_ASSESSMENT`: Feedback related to user's self-assessment experience.
@@ -28,14 +28,14 @@ class FeedbackRequest(BaseModel):
         comment: Optional user comment providing additional feedback details.
         guid: Unique identifier for the user submitting feedback.
         reaction_value: Numerical value representing user's reaction (e.g., rating).
-        type: Type of feedback being submitted.
+        feedback_classification: Type of feedback being submitted.
     """
 
     assessment_id: int | None = Field(default=None, ge=0)
     comment: str | None = None
     guid: UUID
     reaction_value: int = Field(ge=1, le=5)
-    type: FeedbackType
+    feedback_classification: FeedbackClassification
 
     @field_validator("comment")
     @classmethod
