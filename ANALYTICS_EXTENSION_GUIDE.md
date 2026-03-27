@@ -202,7 +202,7 @@ Each new cohort strategy or privacy enhancement should include:
 
 - **feat/comparison**: Main feature branch for Phases 1-5
 - **Phase 1 Commit**: `feat(analytics): add privacy-safe cohort comparison aggregations and tests`
-- **Phase 2 Commit**: (Aggregations + DB layer)
+- **Phase 2 Commit**: `(Aggregations + DB layer)`
 - **Phase 3 Commit**: `feat(analytics): wire comparison endpoint with privacy-safe response mapping`
 - **Phase 4 Commit**: `test(analytics): add comprehensive coverage for privacy regression and edge cases`
 - **Phase 5 Commit**: `docs(analytics): add extension points for future cohort strategies and privacy enhancements`
