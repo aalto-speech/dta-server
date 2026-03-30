@@ -102,7 +102,8 @@ CREATE TABLE
         'self_assessment',
         'comparison_ui',
         'overall_experience',
-        'result'
+        'result_accuracy',
+        'result_understanding'
       ) -- insert more if needed
     ),
     reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5), -- 1 = very sad ... 5 = very happy
