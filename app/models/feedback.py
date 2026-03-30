@@ -19,7 +19,8 @@ class FeedbackClassification(StrEnum):
     SELF_ASSESSMENT = "self_assessment"
     COMPARISON = "comparison_ui"
     OVERALL = "overall_experience"
-    RESULT = "result"
+    RESULT_ACCURACY = "result_accuracy"
+    RESULT_UNDERSTANDING = "result_understanding"
 
 
 class FeedbackRequest(BaseModel):
