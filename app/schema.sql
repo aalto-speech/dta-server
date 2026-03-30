@@ -51,6 +51,9 @@ CREATE TABLE
         'years_10_plus'
       )
     ),
+    cefr_level TEXT NOT NULL CHECK (
+      cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')
+    ),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -142,4 +145,9 @@ CREATE INDEX IF NOT EXISTS idx_feedback_guid_created_at ON feedback (guid, creat
 
 CREATE INDEX IF NOT EXISTS idx_feedback_assessment_id ON feedback (assessment_id);
 
-CREATE INDEX IF NOT EXISTS idx_users_finnish_self_assessment ON users (finnish_self_assessment);
+CREATE INDEX IF NOT EXISTS idx_user_cefr_history_guid_created_at_id ON user_cefr_history (guid, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_guid_proficiency_not_null ON assessments (guid, proficiency)
+WHERE proficiency IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_cefr_level ON users (cefr_level);

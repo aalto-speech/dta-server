@@ -76,11 +76,11 @@ class ComparisonStats(BaseModel):
        - Verify privacy boundaries apply equally.
     """
 
+    cohort_average: float | None
     cohort_label: str
     cohort_size: int
-    user_average_score: float | None
-    cohort_average: float | None
     percentile: float | None
+    rank: int | None
 
 
 class ComparisonResponse(BaseModel):
@@ -102,13 +102,11 @@ class ComparisonResponse(BaseModel):
       (e.g., <5). Add config setting MIN_DISTRIBUTION_BUCKET_SIZE to enforce this.
     """
 
+    cohort_average: float = Field(ge=0, le=5)
     cohort_label: str
     cohort_size: int = Field(ge=SETTINGS.min_cohort_size)
-    cohort_average: float = Field(ge=0, le=5)
     percentile: float = Field(ge=0, le=1)
-    # Future: Derive from percentile using configurable bands
-    rank_band: str
-    # Future: Suppress if bucket < MIN_SIZE
+    rank: str
 
     @field_validator("percentile")
     @classmethod

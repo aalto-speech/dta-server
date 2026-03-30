@@ -1,157 +1,22 @@
 import sqlite3
+from pathlib import Path
 from uuid import UUID
 
 from app.models.analytics import ComparisonRequest, ComparisonStats
+from app.models.onboarding import CEFRLevel
 
 from .config import SETTINGS
 
 
-def _score_expression() -> str:
-    """Return SQL expression for per-attempt score across all ASA dimensions."""
+def database() -> sqlite3.Connection:
+    """Helper to get a configured database connection."""
 
-    return (
-        "(a.accuracy + a.fluency + a.proficiency + a.pronunciation + a.range_score) / 5.0"
-    )
-
-
-def _window_filter_sql(days: int | None) -> tuple[str, tuple[str, ...]]:
-    """Build SQL filter and params for optional rolling window by assessment timestamp."""
-
-    if days is None:
-        return "", ()
-
-    return " AND a.created_at >= datetime('now', ?)", (f"-{days} days",)
-
-
-def get_user_self_assessment_level(guid: UUID) -> str | None:
-    """Get a user's self-assessed Finnish level used as default cohort selector."""
-
-    with sqlite3.connect(SETTINGS.database) as conn:
-        row = conn.execute(
-            "SELECT cefr_level FROM user_cefr_history WHERE guid = ? LIMIT 1 ORDER BY created_at DESC",
-            (str(guid),),
-        ).fetchone()
-
-    if row is None:
-        return None
-
-    return str(row[0])
-
-
-def get_user_average_score(data: ComparisonRequest) -> float | None:
-    """Compute a user's average proficiency score over all qualifying attempts."""
-
-    window_sql, window_params = _window_filter_sql(data.days)
-
-    query = f"""
-        SELECT AVG(a.proficiency)
-        FROM assessments a
-        WHERE a.guid = ?
-            AND a.proficiency IS NOT NULL
-            {window_sql}
-    """
-
-    params: tuple[str, ...] = (str(data.guid), *window_params)
-
-    with sqlite3.connect(SETTINGS.database) as conn:
-        row = conn.execute(query, params).fetchone()
-
-    if not row or not row[0]:
-        return None
-
-    return float(row[0])
-
-
-def get_cohort_comparison_rank(guid: UUID) -> ComparisonStats | None:
-    """Get comparison stats for a user against their cohort."""
-
-    query = """
-        SELECT ROUND(AVG(proficiency), 2) AS avg
-        FROM assessments
-        WHERE proficiency IS NOT NULL
-        GROUP BY guid
-        ORDER BY avg DESC;
-    """
-
-    with sqlite3.connect(SETTINGS.database) as conn:
-        row = conn.execute(query).fetchall()
-
-
-def get_comparison_stats_by_self_assessment(
-    guid: UUID,
-    days: int | None = None,
-) -> ComparisonStats | None:
-    """Compute user-vs-cohort analytics with privacy-safe minimum-cohort gating."""
-
-    cohort_label = get_user_self_assessment_level(guid)
-    if cohort_label is None:
-        return ComparisonStats(
-            cohort_label="",
-            cohort_size=0,
-            user_average_score=None,
-            cohort_average=None,
-            percentile=None,
-        )
-
-    window_sql, window_params = _window_filter_sql(days)
-
-    # query = f"""
-    #     WITH cohort_attempts AS(
-    #         SELECT ROUND(AVG(proficiency), 2) AS avg
-    #         FROM assessments
-    #         WHERE proficiency IS NOT NULL
-    #         {window_sql}
-    #         GROUP BY guid
-    #         ORDER BY avg DESC;
-    #     ),
-    #     cohort_user_averages AS(
-    #         SELECT guid, AVG(attempt_score) AS avg_score
-    #         FROM cohort_attempts
-    #         GROUP BY guid
-    #     ),
-    #     target_user AS(
-    #         SELECT avg_score AS target_score
-    #         FROM cohort_user_averages
-    #         WHERE guid=?
-    #         LIMIT 1
-    #     )
-    #     SELECT
-    #         COUNT(*) AS cohort_size,
-    #         ROUND(AVG(avg_score), 4) AS cohort_average,
-    #         (SELECT ROUND(target_score, 4) FROM target_user) AS user_average,
-    #         (
-    #             SELECT ROUND((100.0 * SUM(CASE WHEN cua.avg_score <= tu.target_score THEN 1 ELSE 0 END)) / COUNT(*), 2)
-    #             FROM cohort_user_averages cua
-    #             CROSS JOIN target_user tu
-    #         ) AS percentile
-    #     FROM cohort_user_averages
-    # """
-
-    params: tuple[str, ...] = (cohort_label, *window_params, str(guid))
-
-    with sqlite3.connect(SETTINGS.database) as conn:
-        row = conn.execute(query, params).fetchone()
-
-    cohort_size = int(row[0] or 0) if row else 0
-    cohort_average = float(row[1]) if row and row[1] is not None else None
-    user_average = float(row[2]) if row and row[2] is not None else None
-    percentile = float(row[3]) if row and row[3] is not None else None
-
-    comparison_available = (
-        cohort_size >= SETTINGS.minimum_cohort_size
-        and user_average is not None
-    )
-
-    return ComparisonStats(
-        cohort_type=CohortType.SELF_ASSESSMENT,
-        cohort_label=cohort_label,
-        cohort_size=cohort_size,
-        user_average_score=user_average,
-        cohort_average=cohort_average,
-        percentile=percentile,
-        distribution_summary=_get_distribution_summary(
-            cohort_label, days)
-    ) if comparison_available else None
+    conn = sqlite3.connect(database)
+    conn.executescript("""
+    PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
+    """)
+    return conn
 
 
 def initialize_database() -> bool:
@@ -165,15 +30,92 @@ def initialize_database() -> bool:
     if db_path.exists():
         return False
 
-    conn = sqlite3.connect(SETTINGS.database)
-    conn.execute("PRAGMA journal_mode=WAL;")
     schema_sql = Path(__file__).with_name(
         "schema.sql").read_text(encoding="utf-8")
-    conn.executescript(schema_sql)
-    conn.commit()
-    conn.close()
+
+    db = database()
+    db.executescript(schema_sql)
+    db.commit()
+    db.close()
 
     return True
+
+
+def _window_filter_sql(days: int | None) -> tuple[str, tuple[str, ...]]:
+    """Build SQL filter and params for optional rolling window by assessment timestamp."""
+
+    if days is None:
+        return "", ()
+
+    return " AND a.created_at >= datetime('now', ?)", (f"-{days} days",)
+
+    return float(row[0])
+
+
+def get_cohort_stats(guid: UUID, cefr_level: CEFRLevel) -> ComparisonStats | None:
+    """Get cohort statistics and user percentile rank for a given CEFR level cohort."""
+
+    window_sql, window_params = _window_filter_sql(days)
+
+    query = f"""
+        WITH cohort_user_averages AS (
+            SELECT a.guid, AVG(a.proficiency) AS avg_score
+            FROM assessments a
+            JOIN users u ON u.guid = a.guid
+            WHERE u.cefr_level = ?
+              AND a.proficiency IS NOT NULL
+              {window_sql}
+            GROUP BY a.guid
+        ),
+        ranked AS (
+            SELECT
+                guid,
+                ROW_NUMBER() OVER (ORDER BY avg_score DESC) AS row_id
+            FROM cohort_user_averages
+        ),
+        summary AS (
+            SELECT
+                COUNT(*) AS cohort_size,
+                ROUND(AVG(avg_score), 2) AS cohort_average
+            FROM cohort_user_averages
+        ),
+        target AS (
+            SELECT row_id
+            FROM ranked
+            WHERE guid = ?
+            LIMIT 1
+        )
+        SELECT
+            s.cohort_size,
+            s.cohort_average,
+            t.row_id
+        FROM summary s
+        LEFT JOIN target t ON 1 = 1;
+    """
+
+    params = (*window_params, cefr_level, str(guid))
+
+    with database() as db:
+        row = db.execute(query, params).fetchone()
+
+    cohort_size = int(row[0] or 0) if row else 0
+    if cohort_size < SETTINGS.min_cohort_size:
+        return None
+
+    cohort_average = float(row[1]) if row and row[1] is not None else None
+    user_row_id = int(row[2]) if row and row[2] is not None else None
+
+    if user_row_id is None:
+        return None
+
+    percentile = (cohort_size - user_row_id + 1) / cohort_size
+
+    return ComparisonStats(
+        cohort_label=cefr_level,
+        cohort_size=cohort_size,
+        cohort_average=cohort_average,
+        percentile=round(percentile, 2),
+    )
 
 
 def create_user(data: OnboardingRequest) -> None:
@@ -182,10 +124,10 @@ def create_user(data: OnboardingRequest) -> None:
     # Format consent_timestamp as ISO 8601 string for storage
     consent_timestamp = data.consent_timestamp.isoformat()
 
-    conn = sqlite3.connect(SETTINGS.database)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO users(guid, consent_accepted, consent_timestamp, app_version, gender, age_group, native_languages, other_languages, moved_to_finland, finnish_learning_duration, finnish_self_assessment)
+    db = database()
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO users(guid, consent_accepted, consent_timestamp, app_version, gender, age_group, native_languages, other_languages, moved_to_finland, finnish_learning_duration, cefr_level)
         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         str(data.guid),

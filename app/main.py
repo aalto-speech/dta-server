@@ -81,6 +81,7 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
     Example future usage:
       GET /analytics/comparison?guid=...&days=30&cohort_type=performance_band
     """
+
     # Ensure only users who completed onboarding and consent can access comparison.
     auth.validate_user_access(data.guid)
 
@@ -88,7 +89,8 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
     # if cohort_type == "performance_band":
     #     stats = get_comparison_stats_by_performance_band(query.guid, query.days)
     # else:
-    stats = get_comparison_stats_by_self_assessment(data.guid, data.days)
+
+    stats = get_cohort_stats(data)
 
     if not stats:
         return JSONResponse(
@@ -107,7 +109,6 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
         cohort_average=stats.cohort_average,
         percentile=stats.percentile,
         rank_band=stats.rank_band,
-        distribution_summary=stats.distribution_summary,
     )
 
     return JSONResponse(content=jsonable_encoder(payload), status_code=200)

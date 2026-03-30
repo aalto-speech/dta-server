@@ -33,7 +33,7 @@ def _insert_user(cursor: sqlite3.Cursor, guid: str, level: str = "B1") -> None:
             other_languages,
             moved_to_finland,
             finnish_learning_duration,
-            finnish_self_assessment
+            cefr_level
         ) VALUES (?, 1, '2026-01-01T00:00:00', '1.0.0', 'woman', 'age_29_39',
                   '["Finnish"]', '[]', 'before_2015', 'months_6_9', ?)
         """,
