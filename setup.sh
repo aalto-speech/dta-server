@@ -175,7 +175,7 @@ ACME_EMAIL=${ACME_EMAIL:-}
 UPSTREAM=${UPSTREAM:-dta:8000}
 
 # Environment variables for the application
-DATABASE=${DATABASE:-dta.db}
+DATABASE=${DATABASE:-/data/dta.db}
 ADMIN_API_KEY=${ADMIN_API_KEY:-}
 
 # Validate critical inputs to prevent command injection

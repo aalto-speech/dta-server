@@ -1,9 +1,13 @@
+import os
 from pathlib import Path
 from typing import Iterator
 
 import pytest
 
-from app.config import SETTINGS
+# Set test environment before any app config is imported in test collection.
+os.environ["APP_ENV"] = "test"
+
+from app.config import SETTINGS  # noqa pylint: disable=wrong-import-position
 
 
 @pytest.fixture(autouse=True)

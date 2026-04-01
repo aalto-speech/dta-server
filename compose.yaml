@@ -4,12 +4,12 @@ services:
     image: ghcr.io/aalto-speech/dta-server:staging
     restart: unless-stopped
     volumes:
-      - dta-data:/data
+      - database:/data
       - hf-models:/hf/models
       - hf-cache:/hf/cache
     environment:
       APP_ENV: ${APP_ENV:-development}
-      DATABASE: ${DATABASE:-dta.db}
+      DATABASE: ${DATABASE:-/data/dta.db}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
 
   caddy:
@@ -33,7 +33,7 @@ services:
       - caddy-logs:/var/log/caddy
 
 volumes:
-  dta-data:
+  database:
   caddy-config:
   caddy-data:
   caddy-logs:
