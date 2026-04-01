@@ -2,6 +2,7 @@ import logging
 import os
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -56,9 +57,17 @@ def _parse_app_env() -> AppEnv:
 
 
 def _database_for_env(env: AppEnv) -> str:
-    if env == AppEnv.TEST:
+    if env in {AppEnv.DEVELOPMENT, AppEnv.TEST}:
         return f"./{env}.db"
+
     return os.getenv("DATABASE", f"/data/{env}.db")
+
+
+def _create_database_parents(path: str) -> None:
+    if path.startswith(":memory:"):
+        return
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
 
 
 def _parse_int_env(name: str, default: int, minimum: int) -> int:
@@ -90,6 +99,8 @@ def get_settings() -> Settings:
 
     env = _parse_app_env()
     database = _database_for_env(env)
+    _create_database_parents(database)
+
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
     min_cohort_size = _parse_int_env(
         "MIN_COHORT_SIZE", default=100, minimum=2)
