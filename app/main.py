@@ -15,7 +15,7 @@ from .db import (
     create_user,
     create_user_request,
     delete_user_data,
-    get_comparison_stats_by_self_assessment,
+    get_cohort_stats,
     initialize_database,
 )
 from .error_handlers import register_error_handlers
@@ -61,36 +61,13 @@ async def ping() -> JSONResponse:
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
 
 
-@app.get("/analytics/comparison")
+@app.post("/analytics/comparison")
 async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse:
-    """Return privacy-safe comparison statistics for one user against a cohort.
-
-    Current Behavior:
-    - Compares user against cohort defined by their self-assessed Finnish level (CEFR).
-    - Returns aggregated metrics only (no peer identifiers, no raw scores).
-    - Enforces minimum cohort size privacy threshold before exposing metrics.
-
-    Future Extensions:
-    - Add optional query parameter: cohort_type (default: "self_assessment").
-    - Route to appropriate DB helper based on cohort_type:
-      - "self_assessment" → get_comparison_stats_by_self_assessment() [current]
-      - "performance_band" → get_comparison_stats_by_performance_band() [future]
-    - Update endpoint signature: cohort_type: str | None = None
-    - Add conditional routing logic before DB call.
-
-    Example future usage:
-      GET /analytics/comparison?guid=...&days=30&cohort_type=performance_band
-    """
+    """User comparison endpoint to get cohort statistics and user's percentile rank."""
 
     # Ensure only users who completed onboarding and consent can access comparison.
     auth.validate_user_access(data.guid)
-
-    # TODO: Future routing for cohort_type parameter
-    # if cohort_type == "performance_band":
-    #     stats = get_comparison_stats_by_performance_band(query.guid, query.days)
-    # else:
-
-    stats = get_cohort_stats(data)
+    stats = get_cohort_stats(data.guid)
 
     if not stats:
         return JSONResponse(
@@ -104,11 +81,10 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
         )
 
     payload = ComparisonResponse(
-        cohort_label=stats.cohort_label,
+        cefr_level=stats.cefr_level,
         cohort_size=stats.cohort_size,
-        cohort_average=stats.cohort_average,
         percentile=stats.percentile,
-        rank_band=stats.rank_band,
+        rank=stats.rank,
     )
 
     return JSONResponse(content=jsonable_encoder(payload), status_code=200)

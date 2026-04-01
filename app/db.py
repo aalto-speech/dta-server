@@ -1,9 +1,12 @@
+import json
 import sqlite3
 from pathlib import Path
 from uuid import UUID
 
-from app.models.analytics import ComparisonRequest, ComparisonStats
-from app.models.onboarding import CEFRLevel
+from app.models.analytics import ComparisonStats
+from app.models.feedback import FeedbackRequest
+from app.models.onboarding import OnboardingRequest
+from app.models.user_requests import DeleteUserRequest, UserDataRequest
 
 from .config import SETTINGS
 
@@ -11,7 +14,7 @@ from .config import SETTINGS
 def database() -> sqlite3.Connection:
     """Helper to get a configured database connection."""
 
-    conn = sqlite3.connect(database)
+    conn = sqlite3.connect(SETTINGS.database)
     conn.executescript("""
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -44,56 +47,73 @@ def initialize_database() -> bool:
 def _window_filter_sql(days: int | None) -> tuple[str, tuple[str, ...]]:
     """Build SQL filter and params for optional rolling window by assessment timestamp."""
 
-    if days is None:
+    if not days:
         return "", ()
 
     return " AND a.created_at >= datetime('now', ?)", (f"-{days} days",)
 
-    return float(row[0])
 
-
-def get_cohort_stats(guid: UUID, cefr_level: CEFRLevel) -> ComparisonStats | None:
+def get_cohort_stats(guid: UUID, days: int | None = None) -> ComparisonStats | None:
     """Get cohort statistics and user percentile rank for a given CEFR level cohort."""
 
     window_sql, window_params = _window_filter_sql(days)
 
     query = f"""
-        WITH cohort_user_averages AS (
+        WITH target_user AS (
+            SELECT guid, cefr_level
+            FROM users
+            WHERE guid = ?
+            LIMIT 1
+        ),
+        cohort_user_averages AS (
             SELECT a.guid, AVG(a.proficiency) AS avg_score
             FROM assessments a
             JOIN users u ON u.guid = a.guid
-            WHERE u.cefr_level = ?
+            JOIN target_user tu ON 1 = 1
+            WHERE u.cefr_level = tu.cefr_level
               AND a.proficiency IS NOT NULL
               {window_sql}
             GROUP BY a.guid
         ),
-        ranked AS (
+        target AS (
             SELECT
-                guid,
-                ROW_NUMBER() OVER (ORDER BY avg_score DESC) AS row_id
-            FROM cohort_user_averages
+                tu.guid,
+                tu.cefr_level,
+                cua.avg_score AS target_avg
+            FROM target_user tu
+            LEFT JOIN cohort_user_averages cua ON cua.guid = tu.guid
         ),
         summary AS (
             SELECT
-                COUNT(*) AS cohort_size,
-                ROUND(AVG(avg_score), 2) AS cohort_average
+                COUNT(*) AS cohort_size
             FROM cohort_user_averages
         ),
-        target AS (
-            SELECT row_id
-            FROM ranked
-            WHERE guid = ?
-            LIMIT 1
+        rank_calc AS (
+            SELECT
+                CASE
+                    WHEN t.target_avg IS NULL THEN NULL
+                    ELSE SUM(
+                        CASE
+                            WHEN cua.avg_score > t.target_avg
+                              OR (cua.avg_score = t.target_avg AND cua.guid <= t.guid)
+                            THEN 1
+                            ELSE 0
+                        END
+                    )
+                END AS row_id
+            FROM target t
+            LEFT JOIN cohort_user_averages cua ON 1 = 1
         )
         SELECT
             s.cohort_size,
-            s.cohort_average,
-            t.row_id
+            rc.row_id,
+            tu.cefr_level
         FROM summary s
-        LEFT JOIN target t ON 1 = 1;
+        LEFT JOIN rank_calc rc ON 1 = 1
+        LEFT JOIN target_user tu ON 1 = 1;
     """
 
-    params = (*window_params, cefr_level, str(guid))
+    params = (str(guid), *window_params)
 
     with database() as db:
         row = db.execute(query, params).fetchone()
@@ -102,8 +122,8 @@ def get_cohort_stats(guid: UUID, cefr_level: CEFRLevel) -> ComparisonStats | Non
     if cohort_size < SETTINGS.min_cohort_size:
         return None
 
-    cohort_average = float(row[1]) if row and row[1] is not None else None
-    user_row_id = int(row[2]) if row and row[2] is not None else None
+    user_row_id = int(row[1]) if row and row[1] is not None else None
+    cefr_level = str(row[2]) if row and row[2] is not None else None
 
     if user_row_id is None:
         return None
@@ -111,10 +131,10 @@ def get_cohort_stats(guid: UUID, cefr_level: CEFRLevel) -> ComparisonStats | Non
     percentile = (cohort_size - user_row_id + 1) / cohort_size
 
     return ComparisonStats(
-        cohort_label=cefr_level,
+        cefr_level=cefr_level,
         cohort_size=cohort_size,
-        cohort_average=cohort_average,
         percentile=round(percentile, 2),
+        rank=user_row_id,
     )
 
 
@@ -142,8 +162,8 @@ def create_user(data: OnboardingRequest) -> None:
         data.finnish_learning_duration,
         data.finnish_self_assessment
     ))
-    conn.commit()
-    conn.close()
+    db.commit()
+    db.close()
 
 
 def create_user_request(data: UserDataRequest) -> None:
@@ -153,14 +173,14 @@ def create_user_request(data: UserDataRequest) -> None:
         data: UserDataRequest containing the user's GUID and request type
     """
 
-    conn = sqlite3.connect(SETTINGS.database)
-    cursor = conn.cursor()
-    cursor.execute("""
+    db = database()
+    cur = db.cursor()
+    cur.execute("""
         INSERT INTO user_requests (guid, type)
         VALUES (?, ?)
     """, (str(data.guid), data.type))
-    conn.commit()
-    conn.close()
+    db.commit()
+    db.close()
 
 
 def delete_user_data(data: DeleteUserRequest) -> None:
@@ -172,11 +192,11 @@ def delete_user_data(data: DeleteUserRequest) -> None:
         guid: User's GUID
     """
 
-    conn = sqlite3.connect(SETTINGS.database)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM users WHERE guid = ?", (str(data.guid),))
-    conn.commit()
-    conn.close()
+    db = database()
+    cur = db.cursor()
+    cur.execute("DELETE FROM users WHERE guid = ?", (str(data.guid),))
+    db.commit()
+    db.close()
 
 
 def create_feedback(data: FeedbackRequest) -> None:
@@ -186,9 +206,9 @@ def create_feedback(data: FeedbackRequest) -> None:
         data: FeedbackRequest containing feedback details
     """
 
-    conn = sqlite3.connect(SETTINGS.database)
-    cursor = conn.cursor()
-    cursor.execute("""
+    db = database()
+    cur = db.cursor()
+    cur.execute("""
     INSERT INTO feedback (
         guid,
         assessment_id,
@@ -204,8 +224,8 @@ def create_feedback(data: FeedbackRequest) -> None:
         data.comment
     ))
 
-    conn.commit()
-    conn.close()
+    db.commit()
+    db.close()
 
 
 def get_user(guid: UUID) -> bool:
@@ -218,9 +238,12 @@ def get_user(guid: UUID) -> bool:
         True if a users row exists, otherwise False.
     """
 
-    with sqlite3.connect(SETTINGS.database) as conn:
-        row = conn.execute(
-            "SELECT 1 FROM users WHERE guid = ? LIMIT 1", (str(guid),)).fetchone()
+    db = database()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT 1 FROM users WHERE guid = ? LIMIT 1", (str(guid),))
+    row = cur.fetchone()
+    db.close()
     return row is not None
 
 
@@ -234,7 +257,10 @@ def get_user_consent(guid: UUID) -> bool:
         True if a users row exists with consent_accepted=1, otherwise False.
     """
 
-    with sqlite3.connect(SETTINGS.database) as conn:
-        row = conn.execute(
-            "SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1", (str(guid),)).fetchone()
+    db = database()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1", (str(guid),))
+    row = cur.fetchone()
+    db.close()
     return row is not None
