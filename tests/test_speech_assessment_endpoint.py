@@ -50,7 +50,10 @@ def test_assess_speech_success_returns_scores_and_transcript(
         assert os.path.exists(path)
 
     class _FakeWhisperModel:
+        "fake whisper model for testing"
+
         def transcribe(self, *_args, **_kwargs):
+            "returns fake transcribed text"
             return {"text": ["Hei", "maailma"]}
 
     monkeypatch.setattr("app.main.auth.validate_user_access",
@@ -161,7 +164,10 @@ def test_assess_speech_cleans_temp_file_on_unhandled_error(
         assert os.path.exists(path)
 
     class _FailingWhisperModel:
+        "fake whisper model for testing that fails and returns an error"
+
         def transcribe(self, *_args, **_kwargs):
+            "fake transcription that always fails"
             raise RuntimeError("transcription failure")
 
     monkeypatch.setattr("app.main.auth.validate_user_access",
