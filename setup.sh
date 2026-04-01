@@ -175,6 +175,7 @@ ACME_EMAIL=${ACME_EMAIL:-}
 UPSTREAM=${UPSTREAM:-dta:8000}
 
 # Environment variables for the application
+APP_ENV=${APP_ENV:-development}
 DATABASE=${DATABASE:-/data/dta.db}
 ADMIN_API_KEY=${ADMIN_API_KEY:-}
 
@@ -594,6 +595,7 @@ ACME_EMAIL=${ACME_EMAIL:-}
 UPSTREAM=${UPSTREAM:-}
 
 # Environment variables for the application
+APP_ENV=${APP_ENV:-}
 DATABASE=${DATABASE:-}
 ADMIN_API_KEY=${ADMIN_API_KEY:-}
 ENV_EOF
