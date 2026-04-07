@@ -54,7 +54,11 @@ def _window_filter_sql(days: int | None) -> tuple[str, tuple[str, ...]]:
 
 
 def get_cohort_stats(guid: UUID, days: int | None = None) -> ComparisonStats | None:
-    """Get cohort statistics and user percentile rank for a given CEFR level cohort."""
+    """Get cohort statistics and user percentile rank for a given CEFR level cohort.
+
+    Returns:
+        ComparisonStats: If the cohort meets the minimum size requirement, otherwise None.
+    """
 
     window_sql, window_params = _window_filter_sql(days)
 
