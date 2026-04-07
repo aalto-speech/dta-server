@@ -57,7 +57,7 @@ class ComparisonResponse(BaseModel):
     cefr_level: CEFRLevel
     cohort_size: int = Field(ge=SETTINGS.min_cohort_size)
     percentile: float = Field(ge=0, le=1)
-    rank: str
+    rank: int = Field(ge=1)
 
     @field_validator("percentile")
     @classmethod

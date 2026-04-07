@@ -1,14 +1,14 @@
 # pylint: disable=redefined-outer-name
 
-import sqlite3
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.config import SETTINGS
-from app.db import initialize_database
 from app.main import app
+from app.models.analytics import ComparisonStats
 
 
 @pytest.fixture
@@ -19,266 +19,107 @@ def client():
         yield test_client
 
 
-def _insert_user(cursor: sqlite3.Cursor, guid: str, level: str = "B1") -> None:
-    cursor.execute(
-        """
-        INSERT INTO users (
-            guid,
-            consent_accepted,
-            consent_timestamp,
-            app_version,
-            gender,
-            age_group,
-            native_languages,
-            other_languages,
-            moved_to_finland,
-            finnish_learning_duration,
-            cefr_level
-        ) VALUES (?, 1, '2026-01-01T00:00:00', '1.0.0', 'woman', 'age_29_39',
-                  '["Finnish"]', '[]', 'before_2015', 'months_6_9', ?)
-        """,
-        (guid, level),
-    )
+def _valid_form_data(**overrides):
+    data = {
+        "guid": str(uuid4()),
+        "days": 30,
+    }
+    data.update(overrides)
+    return data
 
 
-def _insert_assessment(
-    cursor: sqlite3.Cursor,
-    guid: str,
-    score: float,
-    created_at: str,
-    suffix: str,
-) -> None:
-    cursor.execute(
-        """
-        INSERT INTO assessments (
-            guid,
-            task_id,
-            audio_id,
-            audio_path,
-            transcript,
-            accuracy,
-            fluency,
-            proficiency,
-            pronunciation,
-            range_score,
-            created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            guid,
-            f"task-{suffix}",
-            f"audio-{suffix}",
-            f"/tmp/audio-{suffix}.wav",
-            "sample",
-            score,
-            score,
-            score,
-            score,
-            score,
-            created_at,
-        ),
-    )
-
-
-def test_analytics_comparison_returns_aggregate_metrics(
-    client: TestClient, reset_database
+def test_analytics_comparison_returns_stats_payload(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """Return user and cohort aggregate stats when privacy threshold is met."""
+    """Return serialized comparison payload when stats are available."""
 
-    _ = reset_database
-    initialize_database()
-    target_guid = uuid4()
+    captured = {}
 
-    with sqlite3.connect(SETTINGS.database) as conn:
-        cursor = conn.cursor()
-        _insert_user(cursor, str(target_guid), level="B1")
-        _insert_assessment(
-            cursor, str(target_guid), 4.0, "2026-03-10 10:00:00", "target"
+    def _fake_validate_user_access(guid):
+        captured["guid"] = str(guid)
+
+    def _fake_get_cohort_stats(guid, days):
+        captured["get_stats_guid"] = str(guid)
+        captured["days"] = days
+        return ComparisonStats(
+            cefr_level="B1",
+            cohort_size=SETTINGS.min_cohort_size,
+            percentile=0.83,
+            rank=1,
         )
 
-        for idx in range(SETTINGS.minimum_cohort_size - 1):
-            peer_guid = uuid4()
-            _insert_user(cursor, str(peer_guid), level="B1")
-            _insert_assessment(
-                cursor,
-                str(peer_guid),
-                2.0,
-                f"2026-03-{idx + 1:02d} 10:00:00",
-                f"peer-{idx}",
-            )
+    monkeypatch.setattr("app.main.auth.validate_user_access",
+                        _fake_validate_user_access)
+    monkeypatch.setattr("app.main.get_cohort_stats", _fake_get_cohort_stats)
 
-        conn.commit()
-
-    response = client.get("/analytics/comparison",
-                          params={"guid": str(target_guid)})
+    form_data = _valid_form_data(days=14)
+    response = client.post("/analytics/comparison", data=form_data)
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["comparisonAvailable"] is True
-    assert payload["cohortType"] == "self_assessment"
-    assert payload["cohortLabel"] == "B1"
-    cohort_size = SETTINGS.minimum_cohort_size
-    expected_cohort_average = (4.0 + 2.0 * (cohort_size - 1)) / cohort_size
-    assert payload["cohortSize"] == cohort_size
-    assert payload["userAverageScore"] == 4.0
-    assert payload["cohortAverage"] == expected_cohort_average
-    assert payload["percentile"] == 100.0
-    assert isinstance(payload["distributionSummary"], dict)
+    assert response.json() == {
+        "cefr_level": "B1",
+        "cohort_size": SETTINGS.min_cohort_size,
+        "percentile": 0.83,
+        "rank": 1,
+    }
+    assert captured == {
+        "guid": form_data["guid"],
+        "get_stats_guid": form_data["guid"],
+        "days": 14,
+    }
 
 
-def test_analytics_comparison_hides_details_for_small_cohort(
-    client: TestClient, reset_database
+def test_analytics_comparison_returns_comparison_unavailable_when_no_stats(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """Return comparisonAvailable false when cohort size is below privacy threshold."""
+    """Return comparison_unavailable payload when cohort stats are not available."""
 
-    _ = reset_database
-    initialize_database()
+    monkeypatch.setattr(
+        "app.main.auth.validate_user_access", lambda guid: None)
+    monkeypatch.setattr("app.main.get_cohort_stats", lambda guid, days: None)
 
-    with sqlite3.connect(SETTINGS.database) as conn:
-        cursor = conn.cursor()
-        for idx in range(SETTINGS.minimum_cohort_size - 1):
-            guid = uuid4()
-            _insert_user(cursor, str(guid), level="B1")
-            _insert_assessment(
-                cursor,
-                str(guid),
-                3.0,
-                f"2026-03-{idx + 1:02d} 10:00:00",
-                f"small-{idx}",
-            )
-        conn.commit()
-
-    response = client.get("/analytics/comparison", params={"guid": str(guid)})
+    response = client.post("/analytics/comparison", data=_valid_form_data())
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["comparisonAvailable"] is False
-    assert payload["cohortSize"] == SETTINGS.minimum_cohort_size - 1
-    assert payload["cohortAverage"] is None
-    assert payload["percentile"] is None
-    assert payload["distributionSummary"] is None
+    assert response.json() == {
+        "status": "comparison_unavailable",
+        "message": "Comparison statistics are not available for your cohorts size at this time.",
+    }
 
 
-def test_analytics_comparison_rejects_invalid_days(client: TestClient):
-    """Return 422 when days exceeds configured upper bound."""
-
-    response = client.get(
-        "/analytics/comparison",
-        params={
-            "guid": str(uuid4()),
-            "days": SETTINGS.analytics_max_window_days + 1,
-        },
-    )
-
-    assert response.status_code == 422
-
-
-def test_analytics_comparison_returns_404_for_unknown_user(
-    client: TestClient, reset_database
+def test_analytics_comparison_returns_404_when_auth_rejects_user(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """Return 404 for GUIDs that do not exist in the users table."""
+    """Propagate auth layer 404 when user does not exist."""
 
-    _ = reset_database
-    initialize_database()
+    def _raise_not_found(_guid):
+        raise HTTPException(status_code=404, detail="User not found")
 
-    response = client.get("/analytics/comparison",
-                          params={"guid": str(uuid4())})
+    monkeypatch.setattr("app.main.auth.validate_user_access", _raise_not_found)
+
+    response = client.post("/analytics/comparison", data=_valid_form_data())
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "User not found"
+    assert response.json() == {"detail": "User not found"}
 
 
-def test_analytics_comparison_rejects_invalid_guid_format(
-    client: TestClient, reset_database
-):
-    """Return 422 when guid is not a valid UUID format."""
+def test_analytics_comparison_rejects_invalid_guid_format(client: TestClient):
+    """Return 422 when guid is not a valid UUID string."""
 
-    _ = reset_database
-    initialize_database()
-
-    response = client.get("/analytics/comparison",
-                          params={"guid": "not-a-valid-uuid"})
+    response = client.post(
+        "/analytics/comparison",
+        data=_valid_form_data(guid="not-a-valid-uuid"),
+    )
 
     assert response.status_code == 422
 
 
-def test_analytics_comparison_user_with_no_assessments_comparison_unavailable(
-    client: TestClient, reset_database
-):
-    """User with no assessments returns comparison unavailable even if cohort exists."""
+def test_analytics_comparison_rejects_days_above_max(client: TestClient):
+    """Return 422 when days exceeds configured upper bound."""
 
-    _ = reset_database
-    initialize_database()
-    target_guid = uuid4()
+    response = client.post(
+        "/analytics/comparison",
+        data=_valid_form_data(days=SETTINGS.analytics_max_window_days + 1),
+    )
 
-    with sqlite3.connect(SETTINGS.database) as conn:
-        cursor = conn.cursor()
-        # Create target user with no assessments
-        _insert_user(cursor, str(target_guid), level="B1")
-
-        # Create enough cohort members to meet threshold
-        for idx in range(SETTINGS.minimum_cohort_size):
-            peer_guid = uuid4()
-            _insert_user(cursor, str(peer_guid), level="B1")
-            _insert_assessment(
-                cursor,
-                str(peer_guid),
-                3.0,
-                f"2026-03-{idx + 1:02d} 10:00:00",
-                f"peer-{idx}",
-            )
-        conn.commit()
-
-    response = client.get("/analytics/comparison",
-                          params={"guid": str(target_guid)})
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["comparisonAvailable"] is False
-    assert payload["userAverageScore"] is None
-    assert payload["cohortAverage"] is None
-    assert payload["percentile"] is None
-
-
-def test_analytics_comparison_response_does_not_expose_peer_data(
-    client: TestClient, reset_database
-):
-    """Response payload never contains individual peer GUIDs or raw scores."""
-
-    _ = reset_database
-    initialize_database()
-    target_guid = uuid4()
-
-    with sqlite3.connect(SETTINGS.database) as conn:
-        cursor = conn.cursor()
-        _insert_user(cursor, str(target_guid), level="B1")
-        _insert_assessment(
-            cursor, str(target_guid), 4.0, "2026-03-10 10:00:00", "target"
-        )
-
-        peer_guids = []
-        for idx in range(SETTINGS.minimum_cohort_size - 1):
-            peer_guid = uuid4()
-            peer_guids.append(str(peer_guid))
-            _insert_user(cursor, str(peer_guid), level="B1")
-            _insert_assessment(
-                cursor,
-                str(peer_guid),
-                2.0,
-                f"2026-03-{idx + 1:02d} 10:00:00",
-                f"peer-{idx}",
-            )
-        conn.commit()
-
-    response = client.get("/analytics/comparison",
-                          params={"guid": str(target_guid)})
-
-    assert response.status_code == 200
-    payload = response.json()
-    response_str = str(payload)
-
-    # Verify no peer GUIDs or audio identifiers are present in the response
-    for peer_guid_str in peer_guids:
-        assert peer_guid_str not in response_str
-    for idx in range(SETTINGS.minimum_cohort_size - 1):
-        assert f"peer-{idx}" not in response_str
+    assert response.status_code == 422

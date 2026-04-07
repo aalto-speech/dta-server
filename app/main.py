@@ -67,7 +67,7 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
 
     # Ensure only users who completed onboarding and consent can access comparison.
     auth.validate_user_access(data.guid)
-    stats = get_cohort_stats(data.guid)
+    stats = get_cohort_stats(data.guid, data.days)
 
     if not stats:
         return JSONResponse(
