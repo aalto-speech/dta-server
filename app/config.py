@@ -76,10 +76,11 @@ def _parse_int_env(name: str, default: int, minimum: int) -> int:
     return value
 
 
-def get_settings() -> Settings:
+def _build_settings() -> Settings:
     """Build settings once so the rest of the app can import stable values."""
 
     env = _parse_app_env()
+    database = _database_for_env(env)
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
     min_cohort_size = _parse_int_env(
         "MIN_COHORT_SIZE", default=100, minimum=2)
@@ -96,7 +97,7 @@ def get_settings() -> Settings:
 
     return Settings(
         env=env,
-        database=_database_for_env(env),
+        database=database,
         admin_api_key=admin_api_key,
         min_cohort_size=min_cohort_size,
         analytics_min_window_days=analytics_min_window_days,
@@ -104,4 +105,4 @@ def get_settings() -> Settings:
     )
 
 
-SETTINGS = get_settings()
+SETTINGS = _build_settings()

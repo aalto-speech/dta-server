@@ -39,7 +39,7 @@ jobs:
       - name: Install lint and test dependencies
         shell: bash -l {0}
         run: |
-          pip install pylint pytest
+          conda install -c conda-forge -y pylint pytest
 
       - name: Lint with pylint
         shell: bash -l {0}
