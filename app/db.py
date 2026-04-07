@@ -219,7 +219,7 @@ def create_feedback(data: FeedbackRequest) -> None:
     """, (
         str(data.guid),
         data.assessment_id,
-        data.type,
+        data.feedback_classification,
         data.reaction_value,
         data.comment
     ))

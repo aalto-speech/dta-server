@@ -27,7 +27,7 @@ from .models.speech_assessment import (
     SpeechAssessmentResponse,
     SpeechAssessmentScores,
 )
-from .models.user_requests import DeleteUserRequest, UserDataRequest
+from .models.user_requests import DeleteUserRequest, RequestType, UserDataRequest
 from .validators import audio, auth
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,8 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
 async def request_user(data: UserDataRequest = Form()) -> JSONResponse:
     """User request for deleting or exporting their data.
 
-    The request is stored in the database and awaits admin approval.
+    The delete request is stored in the database and awaits admin approval.
+    Export request not yet implemented.
 
     Args:
         data: UserDataRequest containing the user's GUID
@@ -103,18 +104,34 @@ async def request_user(data: UserDataRequest = Form()) -> JSONResponse:
         JSONResponse with status message
     """
 
-    # * Pydantic and global error handlers handle validation and failures.
-    create_user_request(data)
+    if data.type == RequestType.DELETE:
+        # * Pydantic and global error handlers handle validation and failures.
+        create_user_request(data)
 
+        return JSONResponse(
+            content={
+                "status": "request_received",
+                "message": (
+                    "Your data deletion request has been received "
+                    + "and is awaiting admin approval"
+                ),
+            },
+            status_code=202,
+        )
+
+    if data.type == RequestType.EXPORT:
+        return JSONResponse(
+            content={
+                "status": "not_implemented",
+                "message": "Data export requests are not implemented yet.",
+            },
+            status_code=501,
+        )
+
+    # Defensive fallback for unsupported request types.
     return JSONResponse(
-        content={
-            "status": "request_received",
-            "message": (
-                "Your data deletion request has been received "
-                + "and is awaiting admin approval"
-            ),
-        },
-        status_code=202,
+        content={"detail": "Unsupported request type."},
+        status_code=400,
     )
 
 
