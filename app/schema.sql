@@ -50,10 +50,8 @@ CREATE TABLE
         'years_7_10',
         'years_10_plus'
       )
-    ), -- use the exact questionnaire options
-    finnish_self_assessment TEXT NOT NULL CHECK (
-      finnish_self_assessment IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')
     ),
+    cefr_level TEXT NOT NULL CHECK (cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -127,6 +125,16 @@ CREATE TABLE
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );
 
+CREATE TABLE
+  IF NOT EXISTS user_cefr_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guid TEXT NOT NULL,
+    cefr_level TEXT NOT NULL CHECK (cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')),
+    source TEXT NOT NULL CHECK (source IN ('self_report', 'model')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
+  );
+
 -- Indexes to optimize queries by guid and created_at for assessments and feedback tables
 CREATE INDEX IF NOT EXISTS idx_assessments_guid_created_at ON assessments (guid, created_at);
 
@@ -135,3 +143,11 @@ CREATE INDEX IF NOT EXISTS idx_assessments_task_id ON assessments (task_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_guid_created_at ON feedback (guid, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_feedback_assessment_id ON feedback (assessment_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_cefr_history_guid_created_at_id ON user_cefr_history (guid, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_guid_proficiency_not_null ON assessments (guid, proficiency)
+WHERE
+  proficiency IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_cefr_level ON users (cefr_level);

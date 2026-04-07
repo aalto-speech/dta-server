@@ -1,6 +1,6 @@
 import sqlite3
 
-from .config import SETTINGS
+from app.config import SETTINGS
 
 
 def main() -> None:

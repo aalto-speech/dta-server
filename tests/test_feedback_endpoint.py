@@ -68,13 +68,25 @@ def test_feedback_handler_calls_create_feedback(monkeypatch: pytest.MonkeyPatch)
     }
 
 
-def test_feedback_endpoint_accepts_valid_payload(client: TestClient):
+def test_feedback_endpoint_accepts_valid_payload(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Test /feedback returns 201 for valid form data."""
+
+    called = {}
+
+    def _fake_create_feedback(data):
+        called["guid"] = str(data.guid)
+        called["reaction_value"] = data.reaction_value
+
+    monkeypatch.setattr("app.main.create_feedback", _fake_create_feedback)
 
     response = client.post("/feedback", data=_valid_feedback_form_data())
 
     assert response.status_code == 201
     assert response.json() == {"status": "feedback recorded"}
+    assert called["reaction_value"] == 5
 
 
 def test_feedback_endpoint_rejects_invalid_guid(client: TestClient):

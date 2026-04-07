@@ -94,7 +94,7 @@ def _parse_int_env(name: str, default: int, minimum: int) -> int:
     return value
 
 
-def get_settings() -> Settings:
+def _build_settings() -> Settings:
     """Build settings once so the rest of the app can import stable values."""
 
     env = _parse_app_env()
@@ -125,4 +125,4 @@ def get_settings() -> Settings:
     )
 
 
-SETTINGS = get_settings()
+SETTINGS = _build_settings()

@@ -15,9 +15,11 @@ from .db import (
     create_user,
     create_user_request,
     delete_user_data,
+    get_cohort_stats,
     initialize_database,
 )
 from .error_handlers import register_error_handlers
+from .models.analytics import ComparisonRequest, ComparisonResponse
 from .models.feedback import FeedbackRequest
 from .models.onboarding import OnboardingRequest
 from .models.speech_assessment import (
@@ -57,6 +59,35 @@ async def ping() -> JSONResponse:
     """Ping-pong endpoint for checking if the server is running."""
 
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
+
+
+@app.post("/analytics/comparison")
+async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse:
+    """User comparison endpoint to get cohort statistics and user's percentile rank."""
+
+    # Ensure only users who completed onboarding and consent can access comparison.
+    auth.validate_user_access(data.guid)
+    stats = get_cohort_stats(data.guid, data.days)
+
+    if not stats:
+        return JSONResponse(
+            content={
+                "status": "comparison_unavailable",
+                "message": (
+                    "Comparison statistics are not available for your cohorts size at this time."
+                )
+            },
+            status_code=200
+        )
+
+    payload = ComparisonResponse(
+        cefr_level=stats.cefr_level,
+        cohort_size=stats.cohort_size,
+        percentile=stats.percentile,
+        rank=stats.rank,
+    )
+
+    return JSONResponse(content=jsonable_encoder(payload), status_code=200)
 
 
 @app.post("/request/user")
