@@ -9,7 +9,7 @@ declare -a CONFIG_FILES=()
 
 usage() {
   cat <<EOF
-Usage: [ENV VARS] ${SCRIPT_NAME} [OPTIONS...]
+Usage: ${SCRIPT_NAME} [OPTIONS...]
 
 Required options:
   -R, --run            Execute the script. If not provided, the script will only print the usage
@@ -28,19 +28,23 @@ Options:
   -m, --model <user/repo[:rev]>
                        Hugging Face repository and optional revision. If no revision given, defaults to main
 
+  -e, --env <KEY=VALUE>
+                       Set or override an environment variable for this run.
+                       Can be provided multiple times.
+
   -h, --help           Show this help
 
 Environment overrides:
-  Setup:
+  Setup (NOT saved in env file for compose.yaml):
     HF_TOKEN=          Hugging Face API token (for private repositories and increased rate limits)
     GITHUB_TOKEN=      GitHub token (for private repository access and increased rate limits)
 
-  Caddy:
+  Caddy (saved in env file for compose.yaml):
     ACME_EMAIL=        Email address for ACME registration (optional, for automatic TLS certificates)
     DOMAIN=            Domain name for Caddy configuration (default: localhost)
     UPSTREAM=          Upstream address for Caddy to proxy to (default: dta:8000)
 
-  Application:
+  Application (saved in env file for compose.yaml):
     APP_ENV=           Application environment (default: development)
     DATABASE=          Absolute path to the application database (default: /data/dta.db)
     ADMIN_API_KEY=     Admin API key for the application (default: empty, must be set in production environment)
@@ -62,27 +66,35 @@ while [[ $# -gt 0 ]]; do
     NETWORK_INTERFACE="$2"
     shift 2
     ;;
-  -u | --user)
-    USERNAME="$2"
-    shift 2
-    ;;
-  -p | --user-path)
-    USER_PATH="$2"
-    shift 2
-    ;;
   -r | --repo)
-    GIT_REPO="${2%%:*}"
+    GITHUB_REPO="${2%%:*}"
     if [[ "$2" == *:* ]]; then
-      GIT_REPO_REF="${2#*:}"
+      GITHUB_REPO_REF="${2#*:}"
     fi
     shift 2
     ;;
   -m | --model)
     MODEL_REPO="${2%%:*}"
-    MODEL_NAME="${MODEL_REPO##*/}"
     if [[ "$2" == *:* ]]; then
       MODEL_REV="${2#*:}"
     fi
+    shift 2
+    ;;
+  -e | --env)
+    if [[ -z "${2:-}" || "${2}" != *=* ]]; then
+      echo "Error: -e|--env requires KEY=VALUE format" >&2
+      exit 2
+    fi
+
+    env_key="${2%%=*}"
+    env_value="${2#*=}"
+
+    if [[ ! "${env_key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      echo "Error: Invalid environment variable name '${env_key}'" >&2
+      exit 2
+    fi
+
+    export "${env_key}=${env_value}"
     shift 2
     ;;
   -h | --help)
@@ -129,7 +141,7 @@ validate_path() {
   fi
 }
 
-# * Environment variables ment to be overwritten by the user through the CLI.
+# * Environment file variables (saved to env file for compose.yaml)
 # Environment variables for Caddy
 ACME_EMAIL=${ACME_EMAIL:-}
 DOMAIN=${DOMAIN:-localhost}
@@ -140,46 +152,41 @@ APP_ENV=${APP_ENV:-development}
 DATABASE=${DATABASE:-/data/dta.db}
 ADMIN_API_KEY=${ADMIN_API_KEY:-}
 
+# * Advanced variables (not saved to env file, only used during setup)
 # Environment variables for external services and APIs
 HF_TOKEN="${HF_TOKEN:-}"         # Hugging Face API token (optional, for private repositories and increased rate limits)
 GITHUB_TOKEN="${GITHUB_TOKEN:-}" # GitHub token (optional, for private repository access and increased rate limits)
 
-# * Other environment variables NOT meant to be overwritten by the user.
-# Default environment variables. Use CLI options to override.
+# Default environment variables. Use CLI flag to override.
 NETWORK_INTERFACE="${NETWORK_INTERFACE:-}"           # Network interface to apply iptables rules on (auto-detected if not set)
 CADDY_LOGS_VOLUME="${CADDY_LOGS_VOLUME:-caddy-logs}" # Podman volume name
-TARGET_OS_VERSION="${TARGET_OS_VERSION:-24.04}"      # Target OS version for package selection (e.g., for podman-compose vs docker-compose)
+TARGET_OS_VERSION="${TARGET_OS_VERSION:-24.04}"      # Target Ubuntu version for package selection (e.g., for podman-compose vs docker-compose)
 
 # Model settings
-MODEL_REPO="${MODEL_REPO:-}"            # LLM repository
-MODEL_REV="${MODEL_REV:-main}"          # LLM revision (branch, tag, or commit)
-MODEL_NAME="${MODEL_NAME:-CaptainA_v0}" # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_NAME})
-
-# Sanitize MODEL_NAME to prevent path traversal
-MODEL_NAME="${MODEL_NAME##*/}"              # Remove any path components
-MODEL_NAME="${MODEL_NAME//[^a-zA-Z0-9_-]/}" # Remove special characters
+MODEL_REPO="${MODEL_REPO:-}"   # LLM repository
+MODEL_REV="${MODEL_REV:-main}" # LLM revision (branch, tag, or commit)
 
 HF_MODELS_VOLUME="${HF_MODELS_VOLUME:-hf-models}" # Podman volume name for storing downloaded models
 HF_CACHE_VOLUME="${HF_CACHE_VOLUME:-hf-cache}"    # Podman volume name for storing Hugging Face cache
 
-# Application settings
-USERNAME="${USERNAME:-ubuntu}"                  # Non-root user to run the application and manage resources
-USER_PATH="${USER_PATH:-/home/${USERNAME}}"     # Root directory for the application user (e.g., for logs, data, etc.)
-APP_PATH="${USER_PATH}/dta"                     # Directory where the application code and configuration will be stored
-GIT_REPO="${GIT_REPO:-aalto-speech/dta-server}" # Git repository for fetching configuration files
-GIT_REPO_REF="${GIT_REPO_REF:-main}"            # Git reference (branch, tag, or commit)
+# Deployment settings
+USERNAME="${USERNAME:-ubuntu}"                        # Non-root user to run the application and manage resources
+USER_PATH="${USER_PATH:-/home/${USERNAME}}"           # Root directory for the application user (e.g., for logs, data, etc.)
+APP_PATH="${USER_PATH}/dta"                           # Directory where the application code and configuration will be stored
+GITHUB_REPO="${GITHUB_REPO:-aalto-speech/dta-server}" # GitHub repository for fetching configuration files
+GITHUB_REPO_REF="${GITHUB_REPO_REF:-main}"            # GitHub reference (branch, tag, or commit)
 
 # Misc. settings
-SERVICE_FILE="dta-compose.service" # Name of the systemd user service file to fetch from the repository and enable
+SERVICE_PATH="dta-compose.service" # Path of the systemd user service file to fetch from the repository and enable
 
 if [[ ${#CONFIG_FILES[@]} -eq 0 ]]; then
   # Default configuration files to fetch from the repository
-  CONFIG_FILES=("Caddyfile" "compose.yaml" "${SERVICE_FILE}")
+  CONFIG_FILES=("Caddyfile" "compose.yaml")
 fi
 
 # Validate critical inputs to prevent command injection
-validate_input "GIT_REPO" "${GIT_REPO}" '^$|^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
-validate_input "GIT_REPO_REF" "${GIT_REPO_REF}" '^[a-zA-Z0-9/_.-]+$'
+validate_input "GITHUB_REPO" "${GITHUB_REPO}" '^$|^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
+validate_input "GITHUB_REPO_REF" "${GITHUB_REPO_REF}" '^[a-zA-Z0-9/_.-]+$'
 validate_input "MODEL_REPO" "${MODEL_REPO}" '^$|^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
 validate_input "MODEL_REV" "${MODEL_REV}" '^[a-zA-Z0-9/_.-]+$'
 validate_input "USERNAME" "${USERNAME}" '^[a-z_][a-z0-9_-]*$'
@@ -414,6 +421,7 @@ setup_model() {
     }
 
     local image_name="docker.io/python:3.14-slim"
+    local model_name="${MODEL_REPO##*/}"
     local token_dir=""
     local token_file=""
     local env_args=(
@@ -434,7 +442,7 @@ setup_model() {
       trap 'cleanup' EXIT INT TERM ERR
     fi
 
-    log "Downloading model '${MODEL_REPO}:${MODEL_REV}' into volume '${HF_MODELS_VOLUME}' using a temporary container..."
+    log "Downloading model '${model_name}:${MODEL_REV}' into volume '${HF_MODELS_VOLUME}' using a temporary container..."
     podman run --rm --pull=always \
       "${env_args[@]}" \
       -v "${HF_MODELS_VOLUME}":/hf/models:Z \
@@ -444,9 +452,9 @@ setup_model() {
       "mkdir -p ${HOME}/.cache ${HOME}/.local && chmod -R 700 ${HOME} && \
       python -m pip install -U pip >/dev/null && \
       pip install -U huggingface_hub >/dev/null && \
-      hf download '${MODEL_REPO}' \
+      hf download '${model_name}' \
         --revision '${MODEL_REV}' \
-        --local-dir '/hf/models/${MODEL_NAME}'"
+        --local-dir '/hf/models/${model_name}'"
 
     cleanup
     unset -f cleanup
@@ -495,7 +503,7 @@ CONFIG_EOF
   fi
 
   curl "${curl_args[@]}" \
-    "https://api.github.com/repos/${GIT_REPO}/contents/${path}?ref=${GIT_REPO_REF}" \
+    "https://api.github.com/repos/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_REPO_REF}" \
     -o "${out}"
 
   cleanup
@@ -505,7 +513,7 @@ CONFIG_EOF
 fetch_configuration() {
   # Fetch configuration files from the application repository to the server
 
-  log "Fetching files from repository '${GIT_REPO}:${GIT_REPO_REF}'..."
+  log "Fetching files from repository '${GITHUB_REPO}:${GITHUB_REPO_REF}'..."
 
   local conf_dir="${APP_PATH}"
 
@@ -546,7 +554,7 @@ ENV_EOF
 enable_services() {
   log "Enabling services to start on boot..."
 
-  local file="${SERVICE_FILE}"
+  local file="${SERVICE_PATH##*/}"
   local path="${USER_PATH}/.config/systemd/user/${file}"
   mkdir -p "$(dirname "${path}")"
 
@@ -578,8 +586,8 @@ main() {
 
   setup_model
 
-  # Fetch configuration files from the application repository if GIT_REPO is provided.
-  if [[ -n "${GIT_REPO}" ]]; then
+  # Fetch configuration files from the application repository if GITHUB_REPO is provided.
+  if [[ -n "${GITHUB_REPO}" ]]; then
     fetch_configuration
   else
     log "No application repository provided, skipping configuration fetch..."
@@ -595,7 +603,7 @@ main() {
   local time_ns=$((end_time - start_time))
   local time_ms=$((time_ns / 1000000))
 
-  log "Model volume: ${HF_MODELS_VOLUME} (model at /hf/models/${MODEL_NAME} when mounted)"
+  log "Model volume: ${HF_MODELS_VOLUME} (model at /hf/models/ when mounted)"
   log "HF cache volume: ${HF_CACHE_VOLUME}"
 
   log "Script completed in [${time_ms}ms]"

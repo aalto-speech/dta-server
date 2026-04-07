@@ -16,8 +16,6 @@ services:
     container_name: caddy
     image: docker.io/caddy:2.11-alpine
     restart: unless-stopped
-    depends_on:
-      - dta
     ports:
       - "8080:80"
       - "8443:443"
@@ -31,6 +29,8 @@ services:
       - caddy-config:/config
       - caddy-data:/data
       - caddy-logs:/var/log/caddy
+    depends_on:
+      - dta
 
 volumes:
   database:
