@@ -92,14 +92,27 @@ def test_request_user_handler_export_does_not_store_and_returns_501(
     assert called["create_user_request"] is False
 
 
-def test_request_user_endpoint_delete_accepts_valid_payload(client: TestClient):
+def test_request_user_endpoint_delete_accepts_valid_payload(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Test /request/user returns 202 for valid delete request form data."""
+
+    called = {}
+
+    def _fake_create_user_request(data):
+        called["guid"] = str(data.guid)
+        called["type"] = str(data.type)
+
+    monkeypatch.setattr("app.main.create_user_request",
+                        _fake_create_user_request)
 
     response = client.post(
         "/request/user", data=_valid_request_user_form_data())
 
     assert response.status_code == 202
     assert response.json()["status"] == "request_received"
+    assert called["type"] == "delete"
 
 
 def test_request_user_endpoint_export_returns_not_implemented(

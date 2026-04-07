@@ -94,30 +94,6 @@ def _parse_int_env(name: str, default: int, minimum: int) -> int:
     return value
 
 
-def _parse_int_env(name: str, default: int, minimum: int) -> int:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-
-    try:
-        value = int(raw_value)
-    except ValueError:
-        logger.warning(
-            "Environment variable %s has invalid value %r (not an integer). Using default %d.",
-            name, raw_value, default,
-        )
-        return default
-
-    if value < minimum:
-        logger.warning(
-            "Value for %s (%d) is below minimum (%d). Using default %d.",
-            name, value, minimum, default,
-        )
-        return default
-
-    return value
-
-
 def _build_settings() -> Settings:
     """Build settings once so the rest of the app can import stable values."""
 

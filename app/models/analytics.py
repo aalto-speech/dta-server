@@ -10,6 +10,7 @@ class ComparisonRequest(BaseModel):
     """Request type for comparison analytics endpoint."""
 
     guid: UUID
+    # ? Should `days` be specified by a fixed set of options instead of an open integer?
     days: int = Field(default=30)
 
     @field_validator("days")
