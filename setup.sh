@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_NAME="${0}"
+
 VERBOSE="${VERBOSE:-1}"
 DRY_RUN="${DRY_RUN:-0}"
 declare -a CONFIG_FILES=()
 
 usage() {
-  cat <<'EOF'
-Usage: [ENV VARS] ./setup.sh [OPTIONS]
+  cat <<EOF
+Usage: [ENV VARS] ${SCRIPT_NAME} [OPTIONS...]
 
 Required options:
   -R, --run            Execute the script. If not provided, the script will only print the usage
@@ -26,21 +28,22 @@ Options:
   -m, --model <user/repo[:rev]>
                        Hugging Face repository and optional revision. If no revision given, defaults to main
 
-  -d, --compose-file <path>
-                       Path to the compose file (default: compose.yaml)
-
-  -c, --config-files <path> [<path> ...]
-                       Path(s) to configuration files to fetch from the application repository
-                       (default: Caddyfile compose.yaml)
-
   -h, --help           Show this help
 
 Environment overrides:
-  Model:
+  Setup:
     HF_TOKEN=          Hugging Face API token (for private repositories and increased rate limits)
+    GITHUB_TOKEN=      GitHub token (for private repository access and increased rate limits)
+
+  Caddy:
+    ACME_EMAIL=        Email address for ACME registration (optional, for automatic TLS certificates)
+    DOMAIN=            Domain name for Caddy configuration (default: localhost)
+    UPSTREAM=          Upstream address for Caddy to proxy to (default: dta:8000)
 
   Application:
-    GITHUB_TOKEN=      GitHub token (for private repository access and increased rate limits)
+    APP_ENV=           Application environment (default: development)
+    DATABASE=          Absolute path to the application database (default: /data/dta.db)
+    ADMIN_API_KEY=     Admin API key for the application (default: empty, must be set in production environment)
 EOF
 }
 
@@ -81,17 +84,6 @@ while [[ $# -gt 0 ]]; do
       MODEL_REV="${2#*:}"
     fi
     shift 2
-    ;;
-  -d | --compose-file)
-    COMPOSE_FILE="$2"
-    shift 2
-    ;;
-  -c | --config-files)
-    shift
-    while [[ $# -gt 0 ]] && [[ "$1" != -* ]]; do
-      CONFIG_FILES+=("$1")
-      shift
-    done
     ;;
   -h | --help)
     usage
@@ -137,6 +129,22 @@ validate_path() {
   fi
 }
 
+# * Environment variables ment to be overwritten by the user through the CLI.
+# Environment variables for Caddy
+ACME_EMAIL=${ACME_EMAIL:-}
+DOMAIN=${DOMAIN:-localhost}
+UPSTREAM=${UPSTREAM:-dta:8000}
+
+# Environment variables for the application
+APP_ENV=${APP_ENV:-development}
+DATABASE=${DATABASE:-/data/dta.db}
+ADMIN_API_KEY=${ADMIN_API_KEY:-}
+
+# Environment variables for external services and APIs
+HF_TOKEN="${HF_TOKEN:-}"         # Hugging Face API token (optional, for private repositories and increased rate limits)
+GITHUB_TOKEN="${GITHUB_TOKEN:-}" # GitHub token (optional, for private repository access and increased rate limits)
+
+# * Other environment variables NOT meant to be overwritten by the user.
 # Default environment variables. Use CLI options to override.
 NETWORK_INTERFACE="${NETWORK_INTERFACE:-}"           # Network interface to apply iptables rules on (auto-detected if not set)
 CADDY_LOGS_VOLUME="${CADDY_LOGS_VOLUME:-caddy-logs}" # Podman volume name
@@ -146,13 +154,13 @@ TARGET_OS_VERSION="${TARGET_OS_VERSION:-24.04}"      # Target OS version for pac
 MODEL_REPO="${MODEL_REPO:-}"            # LLM repository
 MODEL_REV="${MODEL_REV:-main}"          # LLM revision (branch, tag, or commit)
 MODEL_NAME="${MODEL_NAME:-CaptainA_v0}" # LLM directory name the model will be stored under in the volume (e.g., /hf/models/${MODEL_NAME})
+
 # Sanitize MODEL_NAME to prevent path traversal
 MODEL_NAME="${MODEL_NAME##*/}"              # Remove any path components
 MODEL_NAME="${MODEL_NAME//[^a-zA-Z0-9_-]/}" # Remove special characters
 
 HF_MODELS_VOLUME="${HF_MODELS_VOLUME:-hf-models}" # Podman volume name for storing downloaded models
 HF_CACHE_VOLUME="${HF_CACHE_VOLUME:-hf-cache}"    # Podman volume name for storing Hugging Face cache
-HF_TOKEN="${HF_TOKEN:-}"                          # Hugging Face API token (optional, for private repositories and increased rate limits)
 
 # Application settings
 USERNAME="${USERNAME:-ubuntu}"                  # Non-root user to run the application and manage resources
@@ -160,24 +168,14 @@ USER_PATH="${USER_PATH:-/home/${USERNAME}}"     # Root directory for the applica
 APP_PATH="${USER_PATH}/dta"                     # Directory where the application code and configuration will be stored
 GIT_REPO="${GIT_REPO:-aalto-speech/dta-server}" # Git repository for fetching configuration files
 GIT_REPO_REF="${GIT_REPO_REF:-main}"            # Git reference (branch, tag, or commit)
-GITHUB_TOKEN="${GITHUB_TOKEN:-}"                # GitHub token (optional, for private repository access and increased rate limits)
 
 # Misc. settings
-COMPOSE_FILE=${COMPOSE_FILE:-compose.yaml}        # Path to the container compose file
-SERVICE_FILE=${SERVICE_FILE:-dta-compose.service} # Name of the systemd service file to create for managing the application services
+SERVICE_FILE="dta-compose.service" # Name of the systemd user service file to fetch from the repository and enable
+
 if [[ ${#CONFIG_FILES[@]} -eq 0 ]]; then
-  CONFIG_FILES=(Caddyfile "${COMPOSE_FILE}" "${SERVICE_FILE}") # Default configuration files to fetch from the repository
+  # Default configuration files to fetch from the repository
+  CONFIG_FILES=("Caddyfile" "compose.yaml" "${SERVICE_FILE}")
 fi
-
-# Environment variables for Caddy
-DOMAIN=${DOMAIN:-localhost}
-ACME_EMAIL=${ACME_EMAIL:-}
-UPSTREAM=${UPSTREAM:-dta:8000}
-
-# Environment variables for the application
-APP_ENV=${APP_ENV:-development}
-DATABASE=${DATABASE:-/data/dta.db}
-ADMIN_API_KEY=${ADMIN_API_KEY:-}
 
 # Validate critical inputs to prevent command injection
 validate_input "GIT_REPO" "${GIT_REPO}" '^$|^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$'
@@ -520,78 +518,21 @@ fetch_configuration() {
   unset conf_dir
 }
 
-fetch_app() {
-  # TEMPORARY FUNCTION! Fetch the application source code from the repository to the server
-  # ! Once the configuration files are in place and the application image can be built in CI/CD use fetch_configuration instead and remove this function!
-
-  cleanup() {
-    trap - EXIT INT TERM ERR
-    if [[ -n "${git_askpass_dir}" && -d "${git_askpass_dir}" ]]; then
-      rm -rf "${git_askpass_dir}"
-    fi
-    unset GIT_ASKPASS git_askpass_script git_askpass_dir
-  }
-
-  local git_askpass_dir=""
-  local git_askpass_script=""
-  local app_repo_path="${APP_PATH}/repo"
-
-  if [[ -d "${app_repo_path}" ]]; then
-    rm -rf "${app_repo_path}"
-  fi
-
-  # Create the app repo directory with appropriate permissions
-  mkdir -p "${app_repo_path}"
-  chmod -R 755 "${app_repo_path}"
-
-  # Use GIT_ASKPASS for secure token handling if GITHUB_TOKEN is provided
-  if [[ -n "${GITHUB_TOKEN}" ]]; then
-    git_askpass_dir="$(mktemp -d)"
-    chmod 700 "${git_askpass_dir}"
-    git_askpass_script="$(mktemp -p "${git_askpass_dir}")"
-
-    # Embed token directly in script
-    cat >"${git_askpass_script}" <<ASKPASS_EOF
-#!/bin/sh
-echo "${GITHUB_TOKEN}"
-ASKPASS_EOF
-    chmod 500 "${git_askpass_script}"
-    export GIT_ASKPASS="${git_askpass_script}"
-
-    # Set up trap to ensure cleanup even if interrupted
-    trap 'cleanup' EXIT INT TERM ERR
-  fi
-
-  log "Fetching application source code from 'https://github.com/${GIT_REPO}:${GIT_REPO_REF}' to '${app_repo_path}'..."
-
-  git init --quiet "${app_repo_path}" >/dev/null
-  cd "${app_repo_path}"
-
-  git remote add origin "https://github.com/${GIT_REPO}.git" >/dev/null
-  git fetch --depth 1 origin "${GIT_REPO_REF}" >/dev/null
-  git checkout FETCH_HEAD -- . >/dev/null
-  rm -rf .git
-  cd ~
-
-  # Clean up the askpass script and directory
-  cleanup
-}
-
 setup_env_file() {
-  local env_path="/home/ubuntu/.config/dta"
+  local env_path="/home/${USERNAME}/.config/dta"
   local env_file="${env_path}/env"
 
   mkdir -p "${env_path}"
 
   chmod 700 "$env_path"
-  chown -R ubuntu:ubuntu /home/ubuntu/.config/dta
+  chown -R "${USERNAME}":"${USERNAME}" "${env_path}"
 
   log "Creating env file at '${env_file}' with environment variables for the compose..."
 
   cat >"${env_file}" <<ENV_EOF
 # Environment variables for caddy
-DOMAIN=${DOMAIN:-}
 ACME_EMAIL=${ACME_EMAIL:-}
+DOMAIN=${DOMAIN:-}
 UPSTREAM=${UPSTREAM:-}
 
 # Environment variables for the application
@@ -599,62 +540,30 @@ APP_ENV=${APP_ENV:-}
 DATABASE=${DATABASE:-}
 ADMIN_API_KEY=${ADMIN_API_KEY:-}
 ENV_EOF
-  chmod 600 /home/ubuntu/.config/dta/env
+  chmod 600 "${env_file}"
 }
 
 enable_services() {
   log "Enabling services to start on boot..."
 
-  # TODO: Get dta-compose.service content from a file in the repository instead of hardcoding it here. This would allow easier maintenance and updates to the service definition without modifying the setup script.
+  local file="${SERVICE_FILE}"
+  local path="${USER_PATH}/.config/systemd/user/${file}"
+  mkdir -p "$(dirname "${path}")"
 
-  local service_name="${SERVICE_FILE}"
-  local service_path="${USER_PATH}/.config/systemd/user/${service_name}"
-  mkdir -p "$(dirname "${service_path}")"
-
-  log "Creating systemd user service file at '${service_path}'..."
-
-  cat >"${service_path}" <<SERVICE_EOF
-# Manages the rootless dta-server stack via podman compose (user service).
-# Starts containers with: podman compose up -d
-# Stops containers with: podman compose down
-# Runs in /home/ubuntu/dta after network is online, and can auto-start when enabled.
-# /home/ubuntu/.config/systemd/user/dta-compose.service
-
-[Unit]
-Description=Rootless dta-server service
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-TimeoutStartSec=300
-Environment=HOME=/home/ubuntu
-EnvironmentFile=/home/ubuntu/.config/dta/env
-WorkingDirectory=/home/ubuntu/dta
-ExecStart=/usr/bin/podman compose up --detach
-ExecReload=/usr/bin/podman compose restart
-ExecStop=/usr/bin/podman compose down
-
-[Install]
-WantedBy=default.target
-
-SERVICE_EOF
+  log "Fetching service file '${file}' to '${path}'..."
+  fetch_file "${file}" "${path}"
 
   log "Enabling lingering for user '${USERNAME}' to allow services to run without an active login session..."
   loginctl enable-linger "${USERNAME}"
 
-  log "Reloading systemd user daemon to recognize the new service..."
+  log "Reloading systemd user daemon to recognize the new user service..."
   systemctl --user daemon-reload
 
-  # log "Checking if the service is set up correctly..."
-  # systemctl --user status "${service_name}"
-
-  log "Enabling the service '${service_name}' for user '${USERNAME}'..."
-  systemctl --user enable "${service_name}"
+  log "Enabling the service '${file}' for user '${USERNAME}'..."
+  systemctl --user enable "${file}"
 
   log "Starting services..."
-  systemctl --user start --now "${service_name}"
+  systemctl --user start --now "${file}"
 }
 
 main() {
@@ -672,7 +581,6 @@ main() {
   # Fetch configuration files from the application repository if GIT_REPO is provided.
   if [[ -n "${GIT_REPO}" ]]; then
     fetch_configuration
-    # fetch_app # ! If no GITHUB_TOKEN provided, fetch_app can not fetch the application code from a private repository.
   else
     log "No application repository provided, skipping configuration fetch..."
   fi

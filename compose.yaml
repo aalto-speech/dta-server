@@ -23,8 +23,8 @@ services:
       - "8443:443"
     environment:
       # See Caddyfile for usage of these variables
-      DOMAIN: ${DOMAIN:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:-}
+      DOMAIN: ${DOMAIN:-localhost}
       UPSTREAM: ${UPSTREAM:-dta:8000} # [service|IP]:port
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
