@@ -92,6 +92,7 @@ def test_feedback_routes_assessment_types_to_assessment_feedback(monkeypatch: py
     monkeypatch.setattr("app.main.create_assessment_feedback",
                         _fake_create_assessment_feedback)
     monkeypatch.setattr("app.main.create_experience_feedback", lambda x: None)
+    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
 
     for classification in ["self_assessment", "result_accuracy", "result_understanding"]:
         called.clear()
@@ -125,6 +126,7 @@ def test_feedback_routes_experience_types_to_experience_feedback(monkeypatch: py
     monkeypatch.setattr("app.main.create_experience_feedback",
                         _fake_create_experience_feedback)
     monkeypatch.setattr("app.main.create_assessment_feedback", lambda x: None)
+    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
 
     for classification in ["comparison_ui", "overall_experience"]:
         called.clear()
@@ -157,6 +159,7 @@ def test_feedback_reaction_value_minimum(client: TestClient, monkeypatch: pytest
     monkeypatch.setattr("app.main.create_experience_feedback",
                         _fake_create_experience_feedback)
     monkeypatch.setattr("app.main.create_assessment_feedback", lambda x: None)
+    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
 
     response = client.post(
         "/feedback",
@@ -178,6 +181,7 @@ def test_feedback_reaction_value_maximum(client: TestClient, monkeypatch: pytest
     monkeypatch.setattr("app.main.create_experience_feedback",
                         _fake_create_experience_feedback)
     monkeypatch.setattr("app.main.create_assessment_feedback", lambda x: None)
+    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
 
     response = client.post(
         "/feedback",
@@ -199,6 +203,7 @@ def test_feedback_comment_optional(client: TestClient, monkeypatch: pytest.Monke
     monkeypatch.setattr("app.main.create_experience_feedback",
                         _fake_create_experience_feedback)
     monkeypatch.setattr("app.main.create_assessment_feedback", lambda x: None)
+    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
 
     response = client.post(
         "/feedback",
