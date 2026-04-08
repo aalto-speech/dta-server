@@ -7,7 +7,7 @@ from uuid import UUID
 
 from app.models.analytics import ComparisonStats
 from app.models.feedback import FeedbackRequest
-from app.models.onboarding import OnboardingRequest
+from app.models.onboarding import OnboardingRequest, CEFRLevel
 from app.models.user_requests import DeleteUserRequest, UserDataRequest
 
 from .config import SETTINGS
@@ -145,9 +145,9 @@ def get_cohort_stats(guid: UUID, days: int | None = None) -> ComparisonStats | N
         return None
 
     user_row_id = int(row[1]) if row and row[1] is not None else None
-    cefr_level = str(row[2]) if row and row[2] is not None else None
+    cefr_level = CEFRLevel(row[2]) if row and row[2] is not None else None
 
-    if user_row_id is None:
+    if user_row_id is None or cefr_level is None:
         return None
 
     percentile = (cohort_size - user_row_id + 1) / cohort_size

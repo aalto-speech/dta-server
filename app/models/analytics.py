@@ -41,8 +41,8 @@ class ComparisonStats(BaseModel):
 
     cefr_level: CEFRLevel
     cohort_size: int
-    percentile: float | None
-    rank: int | None
+    percentile: float
+    rank: int
 
 
 class ComparisonResponse(BaseModel):
