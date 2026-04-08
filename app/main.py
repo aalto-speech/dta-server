@@ -144,12 +144,13 @@ async def feedback(data: FeedbackRequest = Form()) -> JSONResponse:
         data: FeedbackRequest containing feedback details
     """
 
-    # * Pydantic and global error handlers handle validation and failures.
+    auth.validate_user_access(data.guid)
 
     assess = {FeedbackClassification.SELF_ASSESSMENT,
               FeedbackClassification.RESULT_ACCURACY, FeedbackClassification.RESULT_UNDERSTANDING}
     ux = {FeedbackClassification.COMPARISON, FeedbackClassification.OVERALL}
 
+    # * Pydantic and global error handlers handle validation and failures.
     if data.feedback_classification in assess:
         create_assessment_feedback(data)
     elif data.feedback_classification in ux:
