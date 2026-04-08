@@ -12,7 +12,8 @@ class FeedbackClassification(StrEnum):
     - `SELF_ASSESSMENT`: Feedback related to user's self-assessment experience.
     - `COMPARISON`: Feedback related to comparison experience.
     - `OVERALL`: Feedback related to overall app experience.
-    - `RESULT`: Feedback related to speech assessment results.
+    - `RESULT_ACCURACY`: Feedback related to accuracy of assessment results.
+    - `RESULT_UNDERSTANDING`: Feedback related to user's understanding of assessment results.
     """
 
     SELF_ASSESSMENT = "self_assessment"
