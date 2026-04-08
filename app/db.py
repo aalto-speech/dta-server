@@ -1,6 +1,8 @@
 import json
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 from uuid import UUID
 
 from app.models.analytics import ComparisonStats
@@ -11,7 +13,7 @@ from app.models.user_requests import DeleteUserRequest, UserDataRequest
 from .config import SETTINGS
 
 
-def database() -> sqlite3.Connection:
+def _get_connection() -> sqlite3.Connection:
     """Helper to get a configured database connection."""
 
     conn = sqlite3.connect(SETTINGS.database)
@@ -20,6 +22,24 @@ def database() -> sqlite3.Connection:
     PRAGMA foreign_keys = ON;
     """)
     return conn
+
+
+@contextmanager
+def database() -> Iterator[sqlite3.Connection]:
+    """Yield a database connection that is always closed.
+
+    Commits on success and rolls back on failure.
+    """
+
+    conn = _get_connection()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def initialize_database() -> bool:
@@ -36,10 +56,8 @@ def initialize_database() -> bool:
     schema_sql = Path(__file__).with_name(
         "schema.sql").read_text(encoding="utf-8")
 
-    db = database()
-    db.executescript(schema_sql)
-    db.commit()
-    db.close()
+    with database() as db:
+        db.executescript(schema_sql)
 
     return True
 
@@ -148,26 +166,23 @@ def create_user(data: OnboardingRequest) -> None:
     # Format consent_timestamp as ISO 8601 string for storage
     consent_timestamp = data.consent_timestamp.isoformat()
 
-    db = database()
-    cur = db.cursor()
-    cur.execute("""
-        INSERT INTO users(guid, consent_accepted, consent_timestamp, app_version, gender, age_group, native_languages, other_languages, moved_to_finland, finnish_learning_duration, cefr_level)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        str(data.guid),
-        int(data.consent_accepted),
-        consent_timestamp,
-        data.app_version,
-        data.gender,
-        data.age_group,
-        json.dumps(data.native_languages),
-        json.dumps(data.other_languages),
-        data.moved_to_finland,
-        data.finnish_learning_duration,
-        data.finnish_self_assessment
-    ))
-    db.commit()
-    db.close()
+    with database() as db:
+        db.execute("""
+            INSERT INTO users(guid, consent_accepted, consent_timestamp, app_version, gender, age_group, native_languages, other_languages, moved_to_finland, finnish_learning_duration, cefr_level)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            str(data.guid),
+            int(data.consent_accepted),
+            consent_timestamp,
+            data.app_version,
+            data.gender,
+            data.age_group,
+            json.dumps(data.native_languages),
+            json.dumps(data.other_languages),
+            data.moved_to_finland,
+            data.finnish_learning_duration,
+            data.finnish_self_assessment
+        ))
 
 
 def create_user_request(data: UserDataRequest) -> None:
@@ -177,14 +192,11 @@ def create_user_request(data: UserDataRequest) -> None:
         data: UserDataRequest containing the user's GUID and request type
     """
 
-    db = database()
-    cur = db.cursor()
-    cur.execute("""
-        INSERT INTO user_requests (guid, type)
-        VALUES (?, ?)
-    """, (str(data.guid), data.type))
-    db.commit()
-    db.close()
+    with database() as db:
+        db.execute("""
+            INSERT INTO user_requests (guid, type)
+            VALUES (?, ?)
+        """, (str(data.guid), data.type))
 
 
 def delete_user_data(data: DeleteUserRequest) -> None:
@@ -196,11 +208,8 @@ def delete_user_data(data: DeleteUserRequest) -> None:
         guid: User's GUID
     """
 
-    db = database()
-    cur = db.cursor()
-    cur.execute("DELETE FROM users WHERE guid = ?", (str(data.guid),))
-    db.commit()
-    db.close()
+    with database() as db:
+        db.execute("DELETE FROM users WHERE guid = ?", (str(data.guid),))
 
 
 def create_feedback(data: FeedbackRequest) -> None:
@@ -210,26 +219,22 @@ def create_feedback(data: FeedbackRequest) -> None:
         data: FeedbackRequest containing feedback details
     """
 
-    db = database()
-    cur = db.cursor()
-    cur.execute("""
-    INSERT INTO feedback (
-        guid,
-        assessment_id,
-        type,
-        reaction_value,
-        comment
-    ) VALUES (?, ?, ?, ?, ?)
-    """, (
-        str(data.guid),
-        data.assessment_id,
-        data.feedback_classification,
-        data.reaction_value,
-        data.comment
-    ))
-
-    db.commit()
-    db.close()
+    with database() as db:
+        db.execute("""
+        INSERT INTO feedback (
+            guid,
+            assessment_id,
+            type,
+            reaction_value,
+            comment
+        ) VALUES (?, ?, ?, ?, ?)
+        """, (
+            str(data.guid),
+            data.assessment_id,
+            data.feedback_classification,
+            data.reaction_value,
+            data.comment
+        ))
 
 
 def get_user(guid: UUID) -> bool:
@@ -242,12 +247,10 @@ def get_user(guid: UUID) -> bool:
         True if a users row exists, otherwise False.
     """
 
-    db = database()
-    cur = db.cursor()
-    cur.execute(
-        "SELECT 1 FROM users WHERE guid = ? LIMIT 1", (str(guid),))
-    row = cur.fetchone()
-    db.close()
+    with database() as db:
+        row = db.execute(
+            "SELECT 1 FROM users WHERE guid = ? LIMIT 1", (str(guid),)
+        ).fetchone()
     return row is not None
 
 
@@ -261,10 +264,8 @@ def get_user_consent(guid: UUID) -> bool:
         True if a users row exists with consent_accepted=1, otherwise False.
     """
 
-    db = database()
-    cur = db.cursor()
-    cur.execute(
-        "SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1", (str(guid),))
-    row = cur.fetchone()
-    db.close()
+    with database() as db:
+        row = db.execute(
+            "SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1", (str(guid),)
+        ).fetchone()
     return row is not None
