@@ -11,7 +11,8 @@ from fastapi.responses import JSONResponse, Response
 
 from .config import SETTINGS
 from .db import (
-    create_feedback,
+    create_assessment_feedback,
+    create_experience_feedback,
     create_user,
     create_user_request,
     delete_user_data,
@@ -20,7 +21,7 @@ from .db import (
 )
 from .error_handlers import register_error_handlers
 from .models.analytics import ComparisonRequest, ComparisonResponse
-from .models.feedback import FeedbackRequest
+from .models.feedback import FeedbackClassification, FeedbackRequest
 from .models.onboarding import OnboardingRequest
 from .models.speech_assessment import (
     SpeechAssessmentRequest,
@@ -144,7 +145,15 @@ async def feedback(data: FeedbackRequest = Form()) -> JSONResponse:
     """
 
     # * Pydantic and global error handlers handle validation and failures.
-    create_feedback(data)
+
+    assess = {FeedbackClassification.SELF_ASSESSMENT,
+              FeedbackClassification.RESULT_ACCURACY, FeedbackClassification.RESULT_UNDERSTANDING}
+    ux = {FeedbackClassification.COMPARISON, FeedbackClassification.OVERALL}
+
+    if data.feedback_classification in assess:
+        create_assessment_feedback(data)
+    elif data.feedback_classification in ux:
+        create_experience_feedback(data)
 
     return JSONResponse(content={"status": "feedback recorded"}, status_code=201)
 

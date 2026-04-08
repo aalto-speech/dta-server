@@ -88,27 +88,34 @@ CREATE TABLE
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );
 
--- ? Should feedback table be split into mulitple tables for different feedback types?
--- ? For now we can keep all feedback in one table and use target_type to differentiate.
 CREATE TABLE
-  IF NOT EXISTS feedback (
+  IF NOT EXISTS feedback_assessment (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    guid TEXT NOT NULL, -- user GUID to link feedback to a specific user
-    assessment_id INTEGER, -- nullable if feedback is not about a specific assessment
+    guid TEXT NOT NULL,
+    assessment_id INTEGER NOT NULL,
     type TEXT NOT NULL CHECK (
       type IN (
         'self_assessment',
-        'comparison_ui',
-        'overall_experience',
         'result_accuracy',
         'result_understanding'
-      ) -- insert more if needed
+      )
     ),
-    reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5), -- 1 = very sad ... 5 = very happy
+    reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5),
     comment TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE,
     FOREIGN KEY (assessment_id) REFERENCES assessments (id) ON DELETE CASCADE
+  );
+
+CREATE TABLE
+  IF NOT EXISTS feedback_experience (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guid TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('comparison_ui', 'overall_experience')),
+    reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5),
+    comment TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );
 
 CREATE TABLE
@@ -140,9 +147,11 @@ CREATE INDEX IF NOT EXISTS idx_assessments_guid_created_at ON assessments (guid,
 
 CREATE INDEX IF NOT EXISTS idx_assessments_task_id ON assessments (task_id);
 
-CREATE INDEX IF NOT EXISTS idx_feedback_guid_created_at ON feedback (guid, created_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_assessment_guid_created_at ON feedback_assessment (guid, created_at);
 
-CREATE INDEX IF NOT EXISTS idx_feedback_assessment_id ON feedback (assessment_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_assessment_assessment_id ON feedback_assessment (assessment_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_experience_guid_created_at ON feedback_experience (guid, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_user_cefr_history_guid_created_at_id ON user_cefr_history (guid, created_at DESC, id DESC);
 

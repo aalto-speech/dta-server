@@ -18,8 +18,7 @@ def _get_connection() -> sqlite3.Connection:
 
     conn = sqlite3.connect(SETTINGS.database)
     conn.executescript("""
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
+        PRAGMA foreign_keys = ON;
     """)
     return conn
 
@@ -57,6 +56,7 @@ def initialize_database() -> bool:
         "schema.sql").read_text(encoding="utf-8")
 
     with database() as db:
+        db.execute("PRAGMA journal_mode = WAL")
         db.executescript(schema_sql)
 
     return True
@@ -212,29 +212,60 @@ def delete_user_data(data: DeleteUserRequest) -> None:
         db.execute("DELETE FROM users WHERE guid = ?", (str(data.guid),))
 
 
-def create_feedback(data: FeedbackRequest) -> None:
-    """Inserts a new feedback record into the database.
+def create_assessment_feedback(data: FeedbackRequest) -> None:
+    """Inserts a new assessment-related feedback record into the database.
 
     Args:
         data: FeedbackRequest containing feedback details
     """
 
-    with database() as db:
-        db.execute("""
-        INSERT INTO feedback (
+    query = """
+        INSERT INTO feedback_assessment (
             guid,
             assessment_id,
             type,
             reaction_value,
             comment
         ) VALUES (?, ?, ?, ?, ?)
-        """, (
-            str(data.guid),
-            data.assessment_id,
-            data.feedback_classification,
-            data.reaction_value,
-            data.comment
-        ))
+        """
+
+    params = (
+        str(data.guid),
+        data.assessment_id,
+        data.feedback_classification,
+        data.reaction_value,
+        data.comment
+    )
+
+    with database() as db:
+        db.execute(query, params)
+
+
+def create_experience_feedback(data: FeedbackRequest) -> None:
+    """Inserts a new experience-related feedback record into the database.
+
+    Args:
+        data: FeedbackRequest containing feedback details
+    """
+
+    query = """
+        INSERT INTO feedback_experience (
+            guid,
+            type,
+            reaction_value,
+            comment
+        ) VALUES (?, ?, ?, ?)
+        """
+
+    params = (
+        str(data.guid),
+        data.feedback_classification,
+        data.reaction_value,
+        data.comment
+    )
+
+    with database() as db:
+        db.execute(query, params)
 
 
 def get_user(guid: UUID) -> bool:
@@ -266,6 +297,7 @@ def get_user_consent(guid: UUID) -> bool:
 
     with database() as db:
         row = db.execute(
-            "SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1", (str(guid),)
+            "SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1", (str(
+                guid),)
         ).fetchone()
     return row is not None

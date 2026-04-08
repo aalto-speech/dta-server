@@ -1,7 +1,7 @@
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 FEEDBACK_COMMENT_MAX_LENGTH = 500
 
@@ -50,3 +50,21 @@ class FeedbackRequest(BaseModel):
             )
 
         return value
+
+    @model_validator(mode="after")
+    def validate_assessment_id_required_for_assessment_feedback(self):
+        """Validate that assessment_id is provided for assessment-related feedback types."""
+
+        assessment_feedback_types = {
+            FeedbackClassification.SELF_ASSESSMENT,
+            FeedbackClassification.RESULT_ACCURACY,
+            FeedbackClassification.RESULT_UNDERSTANDING,
+        }
+
+        if self.feedback_classification in assessment_feedback_types:
+            if self.assessment_id is None:
+                raise ValueError(
+                    f"assessment_id is required for feedback type '{self.feedback_classification}'."
+                )
+
+        return self
