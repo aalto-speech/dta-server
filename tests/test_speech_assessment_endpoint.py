@@ -49,23 +49,22 @@ def test_assess_speech_success_returns_scores_and_transcript(
         captured["temp_path"] = path
         assert os.path.exists(path)
 
-    class _FakeWhisperModel:
-        "fake whisper model for testing"
+    def _fake_transcribe(*_args, **_kwargs):
+        "returns fake transcribed text"
+        return {"text": ["Hei", "maailma"]}
 
-        def transcribe(self, *_args, **_kwargs):
-            "returns fake transcribed text"
-            return {"text": ["Hei", "maailma"]}
-
-    monkeypatch.setattr("app.main.auth.validate_user_access",
+    monkeypatch.setattr("app.services.speech_assessment_service.auth.validate_user_access",
                         _fake_validate_user_access)
-    monkeypatch.setattr("app.main.audio.validate_file_size",
+    monkeypatch.setattr("app.services.speech_assessment_service.audio.validate_file_size",
                         _fake_validate_file_size)
     monkeypatch.setattr(
-        "app.main.audio.validate_wav_structure", _record_wav_structure)
+        "app.services.speech_assessment_service.audio.validate_wav_structure", _record_wav_structure)
     monkeypatch.setattr(
-        "app.main.audio.validate_audio_duration", lambda _path: None)
-    monkeypatch.setattr("app.main.whisper_model", _FakeWhisperModel())
-    monkeypatch.setattr("app.main.uniform", lambda _a, _b: 2.5)
+        "app.services.speech_assessment_service.audio.validate_audio_duration", lambda _path: None)
+    monkeypatch.setattr("app.services.speech_assessment_service.get_transcriber",
+                        lambda: _fake_transcribe)
+    monkeypatch.setattr("app.services.speech_assessment_service.uniform",
+                        lambda _a, _b: 2.5)
 
     response = client.post(
         "/speech/assess",
@@ -131,8 +130,9 @@ def test_assess_speech_stops_before_file_processing_when_auth_fails(
         called["validate_file_size"] = True
         return _valid_wav_bytes()
 
-    monkeypatch.setattr("app.main.auth.validate_user_access", _deny_access)
-    monkeypatch.setattr("app.main.audio.validate_file_size",
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.auth.validate_user_access", _deny_access)
+    monkeypatch.setattr("app.services.speech_assessment_service.audio.validate_file_size",
                         _fake_validate_file_size)
 
     response = client.post(
@@ -163,22 +163,20 @@ def test_assess_speech_cleans_temp_file_on_unhandled_error(
         captured["temp_path"] = path
         assert os.path.exists(path)
 
-    class _FailingWhisperModel:
-        "fake whisper model for testing that fails and returns an error"
+    def _fake_transcribe_fails(*_args, **_kwargs):
+        "fake transcription that always fails"
+        raise RuntimeError("transcription failure")
 
-        def transcribe(self, *_args, **_kwargs):
-            "fake transcription that always fails"
-            raise RuntimeError("transcription failure")
-
-    monkeypatch.setattr("app.main.auth.validate_user_access",
+    monkeypatch.setattr("app.services.speech_assessment_service.auth.validate_user_access",
                         _fake_validate_user_access)
-    monkeypatch.setattr("app.main.audio.validate_file_size",
+    monkeypatch.setattr("app.services.speech_assessment_service.audio.validate_file_size",
                         _fake_validate_file_size)
     monkeypatch.setattr(
-        "app.main.audio.validate_wav_structure", _record_wav_structure)
+        "app.services.speech_assessment_service.audio.validate_wav_structure", _record_wav_structure)
     monkeypatch.setattr(
-        "app.main.audio.validate_audio_duration", lambda _path: None)
-    monkeypatch.setattr("app.main.whisper_model", _FailingWhisperModel())
+        "app.services.speech_assessment_service.audio.validate_audio_duration", lambda _path: None)
+    monkeypatch.setattr("app.services.speech_assessment_service.get_transcriber",
+                        lambda: _fake_transcribe_fails)
 
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.post(

@@ -48,9 +48,10 @@ def test_analytics_comparison_returns_stats_payload(
             rank=1,
         )
 
-    monkeypatch.setattr("app.main.auth.validate_user_access",
+    monkeypatch.setattr("app.services.analytics_service.auth.validate_user_access",
                         _fake_validate_user_access)
-    monkeypatch.setattr("app.main.get_cohort_stats", _fake_get_cohort_stats)
+    monkeypatch.setattr(
+        "app.services.analytics_service.get_cohort_stats", _fake_get_cohort_stats)
 
     form_data = _valid_form_data(days=14)
     response = client.post("/analytics/comparison", data=form_data)
@@ -75,8 +76,9 @@ def test_analytics_comparison_returns_comparison_unavailable_when_no_stats(
     """Return comparison_unavailable payload when cohort stats are not available."""
 
     monkeypatch.setattr(
-        "app.main.auth.validate_user_access", lambda guid: None)
-    monkeypatch.setattr("app.main.get_cohort_stats", lambda guid, days: None)
+        "app.services.analytics_service.auth.validate_user_access", lambda guid: None)
+    monkeypatch.setattr(
+        "app.services.analytics_service.get_cohort_stats", lambda guid, days: None)
 
     response = client.post("/analytics/comparison", data=_valid_form_data())
 
@@ -95,7 +97,8 @@ def test_analytics_comparison_returns_404_when_auth_rejects_user(
     def _raise_not_found(_guid):
         raise HTTPException(status_code=404, detail="User not found")
 
-    monkeypatch.setattr("app.main.auth.validate_user_access", _raise_not_found)
+    monkeypatch.setattr(
+        "app.services.analytics_service.auth.validate_user_access", _raise_not_found)
 
     response = client.post("/analytics/comparison", data=_valid_form_data())
 

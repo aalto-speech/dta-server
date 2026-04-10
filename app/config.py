@@ -1,4 +1,3 @@
-import logging
 import os
 from dataclasses import dataclass
 from enum import StrEnum
@@ -6,9 +5,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .utils.logger import get_logger
+
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AppEnv(StrEnum):
