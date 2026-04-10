@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from .utils.logger import get_logger
+from app.utils.logger import get_logger
 
 load_dotenv()
 
@@ -35,6 +35,7 @@ class Settings:
     Attributes:
         env: Current application environment (e.g., development, production).
         database: Absolute path to the SQLite database file.
+        audio_save_dir: Directory where uploaded audio files will be stored.
         admin_api_key: API key for admin operations, required in production.
         min_cohort_size: Minimum number of users required in a cohort for analytics to be returned.
         analytics_min_window_days: Minimum number of days for the rolling window filter in analytics.
@@ -43,6 +44,7 @@ class Settings:
 
     env: AppEnv
     database: str
+    audio_save_dir: str
     admin_api_key: str
     min_cohort_size: int
     analytics_min_window_days: int
@@ -64,11 +66,16 @@ def _database_for_env(env: AppEnv) -> str:
     return os.getenv("DATABASE", f"/data/{env}.db")
 
 
-def _create_database_parents(path: str) -> None:
-    if path.startswith(":memory:"):
-        return
+def _audio_save_dir_for_env(env: AppEnv) -> str:
+    if env in {AppEnv.DEVELOPMENT, AppEnv.TEST}:
+        return f"./audio/{env}"
 
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    return os.getenv("AUDIO_SAVE_DIR", "/data/audio")
+
+
+def _create_directory(path: str, mode: int = 0o700) -> None:
+    Path(path).mkdir(parents=True, exist_ok=True)
+    os.chmod(path, mode)
 
 
 def _parse_int_env(name: str, default: int, minimum: int) -> int:
@@ -100,7 +107,11 @@ def _build_settings() -> Settings:
 
     env = _parse_app_env()
     database = _database_for_env(env)
-    _create_database_parents(database)
+    if not database.startswith(":memory:"):
+        _create_directory(os.path.dirname(database))
+
+    audio_save_dir = _audio_save_dir_for_env(env)
+    _create_directory(audio_save_dir)
 
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
     min_cohort_size = _parse_int_env(
@@ -119,6 +130,7 @@ def _build_settings() -> Settings:
     return Settings(
         env=env,
         database=database,
+        audio_save_dir=audio_save_dir,
         admin_api_key=admin_api_key,
         min_cohort_size=min_cohort_size,
         analytics_min_window_days=analytics_min_window_days,

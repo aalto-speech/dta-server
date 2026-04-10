@@ -16,7 +16,7 @@ def _make_json_error_handler(
     detail: str,
     status_code: int,
 ) -> ErrorHandler:
-    """Factory to create JSON error handlers with consistent logging and response structure."""
+    """Create a JSON error handler with consistent logging and responses."""
 
     async def _handler(request: Request, err: Exception) -> JSONResponse:
         logger.exception(

@@ -6,18 +6,18 @@ from pydantic import BaseModel
 
 
 class RequestType(StrEnum):
-    """Enumeration of user request types."""
+    """User request types."""
 
     DELETE = "delete"
     EXPORT = "export"
 
 
 class UserDataRequest(BaseModel):
-    """User data request type for database storage.
+    """User data request payload.
 
     Attributes:
-        guid: A unique identifier for the user.
-        type: The type of request (e.g., delete, export).
+        guid: The user's GUID.
+        type: The request type.
     """
 
     guid: UUID
@@ -25,21 +25,17 @@ class UserDataRequest(BaseModel):
 
 
 class RequestToDeleteUserForm(BaseModel):
-    """User data deletion request type for form parsing.
-
-    Attributes:
-        guid: A unique identifier for the user.
-    """
+    """Form payload for deleting user data."""
 
     guid: UUID
 
 
 class DeleteUserRequest(BaseModel):
-    """Delete user data request type for admin use.
+    """Admin delete-user request payload.
 
     Attributes:
-        api_key: Admin API key for authorization.
-        guid: A unique identifier for the user whose data should be deleted.
+        api_key: Admin API key.
+        guid: The user's GUID.
     """
 
     api_key: str
@@ -51,6 +47,31 @@ class DeleteUserRequest(BaseModel):
         x_api_key: str = Header(..., alias="X-API-Key"),
         guid: UUID = Form(...),
     ) -> "DeleteUserRequest":
-        """Build model instance from form field and header."""
+        """Build the model from form fields and a header."""
 
         return cls(guid=guid, api_key=x_api_key)
+
+
+class CreateUserRequestInput(BaseModel):
+    """Internal DB input for creating a user request row."""
+
+    guid: UUID
+    type: RequestType
+
+
+class DeleteUserDataInput(BaseModel):
+    """Internal DB input for deleting all data for a user."""
+
+    guid: UUID
+
+
+class GetUserInput(BaseModel):
+    """Internal DB input for checking user existence."""
+
+    guid: UUID
+
+
+class GetUserConsentInput(BaseModel):
+    """Internal DB input for checking user consent state."""
+
+    guid: UUID

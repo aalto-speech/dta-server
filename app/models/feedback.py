@@ -24,13 +24,13 @@ class FeedbackClassification(StrEnum):
 
 
 class FeedbackRequest(BaseModel):
-    """Feedback request type.
+    """Feedback request payload.
 
     Attributes:
-        assessment_id: Optional ID of the related assessment, if applicable.
-        comment: Optional user comment providing additional feedback details.
-        guid: Unique identifier for the user submitting feedback.
-        reaction_value: Numerical value representing user's reaction (e.g., rating).
+        assessment_id: Related assessment ID when applicable.
+        comment: Optional user comment.
+        guid: The user's GUID.
+        reaction_value: Numerical reaction value.
         feedback_classification: Type of feedback being submitted.
     """
 
@@ -43,7 +43,7 @@ class FeedbackRequest(BaseModel):
     @field_validator("comment")
     @classmethod
     def validate_comment(cls, value: str | None) -> str | None:
-        """Validate the comment length if provided."""
+        """Validate the comment length when provided."""
 
         if value is not None and len(value) > FEEDBACK_COMMENT_MAX_LENGTH:
             raise ValueError(
@@ -54,7 +54,7 @@ class FeedbackRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_assessment_id_required_for_assessment_feedback(self):
-        """Validate that assessment_id is provided for assessment-related feedback types."""
+        """Require assessment_id for assessment-related feedback types."""
 
         assessment_feedback_types = {
             FeedbackClassification.SELF_ASSESSMENT,
@@ -69,3 +69,22 @@ class FeedbackRequest(BaseModel):
                 )
 
         return self
+
+
+class CreateAssessmentFeedbackInput(BaseModel):
+    """Internal DB input for inserting assessment feedback."""
+
+    guid: UUID
+    assessment_id: int = Field(ge=0)
+    feedback_classification: FeedbackClassification
+    reaction_value: int = Field(ge=1, le=5)
+    comment: str | None = None
+
+
+class CreateExperienceFeedbackInput(BaseModel):
+    """Internal DB input for inserting experience feedback."""
+
+    guid: UUID
+    feedback_classification: FeedbackClassification
+    reaction_value: int = Field(ge=1, le=5)
+    comment: str | None = None

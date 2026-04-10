@@ -38,9 +38,9 @@ def test_analytics_comparison_returns_stats_payload(
     def _fake_validate_user_access(guid):
         captured["guid"] = str(guid)
 
-    def _fake_get_cohort_stats(guid, days):
-        captured["get_stats_guid"] = str(guid)
-        captured["days"] = days
+    def _fake_get_cohort_stats(data):
+        captured["get_stats_guid"] = str(data.guid)
+        captured["days"] = data.days
         return ComparisonStats(
             cefr_level="B1",
             cohort_size=SETTINGS.min_cohort_size,
@@ -78,7 +78,7 @@ def test_analytics_comparison_returns_comparison_unavailable_when_no_stats(
     monkeypatch.setattr(
         "app.services.analytics_service.auth.validate_user_access", lambda guid: None)
     monkeypatch.setattr(
-        "app.services.analytics_service.get_cohort_stats", lambda guid, days: None)
+        "app.services.analytics_service.get_cohort_stats", lambda _data: None)
 
     response = client.post("/analytics/comparison", data=_valid_form_data())
 

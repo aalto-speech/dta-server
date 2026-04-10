@@ -156,3 +156,6 @@ conda-bld/
 
 # Local
 .local*
+
+# Audio directory
+audio/

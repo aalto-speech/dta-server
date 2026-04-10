@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 
 
 class Gender(StrEnum):
-    """Gender for onboarding background fields."""
+    """Gender options for onboarding."""
 
     WOMAN = "woman"
     MAN = "man"
@@ -16,7 +16,7 @@ class Gender(StrEnum):
 
 
 class AgeGroup(StrEnum):
-    """Age group for onboarding background fields."""
+    """Age group options for onboarding."""
 
     AGE_18_28 = "age_18_28"
     AGE_29_39 = "age_29_39"
@@ -26,7 +26,7 @@ class AgeGroup(StrEnum):
 
 
 class LearningDuration(StrEnum):
-    """Duration of time learned Finnish for onboarding background fields."""
+    """Learning duration options for onboarding."""
 
     MONTHS_0_TO_3 = "months_0_3"
     MONTHS_3_TO_6 = "months_3_6"
@@ -43,7 +43,7 @@ class LearningDuration(StrEnum):
 
 
 class CEFRLevel(StrEnum):
-    """CEFR assessment levels for onboarding background fields."""
+    """CEFR level options for onboarding."""
 
     A1 = "A1"
     A2 = "A2"
@@ -56,22 +56,22 @@ MovedToFinland = Literal["before_2015"] | str | int
 
 
 class OnboardingRequest(BaseModel):
-    """Onboarding request type.
+    """Onboarding request payload.
 
     Attributes:
-        app_version: Optional and can be used to track the app version for analytics or debugging.
+        app_version: Optional app version.
         age_group: The user's age group.
         finnish_learning_duration: How long the user has been learning Finnish.
         finnish_self_assessment: The user's self-assessed CEFR level in Finnish.
         gender: The user's gender.
-        moved_to_finland: Either a year or "before_2015" if they moved before 2015.
-        native_languages: A list of the user's native languages.
-        other_languages: A list of other languages the user speaks.
-        background_form_completed: Indicates whether the user completed the background fields section of onboarding.
-        background_form_timestamp: Records the time when the user completed the background fields.
-        consent_accepted: Indicates whether the user accepted the consent form.
-        consent_timestamp: Records the time when the user accepted the consent.
-        guid: A unique identifier for the user.
+        moved_to_finland: Either a year or "before_2015".
+        native_languages: The user's native languages.
+        other_languages: Other languages the user speaks.
+        background_form_completed: Whether the background form was completed.
+        background_form_timestamp: When the background form was completed.
+        consent_accepted: Whether consent was accepted.
+        consent_timestamp: When consent was accepted.
+        guid: The user's GUID.
     """
 
     app_version: str | None = None
@@ -91,17 +91,33 @@ class OnboardingRequest(BaseModel):
     @field_validator("native_languages", "other_languages")
     @classmethod
     def validate_languages(cls, value: str | list[str] | None) -> str | list[str] | None:
-        """Validate that the language lists are comma-separated strings."""
+        """Convert newline-separated language strings into lists."""
 
         if isinstance(value, str):
             return [lang.strip() for lang in value.split("\n")]
 
         return value
 
+
+class CreateUserInput(BaseModel):
+    """Internal DB input for creating a user row."""
+
+    app_version: str | None = None
+    age_group: AgeGroup
+    finnish_learning_duration: LearningDuration
+    finnish_self_assessment: CEFRLevel
+    gender: Gender
+    moved_to_finland: MovedToFinland
+    native_languages: str | list[str]
+    other_languages: str | list[str] | None = None
+    consent_accepted: bool
+    consent_timestamp: datetime
+    guid: UUID
+
     @field_validator("moved_to_finland")
     @classmethod
     def validate_moved_to_finland(cls, value: MovedToFinland) -> MovedToFinland:
-        """Validate moved_to_finland against the current year at request time."""
+        """Normalize moved_to_finland into a stored value."""
 
         if isinstance(value, str) and value == "before_2015":
             return value

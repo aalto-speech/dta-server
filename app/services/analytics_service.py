@@ -2,15 +2,27 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from app.db import get_cohort_stats
-from app.models.analytics import ComparisonRequest, ComparisonResponse
+from app.models.analytics import (
+    ComparisonRequest,
+    ComparisonResponse,
+    GetCohortStatsInput,
+)
 from app.validators import auth
 
 
 def get_comparison(data: ComparisonRequest) -> JSONResponse:
-    """Build a cohort comparison response for an authenticated user."""
+    """Build a cohort comparison response for an authenticated user.
+
+    Args:
+        data: Comparison request payload including user GUID and window options.
+
+    Returns:
+        JSONResponse: 200 with percentile/rank data or comparison unavailable status.
+    """
 
     auth.validate_user_access(data.guid)
-    stats = get_cohort_stats(data.guid, data.days)
+    stats = get_cohort_stats(GetCohortStatsInput(
+        guid=data.guid, days=data.days))
 
     if not stats:
         return JSONResponse(
