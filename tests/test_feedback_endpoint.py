@@ -89,10 +89,10 @@ def test_feedback_routes_assessment_types_to_assessment_feedback(monkeypatch: py
         called["type"] = "assessment"
         called["feedback_classification"] = str(data.feedback_classification)
 
-    monkeypatch.setattr("app.main.create_assessment_feedback",
+    monkeypatch.setattr("app.services.feedback_service.create_assessment_feedback",
                         _fake_create_assessment_feedback)
-    monkeypatch.setattr("app.main.create_experience_feedback", lambda x: None)
-    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
+    monkeypatch.setattr(
+        "app.services.feedback_service.create_experience_feedback", lambda x: None)
 
     for classification in ["self_assessment", "result_accuracy", "result_understanding"]:
         called.clear()
@@ -123,10 +123,10 @@ def test_feedback_routes_experience_types_to_experience_feedback(monkeypatch: py
         called["type"] = "experience"
         called["feedback_classification"] = str(data.feedback_classification)
 
-    monkeypatch.setattr("app.main.create_experience_feedback",
+    monkeypatch.setattr("app.services.feedback_service.create_experience_feedback",
                         _fake_create_experience_feedback)
-    monkeypatch.setattr("app.main.create_assessment_feedback", lambda x: None)
-    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
+    monkeypatch.setattr(
+        "app.services.feedback_service.create_assessment_feedback", lambda x: None)
 
     for classification in ["comparison_ui", "overall_experience"]:
         called.clear()
@@ -156,10 +156,10 @@ def test_feedback_reaction_value_minimum(client: TestClient, monkeypatch: pytest
     def _fake_create_experience_feedback(data):
         called["reaction_value"] = data.reaction_value
 
-    monkeypatch.setattr("app.main.create_experience_feedback",
+    monkeypatch.setattr("app.services.feedback_service.create_experience_feedback",
                         _fake_create_experience_feedback)
-    monkeypatch.setattr("app.main.create_assessment_feedback", lambda x: None)
-    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
+    monkeypatch.setattr(
+        "app.services.feedback_service.create_assessment_feedback", lambda x: None)
 
     response = client.post(
         "/feedback",
@@ -178,10 +178,10 @@ def test_feedback_reaction_value_maximum(client: TestClient, monkeypatch: pytest
     def _fake_create_experience_feedback(data):
         called["reaction_value"] = data.reaction_value
 
-    monkeypatch.setattr("app.main.create_experience_feedback",
+    monkeypatch.setattr("app.services.feedback_service.create_experience_feedback",
                         _fake_create_experience_feedback)
-    monkeypatch.setattr("app.main.create_assessment_feedback", lambda x: None)
-    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
+    monkeypatch.setattr(
+        "app.services.feedback_service.create_assessment_feedback", lambda x: None)
 
     response = client.post(
         "/feedback",
@@ -200,10 +200,10 @@ def test_feedback_comment_optional(client: TestClient, monkeypatch: pytest.Monke
     def _fake_create_experience_feedback(data):
         called["comment"] = data.comment
 
-    monkeypatch.setattr("app.main.create_experience_feedback",
+    monkeypatch.setattr("app.services.feedback_service.create_experience_feedback",
                         _fake_create_experience_feedback)
-    monkeypatch.setattr("app.main.create_assessment_feedback", lambda x: None)
-    monkeypatch.setattr("app.main.auth.validate_user_access", lambda _: None)
+    monkeypatch.setattr(
+        "app.services.feedback_service.create_assessment_feedback", lambda x: None)
 
     response = client.post(
         "/feedback",

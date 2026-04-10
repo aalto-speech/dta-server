@@ -1,48 +1,35 @@
-import logging
-import os
-import tempfile
 from contextlib import asynccontextmanager
-from random import uniform
+from time import monotonic
 
-import whisper
 from fastapi import Depends, FastAPI, Form
-from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
 from .config import SETTINGS
-from .db import (
-    create_assessment_feedback,
-    create_experience_feedback,
-    create_user,
-    create_user_request,
-    delete_user_data,
-    get_cohort_stats,
-    initialize_database,
-)
+from .db import initialize_database
 from .error_handlers import register_error_handlers
-from .models.analytics import ComparisonRequest, ComparisonResponse
-from .models.feedback import FeedbackClassification, FeedbackRequest
+from .models.analytics import ComparisonRequest
+from .models.feedback import FeedbackRequest
 from .models.onboarding import OnboardingRequest
-from .models.speech_assessment import (
-    SpeechAssessmentRequest,
-    SpeechAssessmentResponse,
-    SpeechAssessmentScores,
-)
-from .models.user_requests import DeleteUserRequest, RequestType, UserDataRequest
-from .validators import audio, auth
+from .models.speech_assessment import SpeechAssessmentRequest
+from .models.user_requests import DeleteUserRequest, UserDataRequest
+from .services.admin_service import delete_user
+from .services.analytics_service import get_comparison
+from .services.feedback_service import record_feedback
+from .services.onboarding_service import create_onboarding_user
+from .services.speech_assessment_service import assess_speech_request
+from .services.user_request_service import handle_user_request
+from .utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
-
-# Load whisper model once at startup
-whisper_model = whisper.load_model("small")
+logger = get_logger(__name__)
+APP_START_MONOTONIC = monotonic()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Run startup/shutdown logic for the FastAPI app."""
 
-    status = initialize_database()
-    db_status_message = "initialized" if status else "already exists"
+    db_initialized = initialize_database()
+    db_status_message = "initialized" if db_initialized else "already exists"
 
     logger.info("Database %s at %s", db_status_message, SETTINGS.database)
     logger.info("Application started in %s environment", SETTINGS.env)
@@ -57,206 +44,107 @@ register_error_handlers(app, logger)
 
 @app.get("/ping")
 async def ping() -> JSONResponse:
-    """Ping-pong endpoint for checking if the server is running."""
+    """Health-check endpoint.
+
+    Returns:
+        JSONResponse: 200 with a static pong message.
+    """
 
     return JSONResponse(content={"message": "Pong!"}, status_code=200)
 
 
-@app.post("/analytics/comparison")
-async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse:
-    """User comparison endpoint to get cohort statistics and user's percentile rank."""
+@app.get("/status")
+async def status() -> JSONResponse:
+    """Application status endpoint with uptime.
 
-    # Ensure only users who completed onboarding and consent can access comparison.
-    auth.validate_user_access(data.guid)
-    stats = get_cohort_stats(data.guid, data.days)
+    Returns:
+        JSONResponse: 200 with environment and process uptime in seconds.
+    """
 
-    if not stats:
-        return JSONResponse(
-            content={
-                "status": "comparison_unavailable",
-                "message": (
-                    "Comparison statistics are not available for your cohorts size at this time."
-                )
-            },
-            status_code=200
-        )
-
-    payload = ComparisonResponse(
-        cefr_level=stats.cefr_level,
-        cohort_size=stats.cohort_size,
-        percentile=stats.percentile,
-        rank=stats.rank,
+    uptime_seconds = round(monotonic() - APP_START_MONOTONIC, 3)
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "env": SETTINGS.env,
+            "uptime_seconds": uptime_seconds,
+        },
+        status_code=200,
     )
 
-    return JSONResponse(content=jsonable_encoder(payload), status_code=200)
+
+@app.post("/analytics/comparison")
+async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse:
+    """Return cohort comparison stats for the requesting user.
+
+    Args:
+        data: Comparison request payload including user GUID and window options.
+
+    Returns:
+        JSONResponse: 200 with percentile/rank data or comparison unavailable status.
+    """
+
+    return get_comparison(data)
 
 
 @app.post("/request/user")
 async def request_user(data: UserDataRequest = Form()) -> JSONResponse:
-    """User request for deleting or exporting their data.
+    """Submit a user data request (delete or export).
 
-    The delete request is stored in the database and awaits admin approval.
-    Export request not yet implemented.
+    Delete requests are stored for admin approval.
+    Export requests currently return not implemented.
 
     Args:
-        data: UserDataRequest containing the user's GUID
+        data: User request payload with GUID and request type.
 
     Returns:
-        JSONResponse with status message
+        JSONResponse: 202 for delete requests, 501 for export requests.
     """
 
-    if data.type == RequestType.DELETE:
-        # * Pydantic and global error handlers handle validation and failures.
-        create_user_request(data)
-
-        return JSONResponse(
-            content={
-                "status": "request_received",
-                "message": (
-                    "Your data deletion request has been received "
-                    + "and is awaiting admin approval"
-                ),
-            },
-            status_code=202,
-        )
-
-    if data.type == RequestType.EXPORT:
-        return JSONResponse(
-            content={
-                "status": "not_implemented",
-                "message": "Data export requests are not implemented yet.",
-            },
-            status_code=501,
-        )
-
-    # Defensive fallback for unsupported request types.
-    return JSONResponse(
-        content={"detail": "Unsupported request type."},
-        status_code=400,
-    )
+    return handle_user_request(data)
 
 
 @app.post("/feedback")
 async def feedback(data: FeedbackRequest = Form()) -> JSONResponse:
-    """Submit feedback related to assessments or app experience.
+    """Submit assessment or experience feedback.
 
     Args:
-        data: FeedbackRequest containing feedback details
+        data: Feedback payload including classification, score, and optional comment.
+
+    Returns:
+        JSONResponse: 201 when feedback is accepted.
     """
 
-    auth.validate_user_access(data.guid)
-
-    assess = {FeedbackClassification.SELF_ASSESSMENT,
-              FeedbackClassification.RESULT_ACCURACY, FeedbackClassification.RESULT_UNDERSTANDING}
-    ux = {FeedbackClassification.COMPARISON, FeedbackClassification.OVERALL}
-
-    # * Pydantic and global error handlers handle validation and failures.
-    if data.feedback_classification in assess:
-        create_assessment_feedback(data)
-    elif data.feedback_classification in ux:
-        create_experience_feedback(data)
-
-    return JSONResponse(content={"status": "feedback recorded"}, status_code=201)
+    return record_feedback(data)
 
 
 @app.post("/speech/assess")
 async def assess_speech(
     data: SpeechAssessmentRequest = Depends(SpeechAssessmentRequest.as_form)
 ) -> JSONResponse:
-    """Assess the uploaded speech audio file and return scores and transcript.
+    """Assess uploaded speech audio and return scores with transcript.
 
     Args:
-        data: SpeechAssessmentRequest containing the uploaded file and user GUID
-
-    Security checks:
-        1. Validate the uploaded file is a WAV audio file with correct content type and extension.
-        2. Enforce file size limit by streaming the upload in chunks.
-        3. Validate RIFF/WAVE magic bytes are present in the file header.
-        4. Write the file to a secure temporary location and validate its structure using the stdlib `wave` module.
-        5. Validate the audio duration is within acceptable limits (e.g., less than 90 seconds).
+        data: Speech assessment form payload with user GUID and WAV file.
 
     Returns:
-        JSONResponse SpeechAssessmentResponse containing the assessment scores and transcript.
+        JSONResponse: 200 with generated scores and transcription result.
     """
 
-    # * Pydantic validation ensures the content type and file extension are correct.
-    # * Validation checks which require access to the file content are not performed by Pydantic.
-
-    # Check if the user requesting the assessment exists and has given consent
-    auth.validate_user_access(data.guid)
-
-    file = data.file
-
-    # Stream the upload in chunks and enforce the size limit
-    content = await audio.validate_file_size(file)
-
-    # Validate RIFF/WAVE magic bytes
-    audio.validate_wav_headers(content)
-
-    # Write to a secure temp file and validate WAV structure
-    temp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".wav", prefix="dta_"
-        ) as f:
-            f.write(content)
-            temp_path = f.name
-
-        # Set restrictive permissions so only the owner can read the file
-        os.chmod(temp_path, 0o600)
-
-        # Parse with stdlib wave to confirm structural validity
-        audio.validate_wav_structure(temp_path)
-
-        # Validate audio duration
-        audio.validate_audio_duration(temp_path)
-
-        # TODO: Move to an asynchronous method for better performance and scalability.
-        # Transcribe audio using whisper (force Finnish language for better accuracy)
-        result = whisper_model.transcribe(temp_path, language="fi")
-        text = result["text"]
-        transcript = " ".join(text) if isinstance(text, list) else str(text)
-
-        # Placeholder assessment scores (replace with actual ML logic)
-        accuracy = round(uniform(0, 5), 1)
-        fluency = round(uniform(0, 5), 1)
-        proficiency = round(uniform(0, 5), 1)
-        pronunciation = round(uniform(0, 5), 1)
-        range_score = round(uniform(0, 5), 1)
-
-        results = SpeechAssessmentResponse(
-            scores=SpeechAssessmentScores(
-                accuracy=accuracy,
-                fluency=fluency,
-                proficiency=proficiency,
-                pronunciation=pronunciation,
-                range=range_score,
-            ),
-            transcript=transcript
-        )
-
-        return JSONResponse(content=jsonable_encoder(results), status_code=200)
-    finally:
-        # Always clean up the temporary file
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
+    return await assess_speech_request(data)
 
 
 @app.post("/onboarding")
 async def onboarding(data: OnboardingRequest = Form()) -> Response:
-    """Onboarding endpoint for new users.
+    """Create a new user from onboarding form data.
 
     Args:
-        data: OnboardingRequest containing the user's onboarding information
+        data: Onboarding payload containing profile and language background fields.
 
     Returns:
-        Response with status code 201 on success
+        Response: 201 when the user is created.
     """
 
-    # * Pydantic and global error handlers handle validation and failures.
-    create_user(data)
-
-    return Response(status_code=201)
+    return create_onboarding_user(data)
 
 
 @app.delete("/users")
@@ -264,24 +152,15 @@ async def delete_users(
     data: DeleteUserRequest = Depends(
         DeleteUserRequest.as_form)
 ) -> Response:
-    """Delete all data for a user with the given GUID.
+    """Delete all persisted data for a user.
 
-    This endpoint is admin-only and requires a valid API key.
-    Deletes all associated data from users, assessments, and feedback tables.
+    This is an admin-only endpoint protected by API key validation.
 
     Args:
-        data: DeleteUserRequest containing the user's GUID and admin API key
+        data: Delete payload containing target GUID and admin API key.
 
     Returns:
-        JSONResponse with deletion summary
+        Response: 204 when deletion succeeds.
     """
 
-    # Validate admin access
-    auth.validate_admin_access(data.api_key)
-
-    # * Pydantic and global error handlers handle validation and failures.
-    delete_user_data(data)
-
-    logger.info("Admin deleted all data for user: %s", data.guid)
-
-    return Response(status_code=204)
+    return delete_user(data)

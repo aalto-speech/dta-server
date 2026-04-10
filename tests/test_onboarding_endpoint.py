@@ -60,7 +60,8 @@ def test_onboarding_handler_calls_create_user(monkeypatch: pytest.MonkeyPatch):
         called["guid"] = str(data.guid)
         called["moved_to_finland"] = data.moved_to_finland
 
-    monkeypatch.setattr("app.main.create_user", _fake_create_user)
+    monkeypatch.setattr(
+        "app.services.onboarding_service.create_user", _fake_create_user)
     data = _valid_onboarding_form_data()
     request_model = OnboardingRequest(
         app_version=data["app_version"],

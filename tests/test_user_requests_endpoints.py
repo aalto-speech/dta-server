@@ -47,7 +47,7 @@ def test_request_user_handler_delete_calls_create_user_request(
         called["guid"] = str(data.guid)
         called["type"] = str(data.type)
 
-    monkeypatch.setattr("app.main.create_user_request",
+    monkeypatch.setattr("app.services.user_request_service.create_user_request",
                         _fake_create_user_request)
     data = _valid_request_user_form_data()
     request_model = UserDataRequest(
@@ -78,7 +78,7 @@ def test_request_user_handler_export_does_not_store_and_returns_501(
     def _fake_create_user_request(_):
         called["create_user_request"] = True
 
-    monkeypatch.setattr("app.main.create_user_request",
+    monkeypatch.setattr("app.services.user_request_service.create_user_request",
                         _fake_create_user_request)
     request_model = UserDataRequest(guid=uuid4(), type=RequestType.EXPORT)
 
@@ -104,7 +104,7 @@ def test_request_user_endpoint_delete_accepts_valid_payload(
         called["guid"] = str(data.guid)
         called["type"] = str(data.type)
 
-    monkeypatch.setattr("app.main.create_user_request",
+    monkeypatch.setattr("app.services.user_request_service.create_user_request",
                         _fake_create_user_request)
 
     response = client.post(
@@ -126,7 +126,7 @@ def test_request_user_endpoint_export_returns_not_implemented(
     def _fake_create_user_request(_):
         called["create_user_request"] = True
 
-    monkeypatch.setattr("app.main.create_user_request",
+    monkeypatch.setattr("app.services.user_request_service.create_user_request",
                         _fake_create_user_request)
 
     response = client.post(
@@ -188,9 +188,10 @@ def test_delete_users_handler_calls_delete_user_data(
     def _fake_delete_user_data(data):
         called["guid"] = str(data.guid)
 
-    monkeypatch.setattr("app.main.auth.validate_admin_access",
+    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
                         _fake_validate_admin_access)
-    monkeypatch.setattr("app.main.delete_user_data", _fake_delete_user_data)
+    monkeypatch.setattr(
+        "app.services.admin_service.delete_user_data", _fake_delete_user_data)
 
     request_model = DeleteUserRequest(api_key="valid-admin-key", guid=uuid4())
     response = asyncio.run(delete_users(request_model))
@@ -215,9 +216,10 @@ def test_delete_users_endpoint_accepts_valid_payload(
     def _fake_delete_user_data(data):
         called["guid"] = str(data.guid)
 
-    monkeypatch.setattr("app.main.auth.validate_admin_access",
+    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
                         _fake_validate_admin_access)
-    monkeypatch.setattr("app.main.delete_user_data", _fake_delete_user_data)
+    monkeypatch.setattr(
+        "app.services.admin_service.delete_user_data", _fake_delete_user_data)
 
     payload = _valid_delete_users_form_data()
     response = client.request(
@@ -243,7 +245,7 @@ def test_delete_users_endpoint_rejects_invalid_api_key(
         if key != "valid-admin-key":
             raise HTTPException(status_code=403, detail="Invalid API key")
 
-    monkeypatch.setattr("app.main.auth.validate_admin_access",
+    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
                         _fake_validate_admin_access)
 
     response = client.request(
@@ -273,7 +275,7 @@ def test_delete_users_endpoint_rejects_invalid_guid(
     """Test /users returns 422 for invalid GUID format."""
 
     monkeypatch.setattr(
-        "app.main.auth.validate_admin_access", lambda _key: None)
+        "app.services.admin_service.auth.validate_admin_access", lambda _key: None)
 
     response = client.request(
         "DELETE",
@@ -292,7 +294,7 @@ def test_delete_users_endpoint_rejects_missing_guid(
     """Test /users returns 422 when guid form field is missing."""
 
     monkeypatch.setattr(
-        "app.main.auth.validate_admin_access", lambda _key: None)
+        "app.services.admin_service.auth.validate_admin_access", lambda _key: None)
 
     response = client.request(
         "DELETE",
@@ -319,8 +321,9 @@ def test_delete_users_auth_failure_short_circuits_before_delete(
         called["delete_user_data"] = True
 
     monkeypatch.setattr(
-        "app.main.auth.validate_admin_access", _deny_admin_access)
-    monkeypatch.setattr("app.main.delete_user_data", _fake_delete_user_data)
+        "app.services.admin_service.auth.validate_admin_access", _deny_admin_access)
+    monkeypatch.setattr(
+        "app.services.admin_service.delete_user_data", _fake_delete_user_data)
 
     response = client.request(
         "DELETE",
