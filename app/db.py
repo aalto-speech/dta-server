@@ -3,18 +3,25 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
-from uuid import UUID
 
-from app.models.analytics import ComparisonStats
-from app.models.feedback import FeedbackRequest
-from app.models.onboarding import OnboardingRequest, CEFRLevel
-from app.models.user_requests import DeleteUserRequest, UserDataRequest
-
-from .config import SETTINGS
+from app.config import SETTINGS
+from app.models.analytics import ComparisonStats, GetCohortStatsInput
+from app.models.feedback import (
+    CreateAssessmentFeedbackInput,
+    CreateExperienceFeedbackInput,
+)
+from app.models.onboarding import CEFRLevel, CreateUserInput
+from app.models.speech_assessment import AssessmentCreateInput
+from app.models.user_requests import (
+    CreateUserRequestInput,
+    DeleteUserDataInput,
+    GetUserConsentInput,
+    GetUserInput,
+)
 
 
 def _get_connection() -> sqlite3.Connection:
-    """Helper to get a configured database connection."""
+    """Create a SQLite connection with foreign keys enabled."""
 
     conn = sqlite3.connect(SETTINGS.database)
     conn.executescript("""
@@ -23,12 +30,18 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
+def _window_filter_sql(days: int | None) -> tuple[str, tuple[str, ...]]:
+    """Build optional SQL and params for a rolling assessment window."""
+
+    if not days:
+        return "", ()
+
+    return " AND a.created_at >= datetime('now', ?)", (f"-{days} days",)
+
+
 @contextmanager
 def database() -> Iterator[sqlite3.Connection]:
-    """Yield a database connection that is always closed.
-
-    Commits on success and rolls back on failure.
-    """
+    """Yield a DB connection and manage commit or rollback automatically."""
 
     conn = _get_connection()
     try:
@@ -42,11 +55,7 @@ def database() -> Iterator[sqlite3.Connection]:
 
 
 def initialize_database() -> bool:
-    """Initialize a database on app startup if it does not exist.
-
-    Returns:
-        bool: True if the database was created, False if it already existed.
-    """
+    """Initialize the database from schema if the DB file is missing."""
 
     db_path = Path(SETTINGS.database)
     if db_path.exists():
@@ -62,23 +71,48 @@ def initialize_database() -> bool:
     return True
 
 
-def _window_filter_sql(days: int | None) -> tuple[str, tuple[str, ...]]:
-    """Build SQL filter and params for optional rolling window by assessment timestamp."""
+def create_assessment(data: AssessmentCreateInput) -> int:
+    """Insert an assessment row and return its ID."""
 
-    if not days:
-        return "", ()
-
-    return " AND a.created_at >= datetime('now', ?)", (f"-{days} days",)
-
-
-def get_cohort_stats(guid: UUID, days: int | None = None) -> ComparisonStats | None:
-    """Get cohort statistics and user percentile rank for a given CEFR level cohort.
-
-    Returns:
-        ComparisonStats: If the cohort meets the minimum size requirement, otherwise None.
+    query = """
+        INSERT INTO assessments (
+            guid,
+            task_id,
+            audio_id,
+            audio_path,
+            transcript,
+            accuracy,
+            fluency,
+            proficiency,
+            pronunciation,
+            range_score
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
-    window_sql, window_params = _window_filter_sql(days)
+    params = (
+        str(data.guid),
+        data.task_id,
+        str(data.audio_id),
+        str(data.audio_path),
+        data.transcript,
+        data.accuracy,
+        data.fluency,
+        data.proficiency,
+        data.pronunciation,
+        data.range_score
+    )
+
+    with database() as db:
+        cur = db.execute(query, params)
+        assessment_id = cur.lastrowid
+
+    return assessment_id
+
+
+def get_cohort_stats(data: GetCohortStatsInput) -> ComparisonStats | None:
+    """Return cohort stats and rank for the user within their CEFR cohort."""
+
+    window_sql, window_params = _window_filter_sql(data.days)
 
     query = f"""
         WITH target_user AS (
@@ -135,7 +169,7 @@ def get_cohort_stats(guid: UUID, days: int | None = None) -> ComparisonStats | N
         LEFT JOIN target_user tu ON 1 = 1;
     """
 
-    params = (str(guid), *window_params)
+    params = (str(data.guid), *window_params)
 
     with database() as db:
         row = db.execute(query, params).fetchone()
@@ -160,64 +194,78 @@ def get_cohort_stats(guid: UUID, days: int | None = None) -> ComparisonStats | N
     )
 
 
-def create_user(data: OnboardingRequest) -> None:
-    """Inserts a new user record into the database based on the onboarding data."""
+def create_user(data: CreateUserInput) -> None:
+    """Insert a user row from onboarding data."""
 
     # Format consent_timestamp as ISO 8601 string for storage
     consent_timestamp = data.consent_timestamp.isoformat()
 
-    with database() as db:
-        db.execute("""
-            INSERT INTO users(guid, consent_accepted, consent_timestamp, app_version, gender, age_group, native_languages, other_languages, moved_to_finland, finnish_learning_duration, cefr_level)
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            str(data.guid),
-            int(data.consent_accepted),
+    query = """
+        INSERT INTO users(
+            guid,
+            consent_accepted,
             consent_timestamp,
-            data.app_version,
-            data.gender,
-            data.age_group,
-            json.dumps(data.native_languages),
-            json.dumps(data.other_languages),
-            data.moved_to_finland,
-            data.finnish_learning_duration,
-            data.finnish_self_assessment
-        ))
-
-
-def create_user_request(data: UserDataRequest) -> None:
-    """Creates a new user request in the database.
-
-    Args:
-        data: UserDataRequest containing the user's GUID and request type
+            app_version,
+            gender,
+            age_group,
+            native_languages,
+            other_languages,
+            moved_to_finland,
+            finnish_learning_duration,
+            cefr_level
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
+
+    params = (
+        str(data.guid),
+        int(data.consent_accepted),
+        consent_timestamp,
+        data.app_version,
+        data.gender,
+        data.age_group,
+        json.dumps(data.native_languages),
+        json.dumps(data.other_languages),
+        data.moved_to_finland,
+        data.finnish_learning_duration,
+        data.finnish_self_assessment
+    )
 
     with database() as db:
-        db.execute("""
-            INSERT INTO user_requests (guid, type)
-            VALUES (?, ?)
-        """, (str(data.guid), data.type))
+        db.execute(query, params)
 
 
-def delete_user_data(data: DeleteUserRequest) -> None:
-    """Deletes all data associated with the given GUID.
+def create_user_request(data: CreateUserRequestInput) -> None:
+    """Insert a user data request row."""
 
-    This is used to fulfill user data deletion requests.
-
-    Args:
-        guid: User's GUID
+    query = """
+        INSERT INTO user_requests (guid, type)
+        VALUES (?, ?)
     """
+
+    params = (
+        str(data.guid),
+        data.type
+    )
 
     with database() as db:
-        db.execute("DELETE FROM users WHERE guid = ?", (str(data.guid),))
+        db.execute(query, params)
 
 
-def create_assessment_feedback(data: FeedbackRequest) -> None:
-    """Inserts a new assessment-related feedback record into the database.
+def delete_user_data(data: DeleteUserDataInput) -> None:
+    """Delete a user row and rely on FK cascades for related data."""
 
-    Args:
-        data: FeedbackRequest containing feedback details
+    query = """
+        DELETE FROM users WHERE guid = ?
     """
+
+    params = (str(data.guid),)
+
+    with database() as db:
+        db.execute(query, params)
+
+
+def create_assessment_feedback(data: CreateAssessmentFeedbackInput) -> None:
+    """Insert assessment-related feedback."""
 
     query = """
         INSERT INTO feedback_assessment (
@@ -241,12 +289,8 @@ def create_assessment_feedback(data: FeedbackRequest) -> None:
         db.execute(query, params)
 
 
-def create_experience_feedback(data: FeedbackRequest) -> None:
-    """Inserts a new experience-related feedback record into the database.
-
-    Args:
-        data: FeedbackRequest containing feedback details
-    """
+def create_experience_feedback(data: CreateExperienceFeedbackInput) -> None:
+    """Insert experience-related feedback."""
 
     query = """
         INSERT INTO feedback_experience (
@@ -268,36 +312,31 @@ def create_experience_feedback(data: FeedbackRequest) -> None:
         db.execute(query, params)
 
 
-def get_user(guid: UUID) -> bool:
-    """Check whether a user row exists for a GUID.
+def get_user(data: GetUserInput) -> bool:
+    """Check whether a user exists."""
 
-    Args:
-        guid: The user's GUID.
-
-    Returns:
-        True if a users row exists, otherwise False.
+    query = """
+        SELECT 1 FROM users WHERE guid = ? LIMIT 1
     """
 
+    params = (str(data.guid),)
+
     with database() as db:
-        row = db.execute(
-            "SELECT 1 FROM users WHERE guid = ? LIMIT 1", (str(guid),)
-        ).fetchone()
+        row = db.execute(query, params).fetchone()
+
     return row is not None
 
 
-def get_user_consent(guid: UUID) -> bool:
-    """Check whether a user has an accepted consent record.
+def get_user_consent(data: GetUserConsentInput) -> bool:
+    """Check whether a user has an accepted consent record."""
 
-    Args:
-        guid: The user's GUID.
-
-    Returns:
-        True if a users row exists with consent_accepted=1, otherwise False.
+    query = """
+        SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1
     """
 
+    params = (str(data.guid),)
+
     with database() as db:
-        row = db.execute(
-            "SELECT 1 FROM users WHERE guid = ? AND consent_accepted = 1 LIMIT 1", (str(
-                guid),)
-        ).fetchone()
+        row = db.execute(query, params).fetchone()
+
     return row is not None

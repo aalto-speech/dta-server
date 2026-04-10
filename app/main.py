@@ -4,21 +4,21 @@ from time import monotonic
 from fastapi import Depends, FastAPI, Form
 from fastapi.responses import JSONResponse, Response
 
-from .config import SETTINGS
-from .db import initialize_database
-from .error_handlers import register_error_handlers
-from .models.analytics import ComparisonRequest
-from .models.feedback import FeedbackRequest
-from .models.onboarding import OnboardingRequest
-from .models.speech_assessment import SpeechAssessmentRequest
-from .models.user_requests import DeleteUserRequest, UserDataRequest
-from .services.admin_service import delete_user
-from .services.analytics_service import get_comparison
-from .services.feedback_service import record_feedback
-from .services.onboarding_service import create_onboarding_user
-from .services.speech_assessment_service import assess_speech_request
-from .services.user_request_service import handle_user_request
-from .utils.logger import get_logger
+from app.config import SETTINGS
+from app.db import initialize_database
+from app.error_handlers import register_error_handlers
+from app.models.analytics import ComparisonRequest
+from app.models.feedback import FeedbackRequest
+from app.models.onboarding import OnboardingRequest
+from app.models.speech_assessment import SpeechAssessmentRequest
+from app.models.user_requests import DeleteUserRequest, UserDataRequest
+from app.services.admin_service import delete_user
+from app.services.analytics_service import get_comparison
+from app.services.feedback_service import record_feedback
+from app.services.onboarding_service import create_onboarding_user
+from app.services.speech_assessment_service import assess_speech_request
+from app.services.user_request_service import handle_user_request
+from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 APP_START_MONOTONIC = monotonic()
@@ -90,9 +90,6 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
 async def request_user(data: UserDataRequest = Form()) -> JSONResponse:
     """Submit a user data request (delete or export).
 
-    Delete requests are stored for admin approval.
-    Export requests currently return not implemented.
-
     Args:
         data: User request payload with GUID and request type.
 
@@ -153,8 +150,6 @@ async def delete_users(
         DeleteUserRequest.as_form)
 ) -> Response:
     """Delete all persisted data for a user.
-
-    This is an admin-only endpoint protected by API key validation.
 
     Args:
         data: Delete payload containing target GUID and admin API key.

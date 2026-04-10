@@ -20,11 +20,7 @@ WAV_WAVE_MAGIC = b"WAVE"
 
 
 def validate_content_type(file: UploadFile) -> None:
-    """Reject uploads whose Content-Type is not application/octet-stream.
-
-    Raises:
-        HTTPException (415): If the Content-Type is not application/octet-stream.
-    """
+    """Reject uploads with an unsupported Content-Type."""
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=415,
@@ -34,13 +30,7 @@ def validate_content_type(file: UploadFile) -> None:
 
 
 def validate_file_extension(filename: str) -> None:
-    """Sanitise the filename and ensure it has a .wav extension.
-
-    Directory components are stripped to prevent path-traversal attacks.
-
-    Raises:
-        HTTPException (400): If the filename does not end with .wav.
-    """
+    """Sanitize the filename and ensure it has a .wav extension."""
     safe_name = os.path.basename(filename)
     if not safe_name.lower().endswith(".wav"):
         raise HTTPException(
@@ -49,18 +39,7 @@ def validate_file_extension(filename: str) -> None:
 
 
 async def validate_file_size(file: UploadFile) -> bytes:
-    """Stream the upload in 64 KB chunks and enforce the size limit.
-
-    Reading in chunks prevents an attacker from forcing the server to
-    buffer an arbitrarily large file in memory.
-
-    Returns:
-        The complete file content as bytes.
-
-    Raises:
-        HTTPException (413): If the file exceeds MAX_FILE_SIZE.
-        HTTPException (400): If the file is empty.
-    """
+    """Stream the upload in chunks and enforce the size limit."""
     chunks: list[bytes] = []
     total_size = 0
     while True:
@@ -82,15 +61,7 @@ async def validate_file_size(file: UploadFile) -> bytes:
 
 
 def validate_wav_headers(data: bytes) -> None:
-    """Validate that raw bytes begin with the RIFF/WAVE magic bytes.
-
-    This guards against files that claim to be .wav via extension or
-    Content-Type but contain a different (potentially malicious) payload.
-
-    Raises:
-        HTTPException (400): If the file is too small to be a valid WAV.
-        HTTPException (400): If the file does not have valid WAV headers.
-    """
+    """Validate that raw bytes begin with the RIFF/WAVE magic bytes."""
     if len(data) < 12:
         raise HTTPException(
             status_code=400, detail="File too small to be a valid WAV.")
@@ -100,12 +71,7 @@ def validate_wav_headers(data: bytes) -> None:
 
 
 def validate_wav_structure(path: str) -> None:
-    """Open the file with the stdlib `wave` module to confirm it is a
-    structurally valid WAV file (correct chunks, sample params, etc.).
-
-    Raises:
-        HTTPException (400): If the uploaded file is not a valid WAV file.
-    """
+    """Confirm that the file is structurally valid WAV audio."""
     try:
         with wave.open(path, "rb") as wf:
             # Reading basic params forces the parser to walk the header
@@ -117,14 +83,7 @@ def validate_wav_structure(path: str) -> None:
 
 
 def validate_audio_duration(path: str) -> None:
-    """Reject audio files longer than MAX_AUDIO_DURATION seconds.
-
-    Uses torchaudio.load to obtain the waveform length and sample rate.
-
-    Raises:
-        HTTPException (400): If torchaudio cannot read the file.
-        HTTPException (413): If the audio exceeds MAX_AUDIO_DURATION.
-    """
+    """Reject audio files longer than the configured maximum."""
     try:
         waveform, sample_rate = torchaudio.load(path)
     except Exception as err:

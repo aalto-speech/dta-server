@@ -21,6 +21,7 @@ def client():
 def _valid_form_data(**overrides):
     data = {
         "guid": str(uuid4()),
+        "task_id": "task-1",
     }
     data.update(overrides)
     return data
@@ -65,6 +66,9 @@ def test_assess_speech_success_returns_scores_and_transcript(
                         lambda: _fake_transcribe)
     monkeypatch.setattr("app.services.speech_assessment_service.uniform",
                         lambda _a, _b: 2.5)
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.create_assessment", lambda _data: 1
+    )
 
     response = client.post(
         "/speech/assess",
@@ -73,18 +77,19 @@ def test_assess_speech_success_returns_scores_and_transcript(
     )
 
     assert response.status_code == 200
-    assert response.json() == {
-        "scores": {
-            "accuracy": 2.5,
-            "fluency": 2.5,
-            "proficiency": 2.5,
-            "pronunciation": 2.5,
-            "range": 2.5,
-        },
-        "transcript": "Hei maailma",
+    payload = response.json()
+    assert payload["assessment_id"] == 1
+    assert payload["scores"] == {
+        "accuracy": 2.5,
+        "fluency": 2.5,
+        "proficiency": 2.5,
+        "pronunciation": 2.5,
+        "range": 2.5,
     }
+    assert payload["transcript"] == "Hei maailma"
     assert "temp_path" in captured
-    assert not os.path.exists(captured["temp_path"])
+    assert os.path.exists(captured["temp_path"])
+    os.unlink(captured["temp_path"])
 
 
 def test_assess_speech_rejects_invalid_extension(client: TestClient):
@@ -146,10 +151,10 @@ def test_assess_speech_stops_before_file_processing_when_auth_fails(
     assert called["validate_file_size"] is False
 
 
-def test_assess_speech_cleans_temp_file_on_unhandled_error(
+def test_assess_speech_keeps_audio_file_on_unhandled_error(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Test temp file is removed even if transcription raises an exception."""
+    """Test persisted audio file remains if transcription raises an exception."""
 
     captured = {}
 
@@ -188,4 +193,5 @@ def test_assess_speech_cleans_temp_file_on_unhandled_error(
     assert response.status_code == 500
     assert response.json() == {"detail": "Internal server error"}
     assert "temp_path" in captured
-    assert not os.path.exists(captured["temp_path"])
+    assert os.path.exists(captured["temp_path"])
+    os.unlink(captured["temp_path"])
