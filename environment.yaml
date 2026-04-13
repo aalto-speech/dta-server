@@ -15,3 +15,5 @@ dependencies:
   - fastapi
   - python-dotenv
   - pydantic>=2,<3
+platforms: # Specify the platforms you want to support (for lockfile)
+  - linux-64
