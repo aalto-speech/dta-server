@@ -24,22 +24,38 @@ jobs:
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
 
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-update-conda: true
-          environment-file: environment.yaml
-
-      - name: Check conda and Python version
-        shell: bash -l {0}
+      - name: Validate lockfile exists
         run: |
-          conda info
+          set -euo pipefail
+          test -f conda-lock.yaml
+
+      - name: Setup micromamba from lockfile
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: conda-lock.yaml
+          init-shell: bash
+          cache-downloads: true
+          cache-environment: true
+          post-cleanup: "all"
+
+      - name: Show environment info
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          micromamba info
+          micromamba env list
           python --version
+
+      - name: Install project (editable)
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          python -m pip install -e .
 
       - name: Install lint and test dependencies
         shell: bash -l {0}
         run: |
-          conda install -c conda-forge -y pylint pytest
+          python -m pip install --no-cache-dir pylint pytest
 
       - name: Lint with pylint
         shell: bash -l {0}
@@ -47,9 +63,10 @@ jobs:
           pylint app/
 
       - name: Run tests
-        shell: bash -l {0}
+        shell: bash -el {0}
         run: |
-          pytest tests/
+          set -euo pipefail
+          pytest -q
 
   build-and-deploy:
     name: Build and deploy on ${{ matrix.os }}
