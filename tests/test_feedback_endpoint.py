@@ -80,19 +80,44 @@ def test_feedback_endpoint_rejects_missing_required_fields(client: TestClient):
     assert response.status_code == 422
 
 
+def test_feedback_endpoint_returns_success_payload_and_calls_create_feedback(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Test /feedback returns success body and invokes create_feedback once."""
+
+    called = {}
+
+    def _fake_create_feedback(data):
+        called["guid"] = str(data.guid)
+        called["feedback_classification"] = str(data.feedback_classification)
+
+    monkeypatch.setattr(
+        "app.services.feedback_service.create_feedback", _fake_create_feedback)
+
+    form_data = _valid_feedback_form_data(
+        feedback_classification="overall_experience")
+    response = client.post("/feedback", data=form_data)
+
+    assert response.status_code == 201
+    assert response.json() == {"status": "feedback recorded"}
+    assert called == {
+        "guid": form_data["guid"],
+        "feedback_classification": "overall_experience",
+    }
+
+
 def test_feedback_routes_assessment_types_to_assessment_feedback(monkeypatch: pytest.MonkeyPatch):
     """Test handler routes assessment feedback types to create_assessment_feedback."""
 
     called = {}
 
-    def _fake_create_assessment_feedback(data):
+    def _fake_create_feedback(data):
         called["type"] = "assessment"
         called["feedback_classification"] = str(data.feedback_classification)
 
-    monkeypatch.setattr("app.services.feedback_service.create_assessment_feedback",
-                        _fake_create_assessment_feedback)
-    monkeypatch.setattr(
-        "app.services.feedback_service.create_experience_feedback", lambda x: None)
+    monkeypatch.setattr("app.services.feedback_service.create_feedback",
+                        _fake_create_feedback)
 
     for classification in ["self_assessment", "result_accuracy", "result_understanding"]:
         called.clear()
@@ -119,14 +144,12 @@ def test_feedback_routes_experience_types_to_experience_feedback(monkeypatch: py
 
     called = {}
 
-    def _fake_create_experience_feedback(data):
+    def _fake_create_feedback(data):
         called["type"] = "experience"
         called["feedback_classification"] = str(data.feedback_classification)
 
-    monkeypatch.setattr("app.services.feedback_service.create_experience_feedback",
-                        _fake_create_experience_feedback)
-    monkeypatch.setattr(
-        "app.services.feedback_service.create_assessment_feedback", lambda x: None)
+    monkeypatch.setattr("app.services.feedback_service.create_feedback",
+                        _fake_create_feedback)
 
     for classification in ["comparison_ui", "overall_experience"]:
         called.clear()
@@ -153,13 +176,11 @@ def test_feedback_reaction_value_minimum(client: TestClient, monkeypatch: pytest
 
     called = {}
 
-    def _fake_create_experience_feedback(data):
+    def _fake_create_feedback(data):
         called["reaction_value"] = data.reaction_value
 
-    monkeypatch.setattr("app.services.feedback_service.create_experience_feedback",
-                        _fake_create_experience_feedback)
-    monkeypatch.setattr(
-        "app.services.feedback_service.create_assessment_feedback", lambda x: None)
+    monkeypatch.setattr("app.services.feedback_service.create_feedback",
+                        _fake_create_feedback)
 
     response = client.post(
         "/feedback",
@@ -175,13 +196,11 @@ def test_feedback_reaction_value_maximum(client: TestClient, monkeypatch: pytest
 
     called = {}
 
-    def _fake_create_experience_feedback(data):
+    def _fake_create_feedback(data):
         called["reaction_value"] = data.reaction_value
 
-    monkeypatch.setattr("app.services.feedback_service.create_experience_feedback",
-                        _fake_create_experience_feedback)
-    monkeypatch.setattr(
-        "app.services.feedback_service.create_assessment_feedback", lambda x: None)
+    monkeypatch.setattr("app.services.feedback_service.create_feedback",
+                        _fake_create_feedback)
 
     response = client.post(
         "/feedback",
@@ -197,13 +216,11 @@ def test_feedback_comment_optional(client: TestClient, monkeypatch: pytest.Monke
 
     called = {}
 
-    def _fake_create_experience_feedback(data):
+    def _fake_create_feedback(data):
         called["comment"] = data.comment
 
-    monkeypatch.setattr("app.services.feedback_service.create_experience_feedback",
-                        _fake_create_experience_feedback)
-    monkeypatch.setattr(
-        "app.services.feedback_service.create_assessment_feedback", lambda x: None)
+    monkeypatch.setattr("app.services.feedback_service.create_feedback",
+                        _fake_create_feedback)
 
     response = client.post(
         "/feedback",

@@ -59,7 +59,7 @@ CREATE TABLE
   IF NOT EXISTS assessments (
     id INTEGER PRIMARY KEY AUTOINCREMENT, -- assessment_id
     guid TEXT NOT NULL,
-    task_id TEXT NOT NULL, -- speaking task ID / prompt ID
+    task_id INTEGER NOT NULL, -- speaking task ID
     audio_id TEXT NOT NULL UNIQUE, -- unique ID for audio file
     audio_path TEXT NOT NULL, -- persistent storage path / object key
     transcript TEXT, -- optional ASR transcript
@@ -89,33 +89,24 @@ CREATE TABLE
   );
 
 CREATE TABLE
-  IF NOT EXISTS feedback_assessment (
+  IF NOT EXISTS feedback (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guid TEXT NOT NULL,
-    assessment_id INTEGER NOT NULL,
+    assessment_id INTEGER,
     type TEXT NOT NULL CHECK (
       type IN (
         'self_assessment',
         'result_accuracy',
-        'result_understanding'
+        'result_understanding',
+        'comparison_ui',
+        'overall_experience'
       )
     ),
     reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5),
-    comment TEXT,
+    comment TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE,
     FOREIGN KEY (assessment_id) REFERENCES assessments (id) ON DELETE CASCADE
-  );
-
-CREATE TABLE
-  IF NOT EXISTS feedback_experience (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    guid TEXT NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('comparison_ui', 'overall_experience')),
-    reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5),
-    comment TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );
 
 CREATE TABLE
@@ -147,11 +138,11 @@ CREATE INDEX IF NOT EXISTS idx_assessments_guid_created_at ON assessments (guid,
 
 CREATE INDEX IF NOT EXISTS idx_assessments_task_id ON assessments (task_id);
 
-CREATE INDEX IF NOT EXISTS idx_feedback_assessment_guid_created_at ON feedback_assessment (guid, created_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_guid_created_at ON feedback (guid, created_at);
 
-CREATE INDEX IF NOT EXISTS idx_feedback_assessment_assessment_id ON feedback_assessment (assessment_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_assessment_id ON feedback (assessment_id);
 
-CREATE INDEX IF NOT EXISTS idx_feedback_experience_guid_created_at ON feedback_experience (guid, created_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_type_guid_created_at ON feedback (type, guid, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_user_cefr_history_guid_created_at_id ON user_cefr_history (guid, created_at DESC, id DESC);
 

@@ -126,3 +126,14 @@ def test_analytics_comparison_rejects_days_above_max(client: TestClient):
     )
 
     assert response.status_code == 422
+
+
+def test_analytics_comparison_rejects_days_below_min(client: TestClient):
+    """Return 422 when days is below configured lower bound."""
+
+    response = client.post(
+        "/analytics/comparison",
+        data=_valid_form_data(days=-1),
+    )
+
+    assert response.status_code == 422

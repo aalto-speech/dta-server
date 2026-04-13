@@ -21,7 +21,7 @@ def client():
 def _valid_form_data(**overrides):
     data = {
         "guid": str(uuid4()),
-        "task_id": "task-1",
+        "task_id": "1",
     }
     data.update(overrides)
     return data
@@ -118,6 +118,30 @@ def test_assess_speech_rejects_invalid_content_type(client: TestClient):
     assert response.status_code == 415
     assert response.json()["detail"].startswith(
         "Unsupported media type: expected a WAV file")
+
+
+def test_assess_speech_rejects_invalid_guid_format(client: TestClient):
+    """Test /speech/assess returns 422 for invalid GUID."""
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(guid="not-a-guid"),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 422
+
+
+def test_assess_speech_rejects_non_integer_task_id(client: TestClient):
+    """Test /speech/assess returns 422 when task_id is not an integer."""
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(task_id="task-1"),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 422
 
 
 def test_assess_speech_stops_before_file_processing_when_auth_fails(

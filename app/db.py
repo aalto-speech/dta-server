@@ -6,10 +6,7 @@ from typing import Iterator
 
 from app.config import SETTINGS
 from app.models.analytics import ComparisonStats, GetCohortStatsInput
-from app.models.feedback import (
-    CreateAssessmentFeedbackInput,
-    CreateExperienceFeedbackInput,
-)
+from app.models.feedback import CreateFeedbackInput
 from app.models.onboarding import CEFRLevel, CreateUserInput
 from app.models.speech_assessment import AssessmentCreateInput
 from app.models.user_requests import (
@@ -264,11 +261,11 @@ def delete_user_data(data: DeleteUserDataInput) -> None:
         db.execute(query, params)
 
 
-def create_assessment_feedback(data: CreateAssessmentFeedbackInput) -> None:
-    """Insert assessment-related feedback."""
+def create_feedback(data: CreateFeedbackInput) -> None:
+    """Insert feedback."""
 
     query = """
-        INSERT INTO feedback_assessment (
+        INSERT INTO feedback (
             guid,
             assessment_id,
             type,
@@ -280,29 +277,6 @@ def create_assessment_feedback(data: CreateAssessmentFeedbackInput) -> None:
     params = (
         str(data.guid),
         data.assessment_id,
-        data.feedback_classification,
-        data.reaction_value,
-        data.comment
-    )
-
-    with database() as db:
-        db.execute(query, params)
-
-
-def create_experience_feedback(data: CreateExperienceFeedbackInput) -> None:
-    """Insert experience-related feedback."""
-
-    query = """
-        INSERT INTO feedback_experience (
-            guid,
-            type,
-            reaction_value,
-            comment
-        ) VALUES (?, ?, ?, ?)
-        """
-
-    params = (
-        str(data.guid),
         data.feedback_classification,
         data.reaction_value,
         data.comment

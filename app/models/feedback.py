@@ -71,20 +71,11 @@ class FeedbackRequest(BaseModel):
         return self
 
 
-class CreateAssessmentFeedbackInput(BaseModel):
-    """Internal DB input for inserting assessment feedback."""
+class CreateFeedbackInput(BaseModel):
+    """Internal DB input for inserting feedback."""
 
     guid: UUID
-    assessment_id: int = Field(ge=0)
-    feedback_classification: FeedbackClassification
-    reaction_value: int = Field(ge=1, le=5)
-    comment: str | None = None
-
-
-class CreateExperienceFeedbackInput(BaseModel):
-    """Internal DB input for inserting experience feedback."""
-
-    guid: UUID
+    assessment_id: int | None = Field(default=None, ge=0)
     feedback_classification: FeedbackClassification
     reaction_value: int = Field(ge=1, le=5)
     comment: str | None = None

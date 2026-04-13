@@ -19,12 +19,19 @@ def isolate_test_database() -> Iterator[None]:
     wal_path = Path(f"{db_path}-wal")
     shm_path = Path(f"{db_path}-shm")
     audio_test_dir = Path(SETTINGS.audio_save_dir)
+    audio_parent_dir = audio_test_dir.parent
 
     def _cleanup_test_artifacts() -> None:
         db_path.unlink(missing_ok=True)
         wal_path.unlink(missing_ok=True)
         shm_path.unlink(missing_ok=True)
         shutil.rmtree(audio_test_dir, ignore_errors=True)
+        # Remove ./audio if test cleanup left it empty.
+        if audio_parent_dir.name == "audio":
+            try:
+                audio_parent_dir.rmdir()
+            except OSError:
+                pass
 
     _cleanup_test_artifacts()
 

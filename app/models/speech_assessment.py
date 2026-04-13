@@ -14,15 +14,15 @@ class SpeechAssessmentRequest(BaseModel):
     """Speech assessment request payload.
 
     Attributes:
-        file: The uploaded WAV file.
-        guid: The user's GUID.
-        task_id: The assessment task ID.
-        description: The description of the assessment.
+        file (UploadFile): The uploaded WAV file.
+        guid (UUID): The user's GUID.
+        task_id (int): The task ID.
+        description (str | None): The description of the assessment.
     """
 
     file: UploadFile
     guid: UUID
-    task_id: str | None = None
+    task_id: int
     description: str | None = None
 
     @field_validator("file")
@@ -34,18 +34,6 @@ class SpeechAssessmentRequest(BaseModel):
         audio.validate_file_extension(file.filename or "")
 
         return file
-
-    @field_validator("task_id")
-    @classmethod
-    def validate_task_id(cls, value: str | None) -> str | None:
-        """Validate the task ID when provided."""
-
-        max_length = 100
-        if value is not None and len(value) > max_length:
-            raise ValueError(
-                f"task_id must not exceed {max_length} characters.")
-
-        return value
 
     @field_validator("description")
     @classmethod
@@ -64,10 +52,12 @@ class SpeechAssessmentRequest(BaseModel):
         cls,
         guid: UUID = Form(...),
         file: UploadFile = File(...),
+        task_id: int = Form(...),
+        description: str | None = Form(default=None),
     ) -> "SpeechAssessmentRequest":
         """Build the model from multipart form fields."""
 
-        return cls(guid=guid, file=file)
+        return cls(guid=guid, file=file, task_id=task_id, description=description)
 
 
 class SpeechAssessmentScores(BaseModel):
@@ -84,9 +74,9 @@ class SpeechAssessmentResponse(BaseModel):
     """Speech assessment response payload.
 
     Attributes:
-        assessment_id: The created assessment ID.
-        scores: The individual scores.
-        transcript: The transcribed text.
+        assessment_id (int): The created assessment ID.
+        scores (SpeechAssessmentScores): The individual scores.
+        transcript (str): The transcribed text.
     """
 
     assessment_id: int
@@ -98,7 +88,7 @@ class AssessmentCreateInput(BaseModel):
     """Internal DB input for creating a speech assessment record."""
 
     guid: UUID
-    task_id: str | None = None
+    task_id: int
     audio_id: UUID
     audio_path: Path
     transcript: str
