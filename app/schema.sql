@@ -103,7 +103,7 @@ CREATE TABLE
       )
     ),
     reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5),
-    comment TEXT NOT NULL,
+    comment TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE,
     FOREIGN KEY (assessment_id) REFERENCES assessments (id) ON DELETE CASCADE
