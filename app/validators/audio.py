@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import wave
 
@@ -70,10 +71,10 @@ def validate_wav_headers(data: bytes) -> None:
             status_code=400, detail="File does not have valid WAV headers.")
 
 
-def validate_wav_structure(path: str) -> None:
+def validate_wav_structure(path: Path) -> None:
     """Confirm that the file is structurally valid WAV audio."""
     try:
-        with wave.open(path, "rb") as wf:
+        with wave.open(str(path), "rb") as wf:
             # Reading basic params forces the parser to walk the header
             wf.getparams()
     except wave.Error as err:
@@ -82,7 +83,7 @@ def validate_wav_structure(path: str) -> None:
         ) from err
 
 
-def validate_audio_duration(path: str) -> None:
+def validate_audio_duration(path: Path) -> None:
     """Reject audio files longer than the configured maximum."""
     try:
         waveform, sample_rate = torchaudio.load(path)

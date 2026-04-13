@@ -71,7 +71,7 @@ def initialize_database() -> bool:
     return True
 
 
-def create_assessment(data: AssessmentCreateInput) -> int:
+def create_assessment(data: AssessmentCreateInput) -> int | None:
     """Insert an assessment row and return its ID."""
 
     query = """

@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from random import uniform
+import sqlite3
 from uuid import UUID, uuid4
 
 from fastapi.encoders import jsonable_encoder
@@ -89,6 +90,11 @@ async def assess_speech_request(
         pronunciation=pronunciation,
         range_score=range_score,
     ))
+
+    # ? Enhance error handling?
+    if not assessment_id:
+        raise sqlite3.DatabaseError(
+            "Failed to create assessment record in the database")
 
     results = SpeechAssessmentResponse(
         assessment_id=assessment_id,
