@@ -1,72 +1,61 @@
-# CI/CD workflow
+# CI/CD workflows
 
-This document explains the purpose and step-by-step actions of the combined CI/CD workflow in this repository. The workflow is defined in [`ci-cd.yaml`](./ci-cd.yaml) in this directory.
+This directory contains two GitHub Actions workflows: [`ci.yaml`](./ci.yaml) for validation and [`cd.yaml`](./cd.yaml) for image publishing. The CI workflow runs directly, and the CD workflow is called from CI after the checks pass.
 
 ## CI workflow
 
-The CI (Continuous Integration) portion automatically checks code quality and runs tests on Ubuntu whenever changes are made.
+The CI (Continuous Integration) workflow runs linting and tests on Ubuntu 24.04 whenever changes are made.
 
 **Triggers:**
 
 - Runs on every push to the `dev` branch.
 - Runs on every pull request targeting the `dev` or `main` branches.
-- Runs on published releases (`release` trigger).
-- Supports manual execution (`workflow_dispatch`).
+- Runs when a release is published.
+- Supports manual execution with `workflow_dispatch`.
 
-**Job: lint-and-test**
+**Job: `lint-and-test`**
 
-- **Matrix Build:** Runs the workflow on [`ubuntu-24.04`](https://github.com/actions/runner-images/tree/main?tab=readme-ov-file#available-images) to ensure compatibility with staging and production environments.
-- **Steps:**
-  1.  **Checkout code:** Retrieves the latest code from the repository.
-  2.  **Set up Miniconda:** Creates and updates a Conda environment from `environment.yaml`.
-  3.  **Check Conda and Python version:** Outputs Conda and Python version information for debugging and reproducibility.
-  4.  **Install lint and test dependencies:** Installs `pylint` and `pytest` using pip for fast installation.
-  5.  **Lint with pylint:** Checks code style and programming errors in the `app/` directory.
-  6.  **Run tests:** Runs all tests in the `tests/` directory using `pytest`.
+- Runs on [`ubuntu-24.04`](https://github.com/actions/runner-images/tree/main?tab=readme-ov-file#available-images).
+- Checks out the current ref, or the release tag for release events.
+- Verifies that `conda-lock.yaml` exists before continuing.
+- Sets up a micromamba environment from `conda-lock.yaml`.
+- Installs the project in editable mode with `python -m pip install -e .`.
+- Installs `pylint` and `pytest`.
+- Runs `pylint app/`.
+- Runs `pytest -q`.
 
-This workflow helps maintain code quality and catches issues early in the development process.
+These checks help catch style issues and test failures early.
+
+**Job: `trigger-cd`**
+
+- Depends on `lint-and-test`.
+- Only runs for these cases:
+  - Pushes to `dev`.
+  - Published releases whose target commit is `main`.
+  - Manual runs on `dev`.
+- Calls the CD workflow in [`cd.yaml`](./cd.yaml).
+- Passes the `contents: read` and `packages: write` permissions needed for image publishing.
 
 ## CD workflow
 
-The CD (Continuous Deployment) portion builds and pushes container images to the GitHub Container Registry (GHCR) for deployments.
+The CD (Continuous Deployment) workflow builds and pushes container images to the GitHub Container Registry (GHCR).
 
-**Triggers:**
+**Trigger:**
 
-- Runs in the same workflow after `lint-and-test` succeeds (`needs: lint-and-test`).
-- Deploys only for pushes to `dev`, published releases from `main`, or manual dispatch on `dev`.
+- Runs only when called from the CI workflow using `workflow_call`.
 
-**Job: build-and-deploy**
+**Job: `build-and-deploy`**
 
-- **Matrix Build:** Runs the workflow on `ubuntu-24.04`
-- **Job dependency:** Deploy runs only after CI succeeds in the same run.
-- **Job guard:** The deploy job runs only when one of these is true:
-  - Event is `push` and branch is `dev`.
-  - Event is `release` and `release.target_commitish == main`.
-  - Event is `workflow_dispatch` and branch is `dev`.
-- **Environment Variables:**
-  - `IMAGE_NAME`: The full image name for GHCR, e.g., `ghcr.io/OWNER/REPO`.
-  - `TAG_NAME`: Set to `latest` for releases, `staging` for pushes/manual runs.
-  - `RELEASE_TAG`: Set to the release tag name for release events.
+- Runs on [`ubuntu-24.04`](https://github.com/actions/runner-images/tree/main?tab=readme-ov-file#available-images).
+- Uses `ghcr.io/${{ github.repository }}` as the image name.
+- Sets `staging` as the tag for normal CI-triggered runs.
+- Sets `latest` and the release tag for published releases.
+- Checks out the current ref, or the release tag for release events.
+- Logs in to GHCR with the GitHub Actions token.
+- Builds the image with `podman build --pull`.
+- Pushes the resulting image tags to GHCR with `podman push`.
 
-**Steps:**
-
-1. **Checkout code:**
-
-- For regular branch events, checks out the current ref.
-- For `release`, checks out the release tag.
-
-2. **Login to GitHub Container Registry:** Authenticates to GHCR using the GitHub Actions token.
-3. **Build and tag container image:**
-
-- For `push` and `workflow_dispatch` on `dev`, builds one image tag: `:staging`.
-- For `release`, builds two image tags: `:latest` and `:<release-tag>`.
-
-4. **Push container images to GHCR:**
-
-- For `push` and `workflow_dispatch` on `dev`, pushes `:staging`.
-- For `release`, pushes `:latest` and `:<release-tag>`.
-
-This combined workflow ensures development images are published only after CI passes on `dev`, and release images from `main` are published as both `latest` and the release-specific tag.
+For release events, the workflow publishes both `:latest` and `:<release-tag>`. For push and manual runs on `dev`, it publishes `:staging`.
 
 ---
 
