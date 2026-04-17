@@ -1,0 +1,52 @@
+name: CD
+
+on:
+  workflow_call:
+
+jobs:
+  build-and-deploy:
+    name: Build and deploy
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository }}
+      TAG_NAME: ${{ github.event_name == 'release' && 'latest' || 'staging' }}
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and tag container image
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            podman build --pull \
+              --tag "$IMAGE_NAME:$TAG_NAME" \
+              --tag "$IMAGE_NAME:$RELEASE_TAG" \
+              .
+          else
+            podman build --pull \
+              --tag "$IMAGE_NAME:$TAG_NAME" \
+              .
+          fi
+
+      - name: Push container images to GitHub Container Registry
+        run: |
+          set -euo pipefail
+          podman push "$IMAGE_NAME:$TAG_NAME"
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            podman push "$IMAGE_NAME:$RELEASE_TAG"
+          fi
