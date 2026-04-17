@@ -7,11 +7,8 @@ WORKDIR /tmp/build
 COPY conda-lock.yaml ./
 
 RUN micromamba install -n base -y -c conda-forge conda-lock \
-    && conda-lock render \
-        -f conda-lock.yaml \
-        -p linux-64 \
-        --kind explicit \
-        --filename-template conda-{platform}.lock \
+    && micromamba run -n base conda-lock render \
+        conda-lock.yaml \
     && micromamba create -y -p /opt/conda/envs/app --file conda-linux-64.lock \
     && micromamba clean --all --yes
 
