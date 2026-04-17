@@ -1,6 +1,6 @@
 # DigiTala in Action server
 
-[![CI-CD](https://github.com/aalto-speech/dta-server/actions/workflows/ci-cd.yaml/badge.svg)](https://github.com/aalto-speech/dta-server/actions/workflows/ci-cd.yaml)
+[![CI](https://github.com/aalto-speech/dta-server/actions/workflows/ci.yaml/badge.svg)](https://github.com/aalto-speech/dta-server/actions/workflows/ci.yaml)
 
 This repo contain the server developed for the DigiTala in Action project.
 
