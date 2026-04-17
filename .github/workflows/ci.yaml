@@ -37,34 +37,36 @@ jobs:
         uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: conda-linux-64.lock
-          init-shell: bash
+          environment-name: ci
+          init-shell: none
+          generate-run-shell: false
           cache-downloads: true
           cache-environment: true
           post-cleanup: "all"
 
       - name: Install project (editable)
-        shell: bash -el {0}
+        shell: bash
         run: |
           set -euo pipefail
-          python -m pip install -e .
+          micromamba run -n ci python -m pip install -e .
 
       - name: Install lint and test dependencies
-        shell: bash -el {0}
+        shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --no-cache-dir pylint pytest
+          micromamba run -n ci python -m pip install --no-cache-dir pylint pytest
 
       - name: Lint with pylint
-        shell: bash -el {0}
+        shell: bash
         run: |
           set -euo pipefail
-          pylint app/
+          micromamba run -n ci pylint app/
 
       - name: Run tests
-        shell: bash -el {0}
+        shell: bash
         run: |
           set -euo pipefail
-          pytest -q
+          micromamba run -n ci pytest -q
 
   trigger-cd:
     name: Trigger Deployment
