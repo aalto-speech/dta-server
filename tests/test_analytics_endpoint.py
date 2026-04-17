@@ -11,6 +11,7 @@ from app.main import app
 from app.models.analytics import (
     AssessmentUnavailable,
     ComparisonStats,
+    DayWindow,
     GetCohortStatsInput,
 )
 from app.models.onboarding import CEFRLevel
@@ -78,7 +79,7 @@ def test_analytics_comparison_returns_stats_payload(
     assert captured == {
         "guid": form_data["guid"],
         "get_stats_guid": form_data["guid"],
-        "days": None,
+        "days": DayWindow.ALL_TIME,
     }
 
 
