@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [dev, chore/gha-split]
+    branches: [dev]
   pull_request:
     branches: [dev, main]
   release:
@@ -31,12 +31,12 @@ jobs:
         shell: bash -el {0}
         run: |
           set -euo pipefail
-          test -f conda-lock.yaml
+          test -f conda-linux-64.lock
 
       - name: Setup micromamba from lockfile
         uses: mamba-org/setup-micromamba@v3
         with:
-          environment-file: conda-lock.yaml
+          environment-file: conda-linux-64.lock
           init-shell: bash
           cache-downloads: true
           cache-environment: true
@@ -69,7 +69,7 @@ jobs:
   trigger-cd:
     name: Trigger Deployment
     needs: lint-and-test
-    if: ${{ (github.event_name == 'push' && github.ref_name == 'dev') || (github.event_name == 'release' && github.event.release.target_commitish == 'main') || (github.event_name == 'workflow_dispatch' && (github.ref_name == 'dev' || github.ref_name == 'chore/split-gha')) }}
+    if: ${{ (github.event_name == 'push' && github.ref_name == 'dev') || (github.event_name == 'release' && github.event.release.target_commitish == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'dev') }}
     uses: ./.github/workflows/cd.yaml
     permissions:
       contents: read
