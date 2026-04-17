@@ -71,7 +71,7 @@ def test_request_user_handler_delete_calls_create_user_request(
 def test_request_user_handler_export_does_not_store_and_returns_501(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Test handler export path returns not implemented and does not store request."""
+    """Test handler export path raises HTTPException and does not store request."""
 
     called = {"create_user_request": False}
 
@@ -82,13 +82,14 @@ def test_request_user_handler_export_does_not_store_and_returns_501(
                         _fake_create_user_request)
     request_model = UserDataRequest(guid=uuid4(), type=RequestType.EXPORT)
 
-    response = asyncio.run(request_user(request_model))
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(request_user(request_model))
 
-    assert response.status_code == 501
-    assert response.body == (
-        b'{"status":"not_implemented","message":"Data export requests are '
-        b'not implemented yet."}'
-    )
+    assert exc_info.value.status_code == 501
+    assert exc_info.value.detail == {
+        "status": "not_implemented",
+        "message": "Data export requests are not implemented yet.",
+    }
     assert called["create_user_request"] is False
 
 
@@ -136,8 +137,10 @@ def test_request_user_endpoint_export_returns_not_implemented(
 
     assert response.status_code == 501
     assert response.json() == {
-        "status": "not_implemented",
-        "message": "Data export requests are not implemented yet.",
+        "detail": {
+            "status": "not_implemented",
+            "message": "Data export requests are not implemented yet.",
+        },
     }
     assert called["create_user_request"] is False
 
