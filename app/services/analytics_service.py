@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 
 from app.db import get_cohort_stats
 from app.models.analytics import (
+    ComparisonUnavailable,
     ComparisonRequest,
     ComparisonResponse,
     GetCohortStatsInput,
@@ -24,14 +25,21 @@ def get_comparison(data: ComparisonRequest) -> JSONResponse:
     stats = get_cohort_stats(GetCohortStatsInput(
         guid=data.guid, days=data.days))
 
-    if not stats:
+    if isinstance(stats, ComparisonUnavailable):
         return JSONResponse(
-            content={
-                "status": "comparison_unavailable",
-                "message": (
-                    "Comparison statistics are not available for your cohorts size at this time."
-                ),
-            },
+            content=jsonable_encoder(stats, exclude_none=True),
+            status_code=200,
+        )
+
+    if not stats:
+        unavailable = ComparisonUnavailable(
+            status="COHORT_SIZE_TOO_SMALL",
+            message=(
+                "Comparison statistics are not available for your cohorts size at this time."
+            ),
+        )
+        return JSONResponse(
+            content=jsonable_encoder(unavailable, exclude_none=True),
             status_code=200,
         )
 

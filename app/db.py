@@ -5,7 +5,14 @@ from pathlib import Path
 from typing import Iterator
 
 from app.config import SETTINGS
-from app.models.analytics import ComparisonStats, GetCohortStatsInput
+from app.models.analytics import (
+    ComparisonStats,
+    ComparisonUnavailable,
+    DayWindow,
+    GetCohortStatsInput,
+    AssessmentUnavailable,
+    CohortSizeTooLow,
+)
 from app.models.feedback import CreateFeedbackInput
 from app.models.onboarding import CEFRLevel, CreateUserInput
 from app.models.speech_assessment import AssessmentCreateInput
@@ -27,13 +34,45 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
-def _window_filter_sql(days: int | None) -> tuple[str, tuple[str, ...]]:
+def _window_filter_sql(days: DayWindow | None) -> tuple[str, tuple[str, ...]]:
     """Build optional SQL and params for a rolling assessment window."""
 
     if not days:
         return "", ()
 
-    return " AND a.created_at >= datetime('now', ?)", (f"-{days} days",)
+    return " AND a.created_at >= datetime('now', ?)", (f"-{days.value} days",)
+
+
+def _get_user_cefr_level(db: sqlite3.Connection, guid: str) -> str:
+    """Look up the user's CEFR level or raise when the user is missing."""
+
+    row = db.execute(
+        "SELECT cefr_level FROM users WHERE guid = ? LIMIT 1", (guid,)
+    ).fetchone()
+
+    if not row:
+        raise ValueError("User not found")
+
+    return row[0]
+
+
+def _count_scored_assessments(
+    db: sqlite3.Connection,
+    guid: str,
+    window_sql: str,
+    window_params: tuple[str, ...],
+) -> int:
+    """Count scored assessments for a user within the requested window."""
+
+    query = f"""
+        SELECT COUNT(*)
+        FROM assessments a
+        WHERE a.guid = ?
+        AND a.proficiency IS NOT NULL
+        {window_sql}
+    """
+
+    return db.execute(query, (guid, *window_params)).fetchone()[0]
 
 
 @contextmanager
@@ -106,88 +145,78 @@ def create_assessment(data: AssessmentCreateInput) -> int | None:
     return assessment_id
 
 
-def get_cohort_stats(data: GetCohortStatsInput) -> ComparisonStats | None:
+def get_cohort_stats(
+    data: GetCohortStatsInput,
+) -> ComparisonStats | ComparisonUnavailable | None:
     """Return cohort stats and rank for the user within their CEFR cohort."""
-
     window_sql, window_params = _window_filter_sql(data.days)
-
-    query = f"""
-        WITH target_user AS (
-            SELECT guid, cefr_level
-            FROM users
-            WHERE guid = ?
-            LIMIT 1
-        ),
-        cohort_user_averages AS (
-            SELECT a.guid, AVG(a.proficiency) AS avg_score
-            FROM assessments a
-            JOIN users u ON u.guid = a.guid
-            JOIN target_user tu ON 1 = 1
-            WHERE u.cefr_level = tu.cefr_level
-              AND a.proficiency IS NOT NULL
-              {window_sql}
-            GROUP BY a.guid
-        ),
-        target AS (
-            SELECT
-                tu.guid,
-                tu.cefr_level,
-                cua.avg_score AS target_avg
-            FROM target_user tu
-            LEFT JOIN cohort_user_averages cua ON cua.guid = tu.guid
-        ),
-        summary AS (
-            SELECT
-                COUNT(*) AS cohort_size
-            FROM cohort_user_averages
-        ),
-        rank_calc AS (
-            SELECT
-                CASE
-                    WHEN t.target_avg IS NULL THEN NULL
-                    ELSE SUM(
-                        CASE
-                            WHEN cua.avg_score > t.target_avg
-                              OR (cua.avg_score = t.target_avg AND cua.guid <= t.guid)
-                            THEN 1
-                            ELSE 0
-                        END
-                    )
-                END AS row_id
-            FROM target t
-            LEFT JOIN cohort_user_averages cua ON 1 = 1
-        )
-        SELECT
-            s.cohort_size,
-            rc.row_id,
-            tu.cefr_level
-        FROM summary s
-        LEFT JOIN rank_calc rc ON 1 = 1
-        LEFT JOIN target_user tu ON 1 = 1;
-    """
-
-    params = (str(data.guid), *window_params)
+    target_guid = str(data.guid)
 
     with database() as db:
-        row = db.execute(query, params).fetchone()
+        cefr_level = _get_user_cefr_level(db, target_guid)
 
-    cohort_size = int(row[0] or 0) if row else 0
+        # Require enough scored assessments for the requesting user.
+        assessment_count = _count_scored_assessments(
+            db, target_guid, window_sql, window_params
+        )
+
+        if assessment_count < SETTINGS.min_user_assessments:
+            return AssessmentUnavailable(
+                status="USER_ASSESSMENT_DATA_INSUFFICIENT",
+                message=(
+                    "User does not have enough scored assessments "
+                    "for comparison statistics"
+                ),
+                required_assessments=SETTINGS.min_user_assessments,
+                current_assessments=assessment_count,
+            )
+
+        # Get all users in the same CEFR cohort with their average proficiency scores
+        # Order by average score (descending) and guid (ascending) for tie-breaking
+        cohort_query = f"""
+            SELECT a.guid, AVG(a.proficiency) AS avg_score
+            FROM assessments a
+            WHERE guid IN (
+                SELECT guid FROM users WHERE cefr_level = ?
+            )
+            AND proficiency IS NOT NULL
+            {window_sql}
+            GROUP BY a.guid
+            ORDER BY avg_score DESC, guid ASC
+        """
+
+        cohort_rows = db.execute(
+            cohort_query, (cefr_level, *window_params)).fetchall()
+
+    cohort_size = len(cohort_rows)
+
     if cohort_size < SETTINGS.min_cohort_size:
+        return CohortSizeTooLow(
+            status="COHORT_SIZE_TOO_SMALL",
+            message=(
+                "Comparison statistics are not available for your cohorts size at this time."
+            ),
+            cohort_size=cohort_size,
+        )
+
+    # Find the rank of the target user (1-indexed position in sorted list)
+    rank = None
+    for i, (guid, _) in enumerate(cohort_rows, 1):
+        if guid == target_guid:
+            rank = i
+            break
+
+    if rank is None:
         return None
 
-    user_row_id = int(row[1]) if row and row[1] is not None else None
-    cefr_level = CEFRLevel(row[2]) if row and row[2] is not None else None
-
-    if user_row_id is None or cefr_level is None:
-        return None
-
-    percentile = (cohort_size - user_row_id + 1) / cohort_size
+    # Calculate percentile
+    percentile = (cohort_size - rank) / cohort_size
 
     return ComparisonStats(
-        cefr_level=cefr_level,
+        cefr_level=CEFRLevel(cefr_level),
         cohort_size=cohort_size,
         percentile=round(percentile, 2),
-        rank=user_row_id,
+        rank=rank,
     )
 
 

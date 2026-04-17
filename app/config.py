@@ -38,8 +38,7 @@ class Settings:
         audio_save_dir: Directory where uploaded audio files will be stored.
         admin_api_key: API key for admin operations, required in production.
         min_cohort_size: Minimum number of users required in a cohort for analytics to be returned.
-        analytics_min_window_days: Minimum number of days for the rolling window filter in analytics.
-        analytics_max_window_days: Maximum number of days for the rolling window filter in analytics.
+        min_user_assessments: Minimum number of assessments a user must have for comparison analytics.
     """
 
     env: AppEnv
@@ -47,8 +46,7 @@ class Settings:
     audio_save_dir: str
     admin_api_key: str
     min_cohort_size: int
-    analytics_min_window_days: int
-    analytics_max_window_days: int
+    min_user_assessments: int
 
 
 def _parse_app_env() -> AppEnv:
@@ -116,13 +114,8 @@ def _build_settings() -> Settings:
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
     min_cohort_size = _parse_int_env(
         "MIN_COHORT_SIZE", default=100, minimum=2)
-    analytics_min_window_days = _parse_int_env(
-        "ANALYTICS_MIN_WINDOW_DAYS", default=1, minimum=1)
-    analytics_max_window_days = _parse_int_env(
-        "ANALYTICS_MAX_WINDOW_DAYS", default=3650, minimum=1)
-
-    analytics_max_window_days = max(
-        analytics_max_window_days, analytics_min_window_days)
+    min_user_assessments = _parse_int_env(
+        "MIN_USER_ASSESSMENTS", default=3, minimum=1)
 
     if env == AppEnv.PRODUCTION and not admin_api_key:
         raise RuntimeError("ADMIN_API_KEY must be set in production")
@@ -133,8 +126,7 @@ def _build_settings() -> Settings:
         audio_save_dir=audio_save_dir,
         admin_api_key=admin_api_key,
         min_cohort_size=min_cohort_size,
-        analytics_min_window_days=analytics_min_window_days,
-        analytics_max_window_days=analytics_max_window_days,
+        min_user_assessments=min_user_assessments,
     )
 
 

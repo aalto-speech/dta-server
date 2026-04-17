@@ -1,3 +1,4 @@
+from enum import Enum
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -6,39 +7,28 @@ from app.config import SETTINGS
 from app.models.onboarding import CEFRLevel
 
 
+class DayWindow(Enum):
+    """Day window options for cohort comparisons."""
+
+    FORTNIGHT = 14
+    MONTH = 30
+    QUARTER = 90
+    HALF_YEAR = 180
+    YEAR = 365
+    TWO_YEARS = 730
+    FOUR_YEARS = 1460
+
+
 class ComparisonRequest(BaseModel):
     """Comparison analytics request payload.
 
     Attributes:
         guid: The user's GUID.
-        days: Rolling analytics window in days.
+        days: Optional day window for comparison cohorts, or null for all-time.
     """
 
     guid: UUID
-    # ? Should `days` be specified by a fixed set of options instead of an open integer?
-    days: int | None = Field(default=30)
-
-    @field_validator("days")
-    @classmethod
-    def validate_days_window(cls, value: int | None) -> int | None:
-        """Validate the analytics window against configured bounds."""
-
-        if not value:
-            return 30  # Default to 30 days if not provided
-
-        if value < SETTINGS.analytics_min_window_days:
-            raise ValueError(
-                "days must be greater than or equal to "
-                f"{SETTINGS.analytics_min_window_days}"
-            )
-
-        if value > SETTINGS.analytics_max_window_days:
-            raise ValueError(
-                "days must be less than or equal to "
-                f"{SETTINGS.analytics_max_window_days}"
-            )
-
-        return value
+    days: DayWindow | None = None
 
 
 class ComparisonStats(BaseModel):
@@ -50,11 +40,31 @@ class ComparisonStats(BaseModel):
     rank: int
 
 
+class ComparisonUnavailable(BaseModel):
+    """Internal model for comparison-unavailable business states."""
+
+    status: str
+    message: str
+
+
+class AssessmentUnavailable(ComparisonUnavailable):
+    """Internal model for insufficient-assessment business state."""
+
+    required_assessments: int | None = None
+    current_assessments: int | None = None
+
+
+class CohortSizeTooLow(ComparisonUnavailable):
+    """Internal model for insufficient-cohort-size business state."""
+
+    cohort_size: int | None = None
+
+
 class GetCohortStatsInput(BaseModel):
     """Internal DB input for cohort statistics lookup."""
 
     guid: UUID
-    days: int | None = None
+    days: DayWindow | None = None
 
 
 class ComparisonResponse(BaseModel):
