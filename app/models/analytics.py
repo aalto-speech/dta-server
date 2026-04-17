@@ -61,6 +61,10 @@ class CohortSizeTooLow(ComparisonUnavailable):
     cohort_size: int | None = None
 
 
+class NoRankAvailable(ComparisonUnavailable):
+    """Internal model for unavailable rank within cohort business state."""
+
+
 class GetCohortStatsInput(BaseModel):
     """Internal DB input for cohort statistics lookup."""
 

@@ -12,6 +12,7 @@ from app.models.analytics import (
     AssessmentUnavailable,
     ComparisonStats,
     DayWindow,
+    CohortSizeTooLow,
     GetCohortStatsInput,
 )
 from app.models.onboarding import CEFRLevel
@@ -37,8 +38,12 @@ def _noop_validate_user_access(_guid: object) -> None:
     return None
 
 
-def _noop_get_cohort_stats(_data: GetCohortStatsInput) -> None:
-    return None
+def _noop_get_cohort_stats(_data: GetCohortStatsInput) -> CohortSizeTooLow:
+    return CohortSizeTooLow(
+        status="COHORT_SIZE_TOO_SMALL",
+        message="Comparison statistics are not available for your cohorts size at this time.",
+        cohort_size=0,
+    )
 
 
 def test_analytics_comparison_returns_stats_payload(
@@ -103,6 +108,7 @@ def test_analytics_comparison_returns_comparison_unavailable_when_no_stats(
     assert response.json() == {
         "status": "COHORT_SIZE_TOO_SMALL",
         "message": "Comparison statistics are not available for your cohorts size at this time.",
+        "cohort_size": 0,
     }
 
 

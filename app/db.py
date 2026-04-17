@@ -12,6 +12,7 @@ from app.models.analytics import (
     GetCohortStatsInput,
     AssessmentUnavailable,
     CohortSizeTooLow,
+    NoRankAvailable,
 )
 from app.models.feedback import CreateFeedbackInput
 from app.models.onboarding import CEFRLevel, CreateUserInput
@@ -59,20 +60,17 @@ def _get_user_cefr_level(db: sqlite3.Connection, guid: str) -> str:
 def _count_scored_assessments(
     db: sqlite3.Connection,
     guid: str,
-    window_sql: str,
-    window_params: tuple[str, ...],
 ) -> int:
     """Count scored assessments for a user within the requested window."""
 
-    query = f"""
+    query = """
         SELECT COUNT(*)
         FROM assessments a
         WHERE a.guid = ?
         AND a.proficiency IS NOT NULL
-        {window_sql}
     """
 
-    return db.execute(query, (guid, *window_params)).fetchone()[0]
+    return db.execute(query, (guid,)).fetchone()[0]
 
 
 @contextmanager
@@ -147,9 +145,9 @@ def create_assessment(data: AssessmentCreateInput) -> int | None:
 
 def get_cohort_stats(
     data: GetCohortStatsInput,
-) -> ComparisonStats | ComparisonUnavailable | None:
+) -> ComparisonStats | ComparisonUnavailable:
     """Return cohort stats and rank for the user within their CEFR cohort."""
-    window_sql, window_params = _window_filter_sql(data.days)
+
     target_guid = str(data.guid)
 
     with database() as db:
@@ -157,7 +155,7 @@ def get_cohort_stats(
 
         # Require enough scored assessments for the requesting user.
         assessment_count = _count_scored_assessments(
-            db, target_guid, window_sql, window_params
+            db, target_guid
         )
 
         if assessment_count < SETTINGS.min_user_assessments:
@@ -173,20 +171,19 @@ def get_cohort_stats(
 
         # Get all users in the same CEFR cohort with their average proficiency scores
         # Order by average score (descending) and guid (ascending) for tie-breaking
-        cohort_query = f"""
+        cohort_query = """
             SELECT a.guid, AVG(a.proficiency) AS avg_score
             FROM assessments a
             WHERE guid IN (
                 SELECT guid FROM users WHERE cefr_level = ?
             )
             AND proficiency IS NOT NULL
-            {window_sql}
             GROUP BY a.guid
             ORDER BY avg_score DESC, guid ASC
         """
 
         cohort_rows = db.execute(
-            cohort_query, (cefr_level, *window_params)).fetchall()
+            cohort_query, (cefr_level,)).fetchall()
 
     cohort_size = len(cohort_rows)
 
@@ -206,8 +203,13 @@ def get_cohort_stats(
             rank = i
             break
 
-    if rank is None:
-        return None
+    if not rank:
+        return NoRankAvailable(
+            status="RANK_UNAVAILABLE",
+            message=(
+                "Unable to determine rank for the user within the cohort at this time."
+            ),
+        )
 
     # Calculate percentile
     percentile = (cohort_size - rank) / cohort_size

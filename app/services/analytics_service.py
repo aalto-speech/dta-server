@@ -31,18 +31,6 @@ def get_comparison(data: ComparisonRequest) -> JSONResponse:
             status_code=200,
         )
 
-    if not stats:
-        unavailable = ComparisonUnavailable(
-            status="COHORT_SIZE_TOO_SMALL",
-            message=(
-                "Comparison statistics are not available for your cohorts size at this time."
-            ),
-        )
-        return JSONResponse(
-            content=jsonable_encoder(unavailable, exclude_none=True),
-            status_code=200,
-        )
-
     payload = ComparisonResponse(
         cefr_level=stats.cefr_level,
         cohort_size=stats.cohort_size,
