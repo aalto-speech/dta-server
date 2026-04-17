@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from app.db import create_user_request
@@ -32,16 +33,7 @@ def handle_user_request(data: UserDataRequest) -> JSONResponse:
             status_code=202,
         )
 
-    if data.type == RequestType.EXPORT:
-        return JSONResponse(
-            content={
-                "status": "not_implemented",
-                "message": "Data export requests are not implemented yet.",
-            },
-            status_code=501,
-        )
-
-    return JSONResponse(
-        content={"detail": "Unsupported request type."},
-        status_code=400,
-    )
+    raise HTTPException(status_code=501, detail={
+        "status": "not_implemented",
+        "message": "Data export requests are not implemented yet.",
+    })
