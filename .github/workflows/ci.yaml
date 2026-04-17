@@ -31,12 +31,12 @@ jobs:
         shell: bash -el {0}
         run: |
           set -euo pipefail
-          test -f conda-linux-64.lock
+          test -f conda-linux-64.dev.lock
 
       - name: Setup micromamba from lockfile
         uses: mamba-org/setup-micromamba@v3
         with:
-          environment-file: conda-linux-64.lock
+          environment-file: conda-linux-64.dev.lock
           environment-name: ci
           init-shell: none
           generate-run-shell: false
@@ -44,11 +44,6 @@ jobs:
           cache-environment: true
           post-cleanup: "all"
 
-      - name: Install lint and test dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          micromamba install -n ci -y -c conda-forge pylint pytest
       - name: Lint with pylint
         shell: bash
         run: |
