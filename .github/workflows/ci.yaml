@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          micromamba run -n ci python -m pip install --no-cache-dir pylint pytest
+          micromamba install -n ci -y -c conda-forge pylint pytest
 
       - name: Lint with pylint
         shell: bash
