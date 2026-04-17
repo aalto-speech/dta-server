@@ -44,18 +44,11 @@ jobs:
           cache-environment: true
           post-cleanup: "all"
 
-      - name: Install project (editable)
-        shell: bash
-        run: |
-          set -euo pipefail
-          micromamba run -n ci python -m pip install -e .
-
       - name: Install lint and test dependencies
         shell: bash
         run: |
           set -euo pipefail
           micromamba install -n ci -y -c conda-forge pylint pytest
-
       - name: Lint with pylint
         shell: bash
         run: |
