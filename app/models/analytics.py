@@ -17,6 +17,7 @@ class DayWindow(Enum):
     YEAR = 365
     TWO_YEARS = 730
     FOUR_YEARS = 1460
+    ALL_TIME = None
 
 
 class ComparisonRequest(BaseModel):
@@ -28,7 +29,7 @@ class ComparisonRequest(BaseModel):
     """
 
     guid: UUID
-    days: DayWindow | None = None
+    days: DayWindow = Field(default=DayWindow.ALL_TIME)
 
 
 class ComparisonStats(BaseModel):
@@ -64,7 +65,7 @@ class GetCohortStatsInput(BaseModel):
     """Internal DB input for cohort statistics lookup."""
 
     guid: UUID
-    days: DayWindow | None = None
+    days: DayWindow = DayWindow.ALL_TIME
 
 
 class ComparisonResponse(BaseModel):
