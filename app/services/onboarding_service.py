@@ -2,6 +2,10 @@ from fastapi.responses import Response
 
 from app.db import create_user
 from app.models.onboarding import CreateUserInput, OnboardingRequest
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def create_onboarding_user(data: OnboardingRequest) -> Response:
@@ -27,4 +31,5 @@ def create_onboarding_user(data: OnboardingRequest) -> Response:
         consent_timestamp=data.consent_timestamp,
         guid=data.guid,
     ))
+    logger.info("Created onboarding user %s", data.guid)
     return Response(status_code=201)
