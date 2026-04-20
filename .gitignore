@@ -159,3 +159,6 @@ conda-bld/
 
 # Audio directory
 audio/
+
+# Logs directory
+logs/

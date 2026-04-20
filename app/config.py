@@ -28,7 +28,7 @@ class AppEnv(StrEnum):
 
 
 @dataclass(frozen=True)
-class Settings:
+class Settings:  # pylint: disable=too-many-instance-attributes
     """Application settings loaded from environment variables.
 
     Attributes:
