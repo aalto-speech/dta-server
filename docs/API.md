@@ -1,6 +1,6 @@
 # API reference
 
-These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the app is running. See [Development guide](DEVELOPMENT.md) for local setup and running instructions.
+These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the app is running. See [Development guide](/docs/DEVELOPMENT.md) for local setup and running instructions.
 
 ## Endpoints
 

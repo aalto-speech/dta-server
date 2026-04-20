@@ -414,16 +414,16 @@ package:
     fontconfig: '>=2.17.1,<3.0a0'
     fonts-conda-ecosystem: ''
     gmp: '>=6.3.0,<7.0a0'
-    harfbuzz: '>=12.3.2'
+    harfbuzz: '>=14.1.0'
     lame: '>=3.100,<3.101.0a0'
     libass: '>=0.17.4,<0.17.5.0a0'
-    libexpat: '>=2.7.4,<3.0a0'
-    libfreetype: '>=2.14.2'
-    libfreetype6: '>=2.14.2'
+    libexpat: '>=2.7.5,<3.0a0'
+    libfreetype: '>=2.14.3'
+    libfreetype6: '>=2.14.3'
     libgcc: '>=14'
     libiconv: '>=1.18,<2.0a0'
     libjxl: '>=0.11,<1.0a0'
-    liblzma: '>=5.8.2,<6.0a0'
+    liblzma: '>=5.8.3,<6.0a0'
     libopenvino: '>=2026.0.0,<2026.0.1.0a0'
     libopenvino-auto-batch-plugin: '>=2026.0.0,<2026.0.1.0a0'
     libopenvino-auto-plugin: '>=2026.0.0,<2026.0.1.0a0'
@@ -438,7 +438,8 @@ package:
     libopenvino-tensorflow-frontend: '>=2026.0.0,<2026.0.1.0a0'
     libopenvino-tensorflow-lite-frontend: '>=2026.0.0,<2026.0.1.0a0'
     libopus: '>=1.6.1,<2.0a0'
-    librsvg: '>=2.60.2,<3.0a0'
+    libplacebo: '>=7.351.0,<7.351.1.0a0'
+    librsvg: '>=2.62.1,<3.0a0'
     libstdcxx: '>=14'
     libva: '>=2.23.0,<3.0a0'
     libvorbis: '>=1.3.7,<1.4.0a0'
@@ -449,9 +450,9 @@ package:
     libxcb: '>=1.17.0,<2.0a0'
     libxml2: ''
     libxml2-16: '>=2.14.6'
-    libzlib: '>=1.3.1,<2.0a0'
+    libzlib: '>=1.3.2,<2.0a0'
     openh264: '>=2.6.0,<2.6.1.0a0'
-    openssl: '>=3.5.5,<4.0a0'
+    openssl: '>=3.5.6,<4.0a0'
     pulseaudio-client: '>=17.0,<17.1.0a0'
     sdl2: '>=2.32.56,<3.0a0'
     shaderc: '>=2025.5,<2025.6.0a0'
@@ -459,22 +460,22 @@ package:
     x264: '>=1!164.3095,<1!165'
     x265: '>=3.5,<3.6.0a0'
     xorg-libx11: '>=1.8.13,<2.0a0'
-  url: https://conda.anaconda.org/conda-forge/linux-64/ffmpeg-8.0.1-gpl_hcddb375_914.conda
+  url: https://conda.anaconda.org/conda-forge/linux-64/ffmpeg-8.0.1-gpl_h44a2f75_915.conda
   hash:
-    md5: f0e9f1452786e2b32907e8d9a6b3c752
-    sha256: 0d465b145eb7166d6a3989f0befe790789624604945f53de767b169b1832c088
+    md5: 807806816ad870a6b9b33e7b68ff710d
+    sha256: e0dc215b93a1c16887266d09cfc22f41ff06a804abe4491b4735838ebda08a4b
   category: main
   optional: false
 - name: filelock
-  version: 3.28.0
+  version: 3.29.0
   manager: conda
   platform: linux-64
   dependencies:
     python: '>=3.10'
-  url: https://conda.anaconda.org/conda-forge/noarch/filelock-3.28.0-pyhd8ed1ab_0.conda
+  url: https://conda.anaconda.org/conda-forge/noarch/filelock-3.29.0-pyhd8ed1ab_0.conda
   hash:
-    md5: 60a871a0e893d6ec7083115beba05001
-    sha256: d1151d785c346bc24bc19b4ee10f5cfd0b1963530e9ab6f7e4f3789640d1154e
+    md5: 8fa8358d022a3a9bd101384a808044c6
+    sha256: 6b471a18372bbd52bdf32fc965f71de3bc1b5219418b8e6b3875a67a7b08c483
   category: main
   optional: false
 - name: fmt
@@ -963,6 +964,21 @@ package:
     sha256: aad2a703b9d7b038c0f745b853c6bb5f122988fe1a7a096e0e606d9cbec4eaab
   category: main
   optional: false
+- name: lcms2
+  version: '2.18'
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.17,<3.0.a0'
+    libgcc: '>=14'
+    libjpeg-turbo: '>=3.1.2,<4.0a0'
+    libtiff: '>=4.7.1,<4.8.0a0'
+  url: https://conda.anaconda.org/conda-forge/linux-64/lcms2-2.18-h0c24ade_0.conda
+  hash:
+    md5: 6f2e2c8f58160147c4d1c6f4c14cbac4
+    sha256: 836ec4b895352110335b9fdcfa83a8dcdbe6c5fb7c06c4929130600caea91c0a
+  category: main
+  optional: false
 - name: ld_impl_linux-64
   version: 2.45.1
   manager: conda
@@ -1145,6 +1161,19 @@ package:
   hash:
     md5: 6c77a605a7a689d17d4819c0f8ac9a00
     sha256: aa8e8c4be9a2e81610ddf574e05b64ee131fab5e0e3693210c9d6d2fba32c680
+  category: main
+  optional: false
+- name: libdovi
+  version: 3.3.2
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.17,<3.0.a0'
+    libgcc: '>=14'
+  url: https://conda.anaconda.org/conda-forge/linux-64/libdovi-3.3.2-ha23c83e_3.conda
+  hash:
+    md5: cabac160b6e656e8c353eccda5bbc2f7
+    sha256: d50f9b93264880b6a684f197d3af037ce0fd474c8620080e172c6d9eb5d6c3ca
   category: main
   optional: false
 - name: libdrm
@@ -1727,6 +1756,24 @@ package:
   hash:
     md5: 70e3400cbbfa03e96dcde7fc13e38c7b
     sha256: 0bd91de9b447a2991e666f284ae8c722ffb1d84acb594dbd0c031bd656fa32b2
+  category: main
+  optional: false
+- name: libplacebo
+  version: 7.351.0
+  manager: conda
+  platform: linux-64
+  dependencies:
+    __glibc: '>=2.17,<3.0.a0'
+    lcms2: '>=2.18,<3.0a0'
+    libdovi: '>=3.3.2,<4.0a0'
+    libgcc: '>=14'
+    libstdcxx: '>=14'
+    libvulkan-loader: '>=1.4.341.0,<2.0a0'
+    shaderc: '>=2025.5,<2025.6.0a0'
+  url: https://conda.anaconda.org/conda-forge/linux-64/libplacebo-7.351.0-h9eeb4b2_2.conda
+  hash:
+    md5: c585f48d35d4556ededd3dc5360914c5
+    sha256: e27f76ffb722e3594560febde4b984a2194b8b08266274cee0ced4bcb760072d
   category: main
   optional: false
 - name: libpng
@@ -2634,23 +2681,23 @@ package:
   category: main
   optional: false
 - name: pydantic
-  version: 2.13.1
+  version: 2.13.2
   manager: conda
   platform: linux-64
   dependencies:
     annotated-types: '>=0.6.0'
-    pydantic-core: 2.46.1
+    pydantic-core: 2.46.2
     python: ''
     typing-inspection: '>=0.4.2'
     typing_extensions: '>=4.14.1'
-  url: https://conda.anaconda.org/conda-forge/noarch/pydantic-2.13.1-pyhcf101f3_0.conda
+  url: https://conda.anaconda.org/conda-forge/noarch/pydantic-2.13.2-pyhcf101f3_0.conda
   hash:
-    md5: 4a25ddf3dd4f9224fd710ca53501d8c7
-    sha256: aaf33dd6edc5013d484c907ecedd837ab76c96fcf75acf463d07ce0dd353b5db
+    md5: e6a5d825488a61785db20effeaac2f69
+    sha256: 551e58cc83b15ba1eb1edc71faa9c6001817faebb485f935d1198c27d934d754
   category: main
   optional: false
 - name: pydantic-core
-  version: 2.46.1
+  version: 2.46.2
   manager: conda
   platform: linux-64
   dependencies:
@@ -2659,10 +2706,10 @@ package:
     python: ''
     python_abi: 3.14.*
     typing-extensions: '>=4.6.0,!=4.7.0'
-  url: https://conda.anaconda.org/conda-forge/linux-64/pydantic-core-2.46.1-py314h2e6c369_0.conda
+  url: https://conda.anaconda.org/conda-forge/linux-64/pydantic-core-2.46.2-py314h2e6c369_0.conda
   hash:
-    md5: a6532aec2e9e2d76206b1e6c12090cfe
-    sha256: cd457f04e59add123a24135797a42150e1a0e717efd1eb41332d27cd90d5714e
+    md5: 6d93a9670fbdfa9793f5c9374ff4d200
+    sha256: fc44e4441c27dd72f5d094a70628cd496f54150d86d7fe547cb76f64abe49abb
   category: main
   optional: false
 - name: pydantic-extra-types

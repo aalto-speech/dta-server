@@ -26,7 +26,7 @@ conda env update -n dta-server -f environment.dev.yaml
 conda activate dta-server
 ```
 
-### Update lockfiles
+## Update and render lockfiles
 
 When dependency definitions change, regenerate lockfiles (do not edit lockfiles manually):
 
@@ -42,6 +42,12 @@ conda-lock lock --lockfile conda-lock.yaml --update PACKAGE
 conda-lock lock --lockfile conda-lock.dev.yaml --update PACKAGE
 ```
 
+To render the lockfile for CI and local development run:
+
+```bash
+conda-lock render conda-lock.dev.yaml --filename-template conda-{platform}.dev.lock
+```
+
 ## Run the app
 
 The container and local runtime both serve the API with FastAPI:
@@ -49,8 +55,6 @@ The container and local runtime both serve the API with FastAPI:
 ```bash
 fastapi run app/main.py --host 0.0.0.0 --port 8000
 ```
-
-The app uses `root_path=/api/v1`, so reverse proxies should forward that prefix.
 
 ## Key environment variables
 
@@ -63,16 +67,22 @@ The app uses `root_path=/api/v1`, so reverse proxies should forward that prefix.
 
 ## Tests
 
-Run the test suite with:
-
-```bash
-pytest
-```
-
 Run lint checks with:
 
 ```bash
 pylint app/
+```
+
+Run the test suite with:
+
+```bash
+pytest -q
+```
+
+Run the test coverage report with:
+
+```bash
+pytest -q --cov=app --cov-report=html
 ```
 
 The test setup forces `APP_ENV=test` and cleans up the test database and audio directory before and after each test.

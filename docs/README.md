@@ -1,13 +1,39 @@
-# DigiTala in Action server docs
+# DigiTala in Action server
 
-This directory contains the documentation for the DTA server.
+[![CI](https://github.com/aalto-speech/dta-server/actions/workflows/ci.yaml/badge.svg)](https://github.com/aalto-speech/dta-server/actions/workflows/ci.yaml)
 
-## Start here
+This repository contains the server-side code for the DigiTala in Action (DTA) project.
 
-- [Development guide](DEVELOPMENT.md): local setup, running the API, and tests.
-- [API reference](API.md): endpoint list and request behavior notes.
-- [Deployment setup](SETUP.md): server installation and production setup.
+**More information:**
 
-## What this service does
+- Official project page: [DigiTala in Action – University of Helsinki](https://www.helsinki.fi/en/projects/digitala-action)
+- SaySuomi Application: [CaptainA_unity (GitHub)](https://github.com/Usin2705/CaptainA_unity)
 
-The app is a FastAPI server backed by SQLite. It handles onboarding, speech assessment, feedback, user-data requests, and cohort comparison analytics.
+---
+
+## Overview
+
+DigiTala in Action is a FastAPI-based backend for language learning analytics, onboarding, speech assessment, and feedback collection. Data is stored in SQLite by default.
+
+## Quickstart
+
+1. Clone the repository.
+2. Open in VS Code and use the devcontainer, or set up a local Conda environment (see [Development guide](/docs/DEVELOPMENT.md)).
+3. Run the API:
+   ```bash
+   fastapi run app/main.py --host 0.0.0.0 --port 8000
+   ```
+4. Visit `/api/v1/ping` to check the server.
+
+## Development
+
+- See [Development guide](/docs/DEVELOPMENT.md) for local setup, running tests, and lockfile maintenance.
+- See [API reference](/docs/API.md) for endpoints and request details.
+
+## Deployment
+
+- See [Deployment setup](/docs/SETUP.md) for production installation and environment variables.
+
+---
+
+For more, see the documentation in the [docs](/docs/) directory.
