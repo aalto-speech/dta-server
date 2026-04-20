@@ -36,6 +36,7 @@ class Settings:
         database: Absolute path to the SQLite database file.
         audio_save_dir: Directory where uploaded audio files will be stored.
         logs_save_dir: Directory where log files will be stored.
+        log_level: Logging level used by the application logger.
         admin_api_key: API key for admin operations, required in production.
         min_cohort_size: Minimum number of users required in a cohort for analytics to be returned.
         min_user_assessments: Minimum number of assessments a user must have for comparison analytics.
@@ -45,6 +46,7 @@ class Settings:
     database: str
     audio_save_dir: str
     logs_save_dir: str
+    log_level: str
     admin_api_key: str
     min_cohort_size: int
     min_user_assessments: int
@@ -121,6 +123,7 @@ def _build_settings() -> Settings:
 
     logs_save_dir = _log_save_dir_for_env(env)
     _create_directory(logs_save_dir)
+    log_level = os.getenv("LOG_LEVEL", "INFO").strip().upper()
 
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
     min_cohort_size = _parse_int_env(
@@ -136,6 +139,7 @@ def _build_settings() -> Settings:
         database=database,
         audio_save_dir=audio_save_dir,
         logs_save_dir=logs_save_dir,
+        log_level=log_level,
         admin_api_key=admin_api_key,
         min_cohort_size=min_cohort_size,
         min_user_assessments=min_user_assessments,
