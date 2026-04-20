@@ -1,6 +1,6 @@
 # pylint: disable=redefined-outer-name
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -52,6 +52,7 @@ def test_analytics_comparison_returns_stats_payload(
     """Return serialized comparison payload when stats are available."""
 
     captured = {}
+    logged = []
 
     def _fake_validate_user_access(guid: object) -> None:
         captured["guid"] = str(guid)
@@ -70,6 +71,10 @@ def test_analytics_comparison_returns_stats_payload(
                         _fake_validate_user_access)
     monkeypatch.setattr(
         "app.services.analytics_service.get_cohort_stats", _fake_get_cohort_stats)
+    monkeypatch.setattr(
+        "app.services.analytics_service.logger.info",
+        lambda message, *args: logged.append((message, args)),
+    )
 
     form_data = _valid_form_data()
     response = client.post("/analytics/comparison", data=form_data)
@@ -86,12 +91,18 @@ def test_analytics_comparison_returns_stats_payload(
         "get_stats_guid": form_data["guid"],
         "days": DayWindow.ALL_TIME,
     }
+    assert logged == [
+        ("Returned comparison stats for user %s", (UUID(form_data["guid"]),)),
+    ]
 
 
 def test_analytics_comparison_returns_comparison_unavailable_when_no_stats(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     """Return comparison_unavailable payload when cohort stats are not available."""
+
+    logged = []
+    form_data = _valid_form_data()
 
     monkeypatch.setattr(
         "app.services.analytics_service.auth.validate_user_access",
@@ -101,8 +112,12 @@ def test_analytics_comparison_returns_comparison_unavailable_when_no_stats(
         "app.services.analytics_service.get_cohort_stats",
         _noop_get_cohort_stats,
     )
+    monkeypatch.setattr(
+        "app.services.analytics_service.logger.info",
+        lambda message, *args: logged.append((message, args)),
+    )
 
-    response = client.post("/analytics/comparison", data=_valid_form_data())
+    response = client.post("/analytics/comparison", data=form_data)
 
     assert response.status_code == 200
     assert response.json() == {
@@ -110,6 +125,9 @@ def test_analytics_comparison_returns_comparison_unavailable_when_no_stats(
         "message": "Comparison statistics are not available for your cohorts size at this time.",
         "cohort_size": 0,
     }
+    assert logged == [
+        ("Comparison unavailable for user %s", (UUID(form_data["guid"]),)),
+    ]
 
 
 def test_analytics_comparison_returns_insufficient_assessment_payload(

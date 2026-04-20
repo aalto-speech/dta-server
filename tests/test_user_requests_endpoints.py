@@ -42,6 +42,7 @@ def test_request_user_handler_delete_calls_create_user_request(
     """Test handler delete path stores request and returns 202."""
 
     called = {}
+    logged = []
 
     def _fake_create_user_request(data):
         called["guid"] = str(data.guid)
@@ -49,6 +50,10 @@ def test_request_user_handler_delete_calls_create_user_request(
 
     monkeypatch.setattr("app.services.user_request_service.create_user_request",
                         _fake_create_user_request)
+    monkeypatch.setattr(
+        "app.services.user_request_service.logger.info",
+        lambda message, *args: logged.append((message, args)),
+    )
     data = _valid_request_user_form_data()
     request_model = UserDataRequest(
         guid=UUID(data["guid"]),
@@ -66,6 +71,9 @@ def test_request_user_handler_delete_calls_create_user_request(
         "guid": data["guid"],
         "type": "delete",
     }
+    assert logged == [
+        ("Stored data deletion request for user %s", (UUID(data["guid"]),)),
+    ]
 
 
 def test_request_user_handler_export_does_not_store_and_returns_501(
@@ -74,12 +82,17 @@ def test_request_user_handler_export_does_not_store_and_returns_501(
     """Test handler export path raises HTTPException and does not store request."""
 
     called = {"create_user_request": False}
+    logged = []
 
     def _fake_create_user_request(_):
         called["create_user_request"] = True
 
     monkeypatch.setattr("app.services.user_request_service.create_user_request",
                         _fake_create_user_request)
+    monkeypatch.setattr(
+        "app.services.user_request_service.logger.warning",
+        lambda message, *args: logged.append((message, args)),
+    )
     request_model = UserDataRequest(guid=uuid4(), type=RequestType.EXPORT)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -91,6 +104,9 @@ def test_request_user_handler_export_does_not_store_and_returns_501(
         "message": "Data export requests are not implemented yet.",
     }
     assert called["create_user_request"] is False
+    assert logged == [
+        ("Rejected unsupported data export request for user %s", (request_model.guid,)),
+    ]
 
 
 def test_request_user_endpoint_delete_accepts_valid_payload(
@@ -184,6 +200,7 @@ def test_delete_users_handler_calls_delete_user_data(
     """Test handler calls delete_user_data and returns 204 on valid admin access."""
 
     called = {}
+    logged = []
 
     def _fake_validate_admin_access(_):
         return None
@@ -195,6 +212,10 @@ def test_delete_users_handler_calls_delete_user_data(
                         _fake_validate_admin_access)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
+    monkeypatch.setattr(
+        "app.services.admin_service.logger.info",
+        lambda message, *args: logged.append((message, args)),
+    )
 
     request_model = DeleteUserRequest(api_key="valid-admin-key", guid=uuid4())
     response = asyncio.run(delete_users(request_model))
@@ -203,6 +224,9 @@ def test_delete_users_handler_calls_delete_user_data(
     assert called == {
         "guid": str(request_model.guid),
     }
+    assert logged == [
+        ("Admin deleted all data for user: %s", (request_model.guid,)),
+    ]
 
 
 def test_delete_users_endpoint_accepts_valid_payload(
@@ -212,6 +236,7 @@ def test_delete_users_endpoint_accepts_valid_payload(
     """Test /users returns 204 for valid admin key and guid."""
 
     called = {}
+    logged = []
 
     def _fake_validate_admin_access(_):
         return None
@@ -223,6 +248,10 @@ def test_delete_users_endpoint_accepts_valid_payload(
                         _fake_validate_admin_access)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
+    monkeypatch.setattr(
+        "app.services.admin_service.logger.info",
+        lambda message, *args: logged.append((message, args)),
+    )
 
     payload = _valid_delete_users_form_data()
     response = client.request(
@@ -236,6 +265,9 @@ def test_delete_users_endpoint_accepts_valid_payload(
     assert called == {
         "guid": payload["guid"],
     }
+    assert logged == [
+        ("Admin deleted all data for user: %s", (UUID(payload["guid"]),)),
+    ]
 
 
 def test_delete_users_endpoint_rejects_invalid_api_key(
