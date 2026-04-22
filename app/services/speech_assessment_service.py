@@ -15,8 +15,12 @@ from app.models.speech_assessment import (
     SpeechAssessmentResponse,
     SpeechAssessmentScores,
 )
+from app.utils.logger import get_logger
 from app.utils.whisper_model import get_transcriber
 from app.validators import audio, auth
+
+
+logger = get_logger(__name__)
 
 
 def _create_audio_path(guid: UUID) -> tuple[UUID, Path]:
@@ -95,6 +99,9 @@ async def assess_speech_request(
     if not assessment_id:
         raise sqlite3.DatabaseError(
             "Failed to create assessment record in the database")
+
+    logger.info("Stored speech assessment %s for user %s",
+                assessment_id, data.guid)
 
     results = SpeechAssessmentResponse(
         assessment_id=assessment_id,

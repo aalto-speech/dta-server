@@ -1,7 +1,7 @@
 # pylint: disable=redefined-outer-name
 
 import os
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -39,6 +39,8 @@ def test_assess_speech_success_returns_scores_and_transcript(
     """Test /speech/assess happy path returns expected payload and status."""
 
     captured = {}
+    logged = []
+    form_data = _valid_form_data()
 
     async def _fake_validate_file_size(_):
         return _valid_wav_bytes()
@@ -69,10 +71,14 @@ def test_assess_speech_success_returns_scores_and_transcript(
     monkeypatch.setattr(
         "app.services.speech_assessment_service.create_assessment", lambda _data: 1
     )
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.logger.info",
+        lambda message, *args: logged.append((message, args)),
+    )
 
     response = client.post(
         "/speech/assess",
-        data=_valid_form_data(),
+        data=form_data,
         files={"file": ("sample.wav", b"ignored", "audio/wav")},
     )
 
@@ -89,6 +95,10 @@ def test_assess_speech_success_returns_scores_and_transcript(
     assert payload["transcript"] == "Hei maailma"
     assert "temp_path" in captured
     assert os.path.exists(captured["temp_path"])
+    assert logged == [
+        ("Stored speech assessment %s for user %s",
+         (1, UUID(form_data["guid"]))),
+    ]
     os.unlink(captured["temp_path"])
 
 

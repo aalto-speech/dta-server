@@ -87,6 +87,7 @@ def test_feedback_endpoint_returns_success_payload_and_calls_create_feedback(
     """Test /feedback returns success body and invokes create_feedback once."""
 
     called = {}
+    logged = []
 
     def _fake_create_feedback(data):
         called["guid"] = str(data.guid)
@@ -94,6 +95,10 @@ def test_feedback_endpoint_returns_success_payload_and_calls_create_feedback(
 
     monkeypatch.setattr(
         "app.services.feedback_service.create_feedback", _fake_create_feedback)
+    monkeypatch.setattr(
+        "app.services.feedback_service.logger.info",
+        lambda message, *args: logged.append((message, args)),
+    )
 
     form_data = _valid_feedback_form_data(
         feedback_classification="overall_experience")
@@ -105,6 +110,9 @@ def test_feedback_endpoint_returns_success_payload_and_calls_create_feedback(
         "guid": form_data["guid"],
         "feedback_classification": "overall_experience",
     }
+    assert logged == [
+        ("Stored feedback for user %s", (UUID(form_data["guid"]),)),
+    ]
 
 
 def test_feedback_routes_assessment_types_to_assessment_feedback(monkeypatch: pytest.MonkeyPatch):

@@ -18,8 +18,9 @@ from app.services.feedback_service import record_feedback
 from app.services.onboarding_service import create_onboarding_user
 from app.services.speech_assessment_service import assess_speech_request
 from app.services.user_request_service import handle_user_request
-from app.utils.logger import get_logger
+from app.utils.logger import configure_app_logging, get_logger
 
+configure_app_logging(SETTINGS.logs_save_dir, SETTINGS.log_level)
 logger = get_logger(__name__)
 APP_START_MONOTONIC = monotonic()
 

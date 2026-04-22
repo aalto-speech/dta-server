@@ -11,6 +11,7 @@ services:
       APP_ENV: ${APP_ENV:-development}
       DATABASE: ${DATABASE:-/data/dta.db}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
   caddy:
     container_name: caddy

@@ -8,7 +8,11 @@ from app.models.analytics import (
     ComparisonResponse,
     GetCohortStatsInput,
 )
+from app.utils.logger import get_logger
 from app.validators import auth
+
+
+logger = get_logger(__name__)
 
 
 def get_comparison(data: ComparisonRequest) -> JSONResponse:
@@ -26,6 +30,7 @@ def get_comparison(data: ComparisonRequest) -> JSONResponse:
         guid=data.guid, days=data.days))
 
     if isinstance(stats, ComparisonUnavailable):
+        logger.info("Comparison unavailable for user %s", data.guid)
         return JSONResponse(
             content=jsonable_encoder(stats, exclude_none=True),
             status_code=200,
@@ -37,5 +42,7 @@ def get_comparison(data: ComparisonRequest) -> JSONResponse:
         percentile=stats.percentile,
         rank=stats.rank,
     )
+
+    logger.info("Returned comparison stats for user %s", data.guid)
 
     return JSONResponse(content=jsonable_encoder(payload), status_code=200)
