@@ -4,10 +4,10 @@ import os
 from uuid import UUID, uuid4
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from app.error_handlers import AppError, ErrorType
 from app.main import app
 from app.models.speech_assessment import (
     SpeechAssessmentRequest,
@@ -118,7 +118,11 @@ def test_assess_speech_rejects_invalid_extension(client: TestClient):
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "Filename must have a .wav extension."}
+        "detail": {
+            "type": "BAD_REQUEST",
+            "message": "Filename must have a .wav extension.",
+        }
+    }
 
 
 def test_assess_speech_rejects_invalid_content_type(client: TestClient):
@@ -131,7 +135,8 @@ def test_assess_speech_rejects_invalid_content_type(client: TestClient):
     )
 
     assert response.status_code == 415
-    assert response.json()["detail"].startswith(
+    assert response.json()["detail"]["type"] == "UNSUPPORTED_MEDIA_TYPE"
+    assert response.json()["detail"]["message"].startswith(
         "Unsupported media type: expected a WAV file")
 
 
@@ -145,6 +150,9 @@ def test_assess_speech_rejects_invalid_guid_format(client: TestClient):
     )
 
     assert response.status_code == 422
+    assert response.json()["detail"]["type"] == "VALIDATION_ERROR"
+    assert response.json()["detail"]["message"] == "Invalid request payload"
+    assert isinstance(response.json()["detail"]["errors"], list)
 
 
 def test_assess_speech_rejects_non_integer_task_id(client: TestClient):
@@ -157,6 +165,9 @@ def test_assess_speech_rejects_non_integer_task_id(client: TestClient):
     )
 
     assert response.status_code == 422
+    assert response.json()["detail"]["type"] == "VALIDATION_ERROR"
+    assert response.json()["detail"]["message"] == "Invalid request payload"
+    assert isinstance(response.json()["detail"]["errors"], list)
 
 
 def test_assess_speech_stops_before_file_processing_when_auth_fails(
@@ -168,7 +179,11 @@ def test_assess_speech_stops_before_file_processing_when_auth_fails(
     called = {"validate_file_size": False}
 
     def _deny_access(_):
-        raise HTTPException(status_code=404, detail="User not found")
+        raise AppError(
+            status_code=404,
+            error_type=ErrorType.USER_NOT_FOUND,
+            message="User not found",
+        )
 
     async def _fake_validate_file_size(_):
         called["validate_file_size"] = True
@@ -186,7 +201,12 @@ def test_assess_speech_stops_before_file_processing_when_auth_fails(
     )
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "User not found"}
+    assert response.json() == {
+        "detail": {
+            "type": "USER_NOT_FOUND",
+            "message": "User not found",
+        }
+    }
     assert called["validate_file_size"] is False
 
 
@@ -230,7 +250,12 @@ def test_assess_speech_keeps_audio_file_on_unhandled_error(
         )
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "Internal server error"}
+    assert response.json() == {
+        "detail": {
+            "type": "INTERNAL_SERVER_ERROR",
+            "message": "Internal server error",
+        }
+    }
     assert "temp_path" in captured
     assert os.path.exists(captured["temp_path"])
     os.unlink(captured["temp_path"])

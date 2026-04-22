@@ -3,9 +3,9 @@
 from uuid import UUID, uuid4
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.error_handlers import AppError, ErrorType
 from app.config import SETTINGS
 from app.main import app
 from app.models.analytics import (
@@ -169,7 +169,11 @@ def test_analytics_comparison_returns_404_when_auth_rejects_user(
     """Propagate auth layer 404 when user does not exist."""
 
     def _raise_not_found(_guid: object) -> None:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise AppError(
+            status_code=404,
+            error_type=ErrorType.USER_NOT_FOUND,
+            message="User not found",
+        )
 
     monkeypatch.setattr(
         "app.services.analytics_service.auth.validate_user_access",
@@ -179,7 +183,12 @@ def test_analytics_comparison_returns_404_when_auth_rejects_user(
     response = client.post("/analytics/comparison", data=_valid_form_data())
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "User not found"}
+    assert response.json() == {
+        "detail": {
+            "type": "USER_NOT_FOUND",
+            "message": "User not found",
+        }
+    }
 
 
 def test_analytics_comparison_rounds_percentile_via_endpoint(
@@ -247,7 +256,12 @@ def test_analytics_comparison_returns_500_on_invalid_cohort_size(
             "/analytics/comparison", data=_valid_form_data())
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "Internal server error"}
+    assert response.json() == {
+        "detail": {
+            "type": "INTERNAL_SERVER_ERROR",
+            "message": "Internal server error"
+        }
+    }
 
 
 def test_comparison_unavailable_excludes_none_fields(
