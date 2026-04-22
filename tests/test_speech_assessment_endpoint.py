@@ -5,9 +5,14 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.error_handlers import AppError, ErrorType
 from app.main import app
+from app.models.speech_assessment import (
+    SpeechAssessmentRequest,
+    SpeechAssessmentScores
+)
 
 
 @pytest.fixture
@@ -254,3 +259,34 @@ def test_assess_speech_keeps_audio_file_on_unhandled_error(
     assert "temp_path" in captured
     assert os.path.exists(captured["temp_path"])
     os.unlink(captured["temp_path"])
+
+
+def test_assess_speech_rejects_too_long_description(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """A description longer than allowed should result in 422 from the endpoint."""
+
+    # Prevent file validators from raising so the description validator runs
+    monkeypatch.setattr(
+        "app.models.speech_assessment.audio.validate_content_type",
+        lambda _file: None,
+    )
+    monkeypatch.setattr(
+        "app.models.speech_assessment.audio.validate_file_extension",
+        lambda _fn: None,
+    )
+
+    long_desc = "x" * 513
+    with pytest.raises(ValueError) as ve:
+        SpeechAssessmentRequest.validate_description_length(long_desc)
+
+    assert "description must not exceed" in str(ve.value)
+
+
+def test_speech_assessment_scores_enforce_range():
+    """Directly constructing SpeechAssessmentScores with out-of-range values should fail."""
+
+    with pytest.raises(ValidationError):
+        SpeechAssessmentScores(
+            accuracy=6.0, fluency=1.0, proficiency=1.0, pronunciation=1.0, range=1.0
+        )

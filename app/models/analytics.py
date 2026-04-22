@@ -51,6 +51,7 @@ class ComparisonUnavailable(BaseModel):
 class AssessmentUnavailable(ComparisonUnavailable):
     """Internal model for insufficient-assessment business state."""
 
+    cefr_level: CEFRLevel | None = None
     required_assessments: int | None = None
     current_assessments: int | None = None
 
@@ -58,6 +59,7 @@ class AssessmentUnavailable(ComparisonUnavailable):
 class CohortSizeTooLow(ComparisonUnavailable):
     """Internal model for insufficient-cohort-size business state."""
 
+    cefr_level: CEFRLevel | None = None
     cohort_size: int | None = None
 
 

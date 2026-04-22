@@ -17,10 +17,8 @@ The CI (Continuous Integration) workflow runs linting and tests on Ubuntu 24.04 
 
 - Runs on [`ubuntu-24.04`](https://github.com/actions/runner-images/tree/main?tab=readme-ov-file#available-images).
 - Checks out the current ref, or the release tag for release events.
-- Verifies that `conda-lock.yaml` exists before continuing.
-- Sets up a micromamba environment from `conda-lock.yaml`.
-- Installs the project in editable mode with `python -m pip install -e .`.
-- Installs `pylint` and `pytest`.
+- Verifies that `conda-linux-64.dev.lock` exists before continuing.
+- Sets up a micromamba environment from `conda-linux-64.dev.lock`.
 - Runs `pylint app/`.
 - Runs `pytest -q`.
 

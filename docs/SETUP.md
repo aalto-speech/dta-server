@@ -1,6 +1,3 @@
-> [!IMPORTANT]
-> This documentation will change in the future, so remember to re-check this page on new updates!
-
 # Setting up the server
 
 Quick guide to deploying the DTA server.
@@ -17,10 +14,10 @@ The [`setup`](./setup.sh) script will automatically install and upgrade all requ
 
 - Download the setup script within the remote server with `curl`:
 
-  ```bash
-  curl -fsSLO https://raw.githubusercontent.com/aalto-speech/dta-server/refs/heads/dev/setup.sh
-  chmod +x ./setup.sh
-  ```
+```bash
+curl -fsSLO https://raw.githubusercontent.com/aalto-speech/dta-server/refs/heads/main/setup.sh
+chmod +x ./setup.sh
+```
 
 > [!NOTE]
 > If `curl` is not installed, install it first:
