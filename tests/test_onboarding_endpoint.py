@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -55,6 +55,7 @@ def test_onboarding_handler_calls_create_user(monkeypatch: pytest.MonkeyPatch):
     """Test handler success path calls create_user and returns 201."""
 
     called = {}
+    logged = []
 
     def _fake_create_user(data):
         called["guid"] = str(data.guid)
@@ -62,6 +63,10 @@ def test_onboarding_handler_calls_create_user(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(
         "app.services.onboarding_service.create_user", _fake_create_user)
+    monkeypatch.setattr(
+        "app.services.onboarding_service.logger.info",
+        lambda message, *args: logged.append((message, args)),
+    )
     data = _valid_onboarding_form_data()
     request_model = OnboardingRequest(
         app_version=data["app_version"],
@@ -86,6 +91,9 @@ def test_onboarding_handler_calls_create_user(monkeypatch: pytest.MonkeyPatch):
         "guid": data["guid"],
         "moved_to_finland": "before_2015",
     }
+    assert logged == [
+        ("Created onboarding user %s", (UUID(data["guid"]),)),
+    ]
 
 
 def test_onboarding_endpoint_rejects_invalid_guid(client: TestClient):

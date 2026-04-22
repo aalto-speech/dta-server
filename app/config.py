@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass
 from enum import StrEnum
@@ -5,11 +6,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.utils.logger import get_logger
-
 load_dotenv()
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class AppEnv(StrEnum):
@@ -29,13 +28,15 @@ class AppEnv(StrEnum):
 
 
 @dataclass(frozen=True)
-class Settings:
+class Settings:  # pylint: disable=too-many-instance-attributes
     """Application settings loaded from environment variables.
 
     Attributes:
         env: Current application environment (e.g., development, production).
         database: Absolute path to the SQLite database file.
         audio_save_dir: Directory where uploaded audio files will be stored.
+        logs_save_dir: Directory where log files will be stored.
+        log_level: Logging level used by the application logger.
         admin_api_key: API key for admin operations, required in production.
         min_cohort_size: Minimum number of users required in a cohort for analytics to be returned.
         min_user_assessments: Minimum number of assessments a user must have for comparison analytics.
@@ -44,6 +45,8 @@ class Settings:
     env: AppEnv
     database: str
     audio_save_dir: str
+    logs_save_dir: str
+    log_level: str
     admin_api_key: str
     min_cohort_size: int
     min_user_assessments: int
@@ -69,6 +72,13 @@ def _audio_save_dir_for_env(env: AppEnv) -> str:
         return f"./audio/{env}"
 
     return os.getenv("AUDIO_SAVE_DIR", "/data/audio")
+
+
+def _log_save_dir_for_env(env: AppEnv) -> str:
+    if env in {AppEnv.DEVELOPMENT, AppEnv.TEST}:
+        return f"./logs/{env}"
+
+    return os.getenv("LOGS_SAVE_DIR", "/data/logs")
 
 
 def _create_directory(path: str, mode: int = 0o700) -> None:
@@ -111,6 +121,10 @@ def _build_settings() -> Settings:
     audio_save_dir = _audio_save_dir_for_env(env)
     _create_directory(audio_save_dir)
 
+    logs_save_dir = _log_save_dir_for_env(env)
+    _create_directory(logs_save_dir)
+    log_level = os.getenv("LOG_LEVEL", "WARNING").strip().upper()
+
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
     min_cohort_size = _parse_int_env(
         "MIN_COHORT_SIZE", default=100, minimum=2)
@@ -124,6 +138,8 @@ def _build_settings() -> Settings:
         env=env,
         database=database,
         audio_save_dir=audio_save_dir,
+        logs_save_dir=logs_save_dir,
+        log_level=log_level,
         admin_api_key=admin_api_key,
         min_cohort_size=min_cohort_size,
         min_user_assessments=min_user_assessments,

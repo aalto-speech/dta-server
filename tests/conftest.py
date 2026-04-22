@@ -7,6 +7,7 @@ import pytest
 
 # Set test environment before any app config is imported in test collection.
 os.environ["APP_ENV"] = "test"
+os.environ["LOG_LEVEL"] = "DEBUG"
 
 from app.config import SETTINGS  # noqa pylint: disable=wrong-import-position
 

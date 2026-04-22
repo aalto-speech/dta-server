@@ -7,6 +7,10 @@ from app.models.user_requests import (
     RequestType,
     UserDataRequest,
 )
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def handle_user_request(data: UserDataRequest) -> JSONResponse:
@@ -22,6 +26,7 @@ def handle_user_request(data: UserDataRequest) -> JSONResponse:
     if data.type == RequestType.DELETE:
         create_user_request(CreateUserRequestInput(
             guid=data.guid, type=data.type))
+        logger.info("Stored data deletion request for user %s", data.guid)
         return JSONResponse(
             content={
                 "status": "request_received",
@@ -33,6 +38,8 @@ def handle_user_request(data: UserDataRequest) -> JSONResponse:
             status_code=202,
         )
 
+    logger.warning(
+        "Rejected unsupported data export request for user %s", data.guid)
     raise HTTPException(status_code=501, detail={
         "status": "not_implemented",
         "message": "Data export requests are not implemented yet.",

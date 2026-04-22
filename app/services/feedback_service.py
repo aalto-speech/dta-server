@@ -5,6 +5,10 @@ from app.models.feedback import (
     CreateFeedbackInput,
     FeedbackRequest,
 )
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def record_feedback(data: FeedbackRequest) -> JSONResponse:
@@ -24,5 +28,7 @@ def record_feedback(data: FeedbackRequest) -> JSONResponse:
         reaction_value=data.reaction_value,
         comment=data.comment,
     ))
+
+    logger.info("Stored feedback for user %s", data.guid)
 
     return JSONResponse(content={"status": "feedback recorded"}, status_code=201)
