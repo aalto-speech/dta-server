@@ -15,9 +15,12 @@
         "ms-python.isort",
         "ms-python.pylint",
         "ms-python.python",
-        "esbenp.prettier-vscode"
+        "esbenp.prettier-vscode",
+        "matthewpi.caddyfile-support",
+        "edwinhuish.better-comments-next"
       ]
     }
   },
-  "remoteUser": "root"
+  "remoteUser": "vscode",
+  "containerUser": "vscode"
 }
