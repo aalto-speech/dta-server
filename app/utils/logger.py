@@ -184,7 +184,7 @@ def _resolve_log_level(level: int | str) -> int:
 def _create_logs_path_for_time(logs_root: Path, now_utc: time.struct_time) -> Path:
     year = time.strftime("%Y", now_utc)
     month = time.strftime("%m", now_utc)
-    year_month_day = time.strftime("%Y_%m_%d", now_utc)
+    year_month_day = time.strftime("%Y-%m-%d", now_utc)
     log_filename = f"{year_month_day}.log"
 
     output_dir = logs_root / year / month

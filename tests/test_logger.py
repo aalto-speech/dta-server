@@ -60,7 +60,7 @@ def test_configure_app_logging_bootstraps_file_handler(
     assert app_logger.level == logging.DEBUG
     assert app_logger.propagate is False
 
-    log_path = tmp_path / "2026" / "04" / "2026_04_20.log"
+    log_path = tmp_path / "2026" / "04" / "2026-04-20.log"
     assert log_path.exists()
     assert "started new log file" in log_path.read_text(encoding="utf-8")
 
@@ -106,3 +106,40 @@ def test_get_logger_normalizes_names(name: str, expected: str) -> None:
     """Return logger names rooted under the shared app namespace."""
 
     assert logger_module.get_logger(name).name == expected
+
+
+def test_utc_daily_file_handler_rollover(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that log file rolls over and new file is created on UTC date change."""
+    # Simulate two consecutive days
+    day1 = time.struct_time((2026, 4, 20, 23, 59, 59, 0, 111, 0))
+    day2 = time.struct_time((2026, 4, 21, 0, 0, 1, 1, 112, 0))
+
+    # Mutable time pointer
+    current_time = {"now": day1}
+
+    def fake_gmtime(*_args, **_kwargs):
+        return current_time["now"]
+
+    monkeypatch.setattr(logger_module.time, "gmtime", fake_gmtime)
+
+    logger_module.configure_app_logging(str(tmp_path), "INFO")
+    app_logger = logging.getLogger("app")
+
+    # Log something on day 1
+    app_logger.info("log entry on day 1")
+
+    log_path1 = tmp_path / "2026" / "04" / "2026-04-20.log"
+    assert log_path1.exists()
+    content1 = log_path1.read_text(encoding="utf-8")
+    assert "log entry on day 1" in content1
+
+    # Move to day 2 and log again
+    current_time["now"] = day2
+    app_logger.info("log entry on day 2")
+
+    log_path2 = tmp_path / "2026" / "04" / "2026-04-21.log"
+    assert log_path2.exists()
+    content2 = log_path2.read_text(encoding="utf-8")
+    assert "log entry on day 2" in content2
+    # Check rollover message in new file
+    assert "rolling over to a new log file" in content2 or "started new log file" in content2

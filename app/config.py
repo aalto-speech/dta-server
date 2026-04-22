@@ -123,7 +123,7 @@ def _build_settings() -> Settings:
 
     logs_save_dir = _log_save_dir_for_env(env)
     _create_directory(logs_save_dir)
-    log_level = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+    log_level = os.getenv("LOG_LEVEL", "WARNING").strip().upper()
 
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
     min_cohort_size = _parse_int_env(
