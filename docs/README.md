@@ -23,7 +23,10 @@ DigiTala in Action is a FastAPI-based backend for language learning analytics, o
    ```bash
    fastapi run app/main.py --host 0.0.0.0 --port 8000
    ```
-4. Visit `/api/v1/ping` to check the server.
+4. Visit `/ping` to check the server.
+
+> [!NOTE]
+> The `/api/v1/` endpoint is handled by the reverse proxy, so use `http://localhost:8000/ping` for local API requests.
 
 ## Development
 

@@ -15,7 +15,7 @@ These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the a
 
 ## Request notes
 
-- The app is served behind a `/api/v1` root path.
+- The app is served behind a `/api/v1` root path when using the reverse proxy.
 - Most write endpoints accept form data.
 - `POST /speech/assess` requires multipart form data with a `.wav` file.
 - `DELETE /users` requires header `X-API-Key` and form field `guid`.
