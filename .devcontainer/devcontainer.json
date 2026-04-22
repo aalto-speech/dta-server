@@ -21,6 +21,6 @@
       ]
     }
   },
-  "remoteUser": "vscode",
-  "containerUser": "vscode"
+  "remoteUser": "root",
+  "containerUser": "root"
 }
