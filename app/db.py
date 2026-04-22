@@ -6,12 +6,12 @@ from typing import Iterator
 
 from app.config import SETTINGS
 from app.models.analytics import (
+    AssessmentUnavailable,
+    CohortSizeTooLow,
     ComparisonStats,
     ComparisonUnavailable,
     DayWindow,
     GetCohortStatsInput,
-    AssessmentUnavailable,
-    CohortSizeTooLow,
     NoRankAvailable,
 )
 from app.models.feedback import CreateFeedbackInput
@@ -165,6 +165,7 @@ def get_cohort_stats(
                     "User does not have enough scored assessments "
                     "for comparison statistics"
                 ),
+                cefr_level=CEFRLevel(cefr_level),
                 required_assessments=SETTINGS.min_user_assessments,
                 current_assessments=assessment_count,
             )
@@ -194,6 +195,7 @@ def get_cohort_stats(
                 "Comparison statistics are not available for your cohorts size at this time."
             ),
             cohort_size=cohort_size,
+            cefr_level=CEFRLevel(cefr_level)
         )
 
     # Find the rank of the target user (1-indexed position in sorted list)
