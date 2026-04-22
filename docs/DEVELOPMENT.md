@@ -16,6 +16,8 @@ Use either the devcontainer (recommended) or a local conda environment.
 
 The devcontainer installs the required tooling (`python`, `conda`, `pytest`, `fastapi`).
 
+Read more about the devcontainer setup in [the devcontainer README](/.devcontainer/README.md).
+
 ### Option 2: Local conda environment
 
 The repo uses conda environment files:
