@@ -4,9 +4,9 @@ import asyncio
 from uuid import UUID, uuid4
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.error_handlers import AppError, ErrorType
 from app.main import app, delete_users, request_user
 from app.models.user_requests import DeleteUserRequest, RequestType, UserDataRequest
 
@@ -79,7 +79,7 @@ def test_request_user_handler_delete_calls_create_user_request(
 def test_request_user_handler_export_does_not_store_and_returns_501(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Test handler export path raises HTTPException and does not store request."""
+    """Test handler export path raises AppError and does not store request."""
 
     called = {"create_user_request": False}
     logged = []
@@ -95,14 +95,12 @@ def test_request_user_handler_export_does_not_store_and_returns_501(
     )
     request_model = UserDataRequest(guid=uuid4(), type=RequestType.EXPORT)
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(AppError) as exc_info:
         asyncio.run(request_user(request_model))
 
     assert exc_info.value.status_code == 501
-    assert exc_info.value.detail == {
-        "status": "not_implemented",
-        "message": "Data export requests are not implemented yet.",
-    }
+    assert exc_info.value.error_type == ErrorType.NOT_IMPLEMENTED
+    assert exc_info.value.message == "Data export requests are not implemented yet."
     assert called["create_user_request"] is False
     assert logged == [
         ("Rejected unsupported data export request for user %s", (request_model.guid,)),
@@ -154,7 +152,7 @@ def test_request_user_endpoint_export_returns_not_implemented(
     assert response.status_code == 501
     assert response.json() == {
         "detail": {
-            "status": "not_implemented",
+            "type": "NOT_IMPLEMENTED",
             "message": "Data export requests are not implemented yet.",
         },
     }
@@ -278,7 +276,11 @@ def test_delete_users_endpoint_rejects_invalid_api_key(
 
     def _fake_validate_admin_access(key: str):
         if key != "valid-admin-key":
-            raise HTTPException(status_code=403, detail="Invalid API key")
+            raise AppError(
+                status_code=403,
+                error_type=ErrorType.INVALID_API_KEY,
+                message="Invalid API key",
+            )
 
     monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
                         _fake_validate_admin_access)
@@ -291,7 +293,12 @@ def test_delete_users_endpoint_rejects_invalid_api_key(
     )
 
     assert response.status_code == 403
-    assert response.json() == {"detail": "Invalid API key"}
+    assert response.json() == {
+        "detail": {
+            "type": "INVALID_API_KEY",
+            "message": "Invalid API key",
+        }
+    }
 
 
 def test_delete_users_endpoint_rejects_missing_api_key_header(client: TestClient):
@@ -350,7 +357,11 @@ def test_delete_users_auth_failure_short_circuits_before_delete(
     called = {"delete_user_data": False}
 
     def _deny_admin_access(_):
-        raise HTTPException(status_code=403, detail="Invalid API key")
+        raise AppError(
+            status_code=403,
+            error_type=ErrorType.INVALID_API_KEY,
+            message="Invalid API key",
+        )
 
     def _fake_delete_user_data(_):
         called["delete_user_data"] = True
@@ -368,5 +379,10 @@ def test_delete_users_auth_failure_short_circuits_before_delete(
     )
 
     assert response.status_code == 403
-    assert response.json() == {"detail": "Invalid API key"}
+    assert response.json() == {
+        "detail": {
+            "type": "INVALID_API_KEY",
+            "message": "Invalid API key",
+        }
+    }
     assert called["delete_user_data"] is False
