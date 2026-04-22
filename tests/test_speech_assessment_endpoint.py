@@ -145,6 +145,9 @@ def test_assess_speech_rejects_invalid_guid_format(client: TestClient):
     )
 
     assert response.status_code == 422
+    assert response.json()["detail"]["type"] == "VALIDATION_ERROR"
+    assert response.json()["detail"]["message"] == "Invalid request payload"
+    assert isinstance(response.json()["detail"]["errors"], list)
 
 
 def test_assess_speech_rejects_non_integer_task_id(client: TestClient):
@@ -157,6 +160,9 @@ def test_assess_speech_rejects_non_integer_task_id(client: TestClient):
     )
 
     assert response.status_code == 422
+    assert response.json()["detail"]["type"] == "VALIDATION_ERROR"
+    assert response.json()["detail"]["message"] == "Invalid request payload"
+    assert isinstance(response.json()["detail"]["errors"], list)
 
 
 def test_assess_speech_stops_before_file_processing_when_auth_fails(

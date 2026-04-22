@@ -6,8 +6,15 @@ import sqlite3
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from app.error_handlers import AppError, ErrorType, build_error_detail, register_error_handlers
+
+
+class ValidationPayload(BaseModel):
+    """Payload model used to trigger request validation behavior in tests."""
+
+    count: int
 
 
 @pytest.fixture
@@ -55,6 +62,10 @@ def app() -> FastAPI:
     @test_app.get("/unhandled")
     async def unhandled_route() -> None:
         raise RuntimeError("unexpected failure")
+
+    @test_app.post("/validation-error")
+    async def validation_error_route(payload: ValidationPayload) -> dict[str, int]:
+        return {"count": payload.count}
 
     return test_app
 
@@ -187,3 +198,16 @@ def test_unhandled_exception_mapping(client: TestClient) -> None:
             "message": "Internal server error",
         }
     }
+
+
+def test_request_validation_error_mapping(client: TestClient) -> None:
+    """Map request validation errors to a standardized typed payload."""
+
+    response = client.post("/validation-error", json={"count": "not-an-int"})
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["detail"]["type"] == "VALIDATION_ERROR"
+    assert payload["detail"]["message"] == "Invalid request payload"
+    assert isinstance(payload["detail"]["errors"], list)
+    assert payload["detail"]["errors"]

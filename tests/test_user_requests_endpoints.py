@@ -168,6 +168,9 @@ def test_request_user_endpoint_rejects_invalid_guid(client: TestClient):
     )
 
     assert response.status_code == 422
+    assert response.json()["detail"]["type"] == "VALIDATION_ERROR"
+    assert response.json()["detail"]["message"] == "Invalid request payload"
+    assert isinstance(response.json()["detail"]["errors"], list)
 
 
 def test_request_user_endpoint_rejects_missing_required_fields(client: TestClient):
@@ -179,6 +182,9 @@ def test_request_user_endpoint_rejects_missing_required_fields(client: TestClien
     response = client.post("/request/user", data=data)
 
     assert response.status_code == 422
+    assert response.json()["detail"]["type"] == "VALIDATION_ERROR"
+    assert response.json()["detail"]["message"] == "Invalid request payload"
+    assert isinstance(response.json()["detail"]["errors"], list)
 
 
 def test_request_user_endpoint_rejects_invalid_type(client: TestClient):

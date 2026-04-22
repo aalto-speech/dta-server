@@ -5,6 +5,8 @@ from enum import Enum
 from typing import TypeAlias, cast
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 ErrorHandler: TypeAlias = Callable[[
@@ -26,6 +28,7 @@ class ErrorType(str, Enum):
     DATABASE_ERROR = "DATABASE_ERROR"
     INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"
     HTTP_ERROR = "HTTP_ERROR"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
 
 
 class AppError(Exception):
@@ -142,6 +145,36 @@ async def _http_exception_handler(
     )
 
 
+async def _validation_exception_handler(
+    request: Request, err: Exception, logger: logging.Logger
+) -> JSONResponse:
+    validation_err = err if isinstance(err, RequestValidationError) else RequestValidationError(
+        errors=[],
+    )
+
+    logger.warning(
+        "Validation error (%s %s): %s issue(s)",
+        request.method,
+        request.url.path,
+        len(validation_err.errors()),
+    )
+
+    detail = build_error_detail(
+        ErrorType.VALIDATION_ERROR,
+        "Invalid request payload",
+    )
+    encoded_errors = cast(list[dict[str, object]],
+                          jsonable_encoder(validation_err.errors()))
+
+    return JSONResponse(
+        content={"detail": {
+            **detail,
+            "errors": encoded_errors,
+        }},
+        status_code=422,
+    )
+
+
 def register_error_handlers(app: FastAPI, logger: logging.Logger) -> None:
     """Register application-level exception handlers."""
 
@@ -151,6 +184,9 @@ def register_error_handlers(app: FastAPI, logger: logging.Logger) -> None:
     async def http_exception_handler(request: Request, err: Exception) -> JSONResponse:
         return await _http_exception_handler(request, err, logger)
 
+    async def validation_exception_handler(request: Request, err: Exception) -> JSONResponse:
+        return await _validation_exception_handler(request, err, logger)
+
     app.add_exception_handler(
         AppError,
         app_error_handler,
@@ -159,6 +195,11 @@ def register_error_handlers(app: FastAPI, logger: logging.Logger) -> None:
     app.add_exception_handler(
         HTTPException,
         http_exception_handler,
+    )
+
+    app.add_exception_handler(
+        RequestValidationError,
+        validation_exception_handler,
     )
 
     app.add_exception_handler(
