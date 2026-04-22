@@ -187,7 +187,12 @@ def test_onboarding_endpoint_rejects_invalid_moved_to_finland_string(
         )
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "Internal server error"}
+    assert response.json() == {
+        "detail": {
+            "type": "INTERNAL_SERVER_ERROR",
+            "message": "Internal server error"
+        }
+    }
 
 
 def test_onboarding_endpoint_rejects_moved_to_finland_too_large(
@@ -204,7 +209,12 @@ def test_onboarding_endpoint_rejects_moved_to_finland_too_large(
         )
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "Internal server error"}
+    assert response.json() == {
+        "detail": {
+            "type": "INTERNAL_SERVER_ERROR",
+            "message": "Internal server error"
+        }
+    }
 
 
 def test_onboarding_endpoint_other_languages_string_conversion(

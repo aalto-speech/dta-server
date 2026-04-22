@@ -256,7 +256,12 @@ def test_analytics_comparison_returns_500_on_invalid_cohort_size(
             "/analytics/comparison", data=_valid_form_data())
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "Internal server error"}
+    assert response.json() == {
+        "detail": {
+            "type": "INTERNAL_SERVER_ERROR",
+            "message": "Internal server error"
+        }
+    }
 
 
 def test_comparison_unavailable_excludes_none_fields(
