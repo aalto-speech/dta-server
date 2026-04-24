@@ -9,10 +9,7 @@ from pydantic import ValidationError
 
 from app.error_handlers import AppError, ErrorType
 from app.main import app
-from app.models.speech_assessment import (
-    SpeechAssessmentRequest,
-    SpeechAssessmentScores
-)
+from app.models.speech_assessment import SpeechAssessmentRequest, SpeechAssessmentScores
 
 
 @pytest.fixture
