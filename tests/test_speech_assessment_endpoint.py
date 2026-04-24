@@ -258,6 +258,70 @@ def test_assess_speech_keeps_audio_file_on_unhandled_error(
     os.unlink(captured["temp_path"])
 
 
+def test_assess_speech_returns_database_error_when_assessment_insert_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """A failed assessment insert should map to DATABASE_ERROR response."""
+
+    captured = {}
+
+    async def _fake_validate_file_size(_):
+        return _valid_wav_bytes()
+
+    def _fake_validate_user_access(_):
+        return None
+
+    def _record_wav_structure(path: str):
+        captured["temp_path"] = path
+        assert os.path.exists(path)
+
+    def _fake_transcribe(*_args, **_kwargs):
+        return {"text": "Hei"}
+
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.auth.validate_user_access",
+        _fake_validate_user_access,
+    )
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.audio.validate_file_size",
+        _fake_validate_file_size,
+    )
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.audio.validate_wav_structure",
+        _record_wav_structure,
+    )
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.audio.validate_audio_duration",
+        lambda _path: None,
+    )
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.get_transcriber",
+        lambda: _fake_transcribe,
+    )
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.create_assessment",
+        lambda _data: 0,
+    )
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": {
+            "type": "DATABASE_ERROR",
+            "message": "Database error",
+        }
+    }
+    assert "temp_path" in captured
+    assert os.path.exists(captured["temp_path"])
+    os.unlink(captured["temp_path"])
+
+
 def test_assess_speech_rejects_too_long_description(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
