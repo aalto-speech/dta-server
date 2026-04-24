@@ -8,7 +8,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from app.error_handlers import AppError, ErrorType, build_error_detail, register_error_handlers
+from app.error_handlers import (
+    AppError,
+    ErrorType,
+    build_error_detail,
+    register_error_handlers,
+)
 
 
 class ValidationPayload(BaseModel):
@@ -46,6 +51,10 @@ def app() -> FastAPI:
                 "extra": "ignored",
             },
         )
+
+    @test_app.get("/http-error-500")
+    async def http_error_500_route() -> None:
+        raise HTTPException(status_code=500, detail="Upstream failed")
 
     @test_app.get("/sqlite-integrity")
     async def sqlite_integrity_route() -> None:
@@ -140,6 +149,20 @@ def test_http_exception_with_typed_detail_preserves_type_and_message(
         "detail": {
             "type": "VALIDATION_ERROR",
             "message": "Validation failed",
+        }
+    }
+
+
+def test_http_exception_500_uses_http_error_detail(client: TestClient) -> None:
+    """Map 500 HTTPException details into the standard HTTP_ERROR payload."""
+
+    response = client.get("/http-error-500")
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": {
+            "type": "HTTP_ERROR",
+            "message": "Upstream failed",
         }
     }
 
