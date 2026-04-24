@@ -9,6 +9,7 @@ The DTA server is a FastAPI application with SQLite storage. Startup initializes
 Use either the devcontainer (recommended) or a local conda environment.
 
 ### Option 1: Development container (recommended)
+First, you need to install the devcontainer extension in VSCode. See [Dev Containers](https://github.com/aalto-speech/dta-server/blob/dev/.devcontainer/README.md)
 
 1. Open the repository in VS Code.
 2. Run `Dev Containers: Reopen in Container`.
