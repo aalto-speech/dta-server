@@ -72,7 +72,8 @@ def test_validate_user_access_accepts_existing_user_with_consent(
 
     guid = uuid4()
     monkeypatch.setattr("app.validators.auth.get_user", _fake_get_user)
-    monkeypatch.setattr("app.validators.auth.get_user_consent", _fake_get_user_consent)
+    monkeypatch.setattr(
+        "app.validators.auth.get_user_consent", _fake_get_user_consent)
 
     validate_user_access(guid)
 
