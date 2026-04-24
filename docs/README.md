@@ -17,6 +17,8 @@ DigiTala in Action is a FastAPI-based backend for language learning analytics, o
 
 ## Quickstart
 
+First, you need to set up your new server. Follow the instruction at [Setup](https://github.com/aalto-speech/dta-server/blob/dev/docs/SETUP.md).
+
 1. Clone the repository.
 2. Open in VS Code and use the devcontainer, or set up a local Conda environment (see [Development guide](/docs/DEVELOPMENT.md)).
 3. Run the API:
