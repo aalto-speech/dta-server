@@ -44,6 +44,19 @@ See the [setup](/docs/SETUP.md) documentation.
 # Contributors
 
 <!-- readme: contributors -start -->
+<table>
+	<tbody>
+		<tr>
+            <td align="center">
+                <a href="https://github.com/Usin2705">
+                    <img src="https://avatars.githubusercontent.com/u/8575412?v=4" width="100;" alt="Usin2705"/>
+                    <br />
+                    <sub><b>Chi Nhan, Phan</b></sub>
+                </a>
+            </td>
+		</tr>
+	<tbody>
+</table>
 <!-- readme: contributors -end -->
 
 ---
