@@ -48,6 +48,27 @@ See the [setup](/docs/SETUP.md) documentation.
 	<tbody>
 		<tr>
             <td align="center">
+                <a href="https://github.com/kahkaar">
+                    <img src="https://avatars.githubusercontent.com/u/119842456?v=4" width="100;" alt="kahkaar"/>
+                    <br />
+                    <sub><b>Aaron</b></sub>
+                </a>
+            </td>
+            <td align="center">
+                <a href="https://github.com/kimtakala">
+                    <img src="https://avatars.githubusercontent.com/u/144361787?v=4" width="100;" alt="kimtakala"/>
+                    <br />
+                    <sub><b>Kim Takala</b></sub>
+                </a>
+            </td>
+            <td align="center">
+                <a href="https://github.com/tontsa28">
+                    <img src="https://avatars.githubusercontent.com/u/70319189?v=4" width="100;" alt="tontsa28"/>
+                    <br />
+                    <sub><b>tontsa28</b></sub>
+                </a>
+            </td>
+            <td align="center">
                 <a href="https://github.com/Usin2705">
                     <img src="https://avatars.githubusercontent.com/u/8575412?v=4" width="100;" alt="Usin2705"/>
                     <br />
