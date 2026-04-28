@@ -20,6 +20,8 @@ DigiTala in Action is a FastAPI-based backend for language learning analytics, o
 1. See the [pouta](/docs/POUTA.md) documentation.
 2. See the [setup](/docs/SETUP.md) documentation.
 
+- See [Updating guide](/docs/UPDATING.md) for updating the DTA server or configuration files.
+
 ## Development Quickstart
 
 1. Clone the repository.
