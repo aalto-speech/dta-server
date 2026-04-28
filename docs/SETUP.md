@@ -132,14 +132,19 @@ This section lists the setup script's default environment variables, grouped int
 
 ### Variables written to the environment file
 
-| Variable        | Default        | Description                                |
-| --------------- | -------------- | ------------------------------------------ |
-| `ACME_EMAIL`    | empty          | Email address used for ACME registration.  |
-| `DOMAIN`        | `localhost`    | Domain name used by Caddy.                 |
-| `UPSTREAM`      | `dta:8000`     | Upstream address used by Caddy.            |
-| `APP_ENV`       | `development`  | Application environment.                   |
-| `DATABASE`      | `/data/dta.db` | Absolute path to the application database. |
-| `ADMIN_API_KEY` | empty          | Admin API key for the application.         |
+| Variable               | Default        | Description                                       |
+| ---------------------- | -------------- | ------------------------------------------------- |
+| `ACME_EMAIL`           | empty          | Email address used for ACME registration.         |
+| `DOMAIN`               | `localhost`    | Domain name used by Caddy.                        |
+| `UPSTREAM`             | `dta:8000`     | Upstream address used by Caddy.                   |
+| `APP_ENV`              | `development`  | Application environment.                          |
+| `DATABASE`             | `/data/dta.db` | Absolute path to the application database.        |
+| `AUDIO_SAVE_DIR`       | `/data/audio`  | Directory for saving audio files.                 |
+| `LOGS_SAVE_DIR`        | `/data/logs`   | Directory for saving log files.                   |
+| `LOG_LEVEL`            | `WARNING`      | Logging level for the application.                |
+| `ADMIN_API_KEY`        | empty          | Admin API key for the application.                |
+| `MIN_COHORT_SIZE`      | `100`          | Minimum cohort size for analytics or assessments. |
+| `MIN_USER_ASSESSMENTS` | `3`            | Minimum number of user assessments required.      |
 
 ### Advanced variables (only used during setup)
 
