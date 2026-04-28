@@ -15,9 +15,11 @@ This repository contains the server-side code for the DigiTala in Action (DTA) p
 
 DigiTala in Action is a FastAPI-based backend for language learning analytics, onboarding, speech assessment, and feedback collection. Data is stored in SQLite by default.
 
-## Quickstart
+## Server Setup
 
-First, you need to set up your new server. Follow the instruction at [Setup](https://github.com/aalto-speech/dta-server/blob/dev/docs/SETUP.md).
+See the [setup](/docs/SETUP.md) documentation.
+
+## Development Quickstart
 
 1. Clone the repository.
 2. Open in VS Code and use the devcontainer, or set up a local Conda environment (see [Development guide](/docs/DEVELOPMENT.md)).
@@ -38,6 +40,11 @@ First, you need to set up your new server. Follow the instruction at [Setup](htt
 ## Deployment
 
 - See [Deployment setup](/docs/SETUP.md) for production installation and environment variables.
+
+# Contributors
+
+<!-- readme: contributors -start -->
+<!-- readme: contributors -end -->
 
 ---
 
