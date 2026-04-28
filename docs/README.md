@@ -15,9 +15,9 @@ This repository contains the server-side code for the DigiTala in Action (DTA) p
 
 DigiTala in Action is a FastAPI-based backend for language learning analytics, onboarding, speech assessment, and feedback collection. Data is stored in SQLite by default.
 
-## Setup
+## Server Setup
 
-Set up your new server. Follow the instruction at [Setup](/docs/SETUP.md).
+See the [setup](/docs/SETUP.md) documentation.
 
 ## Development Quickstart
 

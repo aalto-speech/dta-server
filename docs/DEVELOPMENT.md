@@ -9,15 +9,10 @@ The DTA server is a FastAPI application with SQLite storage. Startup initializes
 Use either the devcontainer (recommended) or a local conda environment.
 
 ### Option 1: Development container (recommended)
-First, you need to install the devcontainer extension in VSCode. See [Dev Containers](https://github.com/aalto-speech/dta-server/blob/dev/.devcontainer/README.md)
 
-1. Open the repository in VS Code.
-2. Run `Dev Containers: Reopen in Container`.
-3. Wait for the container build to finish (this may take few minutes).
+- Install the devcontainer extension in VSCode. See [dev containers](/.devcontainer/README.md)
 
 The devcontainer installs the required tooling (`python`, `conda`, `pytest`, `fastapi`).
-
-Read more about the devcontainer setup in [the devcontainer README](/.devcontainer/README.md).
 
 ### Option 2: Local conda environment
 
@@ -29,7 +24,23 @@ conda env update -n dta-server -f environment.dev.yaml
 conda activate dta-server
 ```
 
-## Update and render lockfiles
+## Adding or removing new packages
+
+- To **add** a package to the conda environment, run the following command:
+
+  ```bash
+  conda install <package_name>
+  ```
+
+- To **remove** a package from the conda environment, run the following command:
+
+```bash
+conda remove <package_name>
+```
+
+After adding or removing packages, please [update and render](/docs/DEVELOPMENT.md#update-and-render-lockfiles) the lockfiles.
+
+### Update and render lockfiles
 
 When dependency definitions change, regenerate lockfiles (do not edit lockfiles manually):
 
@@ -50,6 +61,10 @@ To render the lockfile for CI and local development run:
 ```bash
 conda-lock render conda-lock.dev.yaml --filename-template conda-{platform}.dev.lock
 ```
+
+## Adding system packages to the server
+
+See the [setup](/docs/SETUP.md#updating-the-file) documentation.
 
 ## Run the app
 
