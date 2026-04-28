@@ -1,0 +1,39 @@
+{
+	# ACME contact
+	email {$ACME_EMAIL}
+
+	servers {
+		# TODO: HTTP1 support will be removed in the future
+		protocols h1 h2
+		timeouts {
+			read_body 10s
+			read_header 5s
+			idle 30s
+		}
+	}
+}
+
+{$DOMAIN} {
+	# Limit request body size to 10 MB
+	request_body {
+		max_size 10MB
+	}
+
+	# Logging
+	log {
+		output file /var/log/caddy/access.log
+		format console
+	}
+
+	# /api/v1/* -> {$UPSTREAM}/*
+	@api path /api/v1/*
+	handle @api {
+		uri strip_prefix /api/v1
+		reverse_proxy {$UPSTREAM}
+	}
+
+	# Return 404 if not matched by previous handlers
+	handle /* {
+		respond "Not found" 404
+	}
+}

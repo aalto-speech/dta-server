@@ -1,0 +1,19 @@
+name: dta-server
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.14.3
+  - pytorch
+  - ffmpeg
+  - transformers
+  - torchaudio
+  - openai-whisper
+  - gunicorn
+  - python-levenshtein
+  - fastapi
+  - python-dotenv
+  - pydantic>=2,<3
+platforms: # Specify the platforms you want to support (for lockfile)
+  - linux-64

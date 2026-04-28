@@ -1,0 +1,45 @@
+services:
+  dta:
+    container_name: dta
+    image: ghcr.io/aalto-speech/dta-server:latest
+    restart: unless-stopped
+    volumes:
+      - database:/data
+      - hf-models:/hf/models
+      - hf-cache:/hf/cache
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE: ${DATABASE:-/data/dta.db}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+  caddy:
+    container_name: caddy
+    image: docker.io/caddy:2.11-alpine
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+      - "8443:443"
+    environment:
+      # See Caddyfile for usage of these variables
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      DOMAIN: ${DOMAIN:-localhost}
+      UPSTREAM: ${UPSTREAM:-dta:8000} # [service|IP]:port
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-config:/config
+      - caddy-data:/data
+      - caddy-logs:/var/log/caddy
+    depends_on:
+      - dta
+
+volumes:
+  database:
+  caddy-config:
+  caddy-data:
+  caddy-logs:
+    external: true
+  hf-models:
+    external: true
+  hf-cache:
+    external: true

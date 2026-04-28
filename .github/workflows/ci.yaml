@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev, main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint and test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Validate lockfile exists
+        shell: bash -el {0}
+        run: |
+          set -euo pipefail
+          test -f conda-linux-64.dev.lock
+
+      - name: Setup micromamba from lockfile
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: conda-linux-64.dev.lock
+          environment-name: ci
+          init-shell: none
+          generate-run-shell: false
+          cache-downloads: true
+          cache-environment: true
+          post-cleanup: "all"
+
+      - name: Lint with pylint
+        shell: bash
+        run: |
+          set -euo pipefail
+          micromamba run -n ci pylint app/
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          micromamba run -n ci pytest -q
+
+  trigger-cd:
+    name: Trigger Deployment
+    needs: lint-and-test
+    if: ${{ (github.event_name == 'push' && github.ref_name == 'dev') || (github.event_name == 'release' && github.event.release.target_commitish == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'dev') }}
+    uses: ./.github/workflows/cd.yaml
+    permissions:
+      contents: read
+      packages: write # CRITICAL: explicitly pass this down to cd.yaml

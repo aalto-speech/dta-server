@@ -1,0 +1,11 @@
+name: dta-server
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pylint
+  - pytest
+  - pytest-cov
+  - conda-lock
+platforms: # Specify the platforms you want to support (for lockfile)
+  - linux-64

@@ -1,0 +1,8 @@
+# Ignore everything by default
+*
+
+# Keep only what the image needs
+!app/
+!environment.yaml
+!conda-lock.yaml
+!LICENSE
