@@ -1,7 +1,7 @@
 services:
   dta:
     container_name: dta
-    image: ghcr.io/aalto-speech/dta-server:staging
+    image: ghcr.io/aalto-speech/dta-server:latest
     restart: unless-stopped
     volumes:
       - database:/data
