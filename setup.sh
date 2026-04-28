@@ -530,6 +530,11 @@ setup_env_file() {
   local env_path="/home/${USERNAME}/.config/dta"
   local env_file="${env_path}/env"
 
+  if [[ -f "${env_file}" ]]; then
+    log "Env file '${env_file}' already exists, skipping creation..."
+    return 1
+  fi
+
   mkdir -p "${env_path}"
 
   chmod 700 "$env_path"
@@ -546,7 +551,12 @@ UPSTREAM=${UPSTREAM:-}
 # Environment variables for the application
 APP_ENV=${APP_ENV:-}
 DATABASE=${DATABASE:-}
+AUDIO_SAVE_DIR=${AUDIO_SAVE_DIR:-}
+LOGS_SAVE_DIR=${LOGS_SAVE_DIR:-}
+LOG_LEVEL=${LOG_LEVEL:-}
 ADMIN_API_KEY=${ADMIN_API_KEY:-}
+MIN_COHORT_SIZE=${MIN_COHORT_SIZE:-}
+MIN_USER_ASSESSMENTS=${MIN_USER_ASSESSMENTS:-}
 ENV_EOF
   chmod 600 "${env_file}"
 }
