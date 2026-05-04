@@ -15,6 +15,36 @@ This repository contains the server-side code for the DigiTala in Action (DTA) p
 
 DigiTala in Action is a FastAPI-based backend for language learning analytics, onboarding, speech assessment, and feedback collection. Data is stored in SQLite by default.
 
+## SaySuomi ASA Citation
+
+This server is used by the SaySuomi Automatic Speaking Assessment (ASA) feature. The DOI below refers to the SaySuomi ASA student release, not the full DTA server project.
+
+[![SaySuomi ASA DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20021230.svg)](https://doi.org/10.5281/zenodo.20021230)
+
+If you use or refer to the SaySuomi ASA student release, please cite it as follows.
+
+**APA 7th**
+
+Immonen, L., Kähkönen, A., Porola, I., Ratilainen, M., Savolainen, A., Takala, K., Tonteri, M., Immonen, R., Phan, N., & von Zansen, A. (2026). *SaySuomi: Automatic Speaking Assessment Student Release v1.0.0* (Version v1.0.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.20021230
+
+All authors contributed equally.
+
+**BibTeX**
+
+```bibtex
+@software{saysuomi_asa_student_2026,
+  author  = {Immonen, Laura and K{\"a}hk{\"o}nen, Aaron and Porola, Iida and
+             Ratilainen, Miika and Savolainen, Aaro and Takala, Kim and
+             Tonteri, Miika and Immonen, Riina and Phan, Nhan and
+             von Zansen, Anna},
+  title   = {{SaySuomi}: Automatic Speaking Assessment Student Release v1.0.0},
+  year    = {2026},
+  doi     = {10.5281/zenodo.20021230},
+  version = {v1.0.0},
+  note    = {Initial ASA module developed by the student team; later development continued in the main project. All authors contributed equally.}
+}
+```
+
 ## Server setup and Deployment
 
 1. See the [pouta](/docs/POUTA.md) documentation.
@@ -39,6 +69,10 @@ DigiTala in Action is a FastAPI-based backend for language learning analytics, o
 
 - See [Development guide](/docs/DEVELOPMENT.md) for local setup, running tests, and lockfile maintenance.
 - See [API reference](/docs/API.md) for endpoints and request details.
+
+## License
+
+This repository is licensed under the GNU Affero General Public License, version 3 or later. See [LICENSE](/LICENSE).
 
 # Contributors
 
