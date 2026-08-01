@@ -65,42 +65,31 @@ def test_validate_file_size_many_small_chunks_accept() -> None:
     assert len(content) == audio.MAX_FILE_SIZE
 
 
-def test_validate_audio_duration_accepts_exact_limit(monkeypatch, tmp_path: Path) -> None:
+def _write_wav(path: Path, n_frames: int, sample_rate: int = 16000) -> None:
+    """Write a real mono 16-bit WAV with the given number of frames."""
+
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(b"\x00\x00" * n_frames)
+
+
+def test_validate_audio_duration_accepts_exact_limit(tmp_path: Path) -> None:
     """Duration exactly equal to the limit is accepted (no exception)."""
 
     p = tmp_path / "sample.wav"
-    p.write_bytes(b"")
+    _write_wav(p, audio.MAX_AUDIO_DURATION * 16000)
 
-    def _fake_load(_path):
-        sample_rate = 16000
-        samples = audio.MAX_AUDIO_DURATION * sample_rate
-
-        class FakeWave:
-            shape = (1, samples)
-
-        return FakeWave(), sample_rate
-
-    monkeypatch.setattr("app.validators.audio.torchaudio.load", _fake_load)
     # should not raise
     audio.validate_audio_duration(p)
 
 
-def test_validate_audio_duration_rejects_over(monkeypatch, tmp_path: Path) -> None:
+def test_validate_audio_duration_rejects_over(tmp_path: Path) -> None:
     """Duration exceeding the limit by one sample should be rejected."""
 
     p = tmp_path / "sample.wav"
-    p.write_bytes(b"")
-
-    def _fake_load(_path):
-        sample_rate = 16000
-        samples = audio.MAX_AUDIO_DURATION * sample_rate + 1
-
-        class FakeWave:
-            shape = (1, samples)
-
-        return FakeWave(), sample_rate
-
-    monkeypatch.setattr("app.validators.audio.torchaudio.load", _fake_load)
+    _write_wav(p, audio.MAX_AUDIO_DURATION * 16000 + 1)
 
     with pytest.raises(AppError) as err:
         audio.validate_audio_duration(p)
@@ -204,14 +193,11 @@ def test_validate_wav_structure_raises_on_corrupt_file(tmp_path: Path) -> None:
     assert err.value.status_code == 400
 
 
-def test_validate_audio_duration_metadata_error(monkeypatch, tmp_path: Path) -> None:
+def test_validate_audio_duration_metadata_error(tmp_path: Path) -> None:
+    """A file that is not parseable WAV audio maps to a 400 metadata error."""
+
     p = tmp_path / "sample.wav"
     p.write_bytes(b"RIFF" + b"\x00" * 64 + b"WAVE")
-
-    def _raise_on_load(_path):
-        raise RuntimeError("torchaudio failed")
-
-    monkeypatch.setattr("app.validators.audio.torchaudio.load", _raise_on_load)
 
     with pytest.raises(AppError) as err:
         audio.validate_audio_duration(p)
@@ -219,20 +205,11 @@ def test_validate_audio_duration_metadata_error(monkeypatch, tmp_path: Path) -> 
     assert err.value.status_code == 400
 
 
-def test_validate_audio_duration_exceeds(monkeypatch, tmp_path: Path) -> None:
+def test_validate_audio_duration_exceeds(tmp_path: Path) -> None:
+    """A recording a full second over the limit is rejected with 413."""
+
     p = tmp_path / "sample.wav"
-    p.write_bytes(b"RIFF" + b"\x00" * 64 + b"WAVE")
-
-    def _fake_load(path):
-        sample_rate = 16000
-        samples = (audio.MAX_AUDIO_DURATION + 1) * sample_rate
-
-        class FakeWave:
-            shape = (1, samples)
-
-        return FakeWave(), sample_rate
-
-    monkeypatch.setattr("app.validators.audio.torchaudio.load", _fake_load)
+    _write_wav(p, (audio.MAX_AUDIO_DURATION + 1) * 16000)
 
     with pytest.raises(AppError) as err:
         audio.validate_audio_duration(p)

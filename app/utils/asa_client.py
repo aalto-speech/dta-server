@@ -47,6 +47,8 @@ class ASAError(RuntimeError):
 
 
 class ASAClient:
+    """Async client for the inference container's /score and /health endpoints."""
+
     def __init__(self, base_url: str = "http://inference:8000",
                  timeout: float = DEFAULT_TIMEOUT):
         self.base_url = base_url.rstrip("/")
@@ -126,5 +128,5 @@ def to_server_shape(payload: dict) -> dict:
 def _detail(r: httpx.Response) -> str:
     try:
         return str(r.json().get("detail", r.text))[:500]
-    except Exception:                       # noqa: BLE001 - any non-JSON body
+    except Exception:  # pylint: disable=broad-exception-caught  # any non-JSON body
         return r.text[:500]

@@ -99,6 +99,22 @@ diff compose.yaml.bak compose.yaml
 No tag editing needed: the image tags are parameterised as `${DTA_TAG:-latest}`, and step 1.9
 sets `DTA_TAG=staging` in the env file.
 
+> [!WARNING]
+> **Memory on CPU staging.** The model holds ~10 GB of RAM when `DTA_DEVICE=cpu`. Running
+> `selftest.py` via `podman exec` loads a **second** full copy next to the serving one —
+> on a 20 GB host this fills RAM and swap and can OOM the server (observed). On CPU
+> staging, run selftest *instead of* the server:
+>
+> ```bash
+> podman stop dta-inference
+> podman run --rm -v asa-weights:/weights:ro -e DTA_WEIGHTS_DIR=/weights \
+>     -e DTA_DEVICE=cpu ghcr.io/aalto-speech/dta-server/inference:staging python selftest.py
+> systemctl --user restart dta-compose.service
+> ```
+>
+> On GPU production the model lives in VRAM, so `podman exec dta-inference python selftest.py`
+> is fine as documented.
+
 ## 1.9 [STAGING] Select staging images and force CPU mode
 
 Staging has no usable GPU. Without `DTA_DEVICE=cpu` the container fails at model load.

@@ -51,6 +51,10 @@ The deployment consists of **two images that move together**: the app
      podman logs -f dta-inference        # until "ready: finnish-v3_..."
      podman exec dta-inference python selftest.py    # must end with PASS
      ```
+
+     On a CPU staging host, do **not** run selftest next to the serving container —
+     it loads a second ~10 GB model copy and can OOM the box. See the memory
+     warning in [../inference/docs/DEPLOY_STAGING.md](../inference/docs/DEPLOY_STAGING.md).
    - Test the main endpoints (e.g., `/ping`, `/status`) and score one recording.
 
 ## Updating the model weights

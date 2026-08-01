@@ -12,7 +12,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-TimeoutStartSec=300
+# First-time image pulls include the ~10 GB inference image; 300 s provably
+# times out mid-pull and leaves the stack half-created.
+TimeoutStartSec=1200
 Environment=HOME=/home/ubuntu
 EnvironmentFile=/home/ubuntu/.config/dta/env
 WorkingDirectory=/home/ubuntu/dta

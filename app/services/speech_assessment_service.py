@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-from random import uniform
 import sqlite3
 from uuid import UUID, uuid4
 
@@ -9,18 +8,22 @@ from fastapi.responses import JSONResponse
 
 from app.config import SETTINGS
 from app.db import create_assessment
+from app.error_handlers import AppError, ErrorType
 from app.models.speech_assessment import (
     AssessmentCreateInput,
     SpeechAssessmentRequest,
     SpeechAssessmentResponse,
     SpeechAssessmentScores,
 )
+from app.utils.asa_client import ASAClient, ASAError
 from app.utils.logger import get_logger
-from app.utils.whisper_model import get_transcriber
 from app.validators import audio, auth
 
 
 logger = get_logger(__name__)
+
+# One client for the whole app; the inference service serialises scoring anyway.
+_asa = ASAClient(base_url=SETTINGS.asa_url, timeout=SETTINGS.asa_timeout)
 
 
 def _create_audio_path(guid: UUID) -> tuple[UUID, Path]:
@@ -31,21 +34,30 @@ def _create_audio_path(guid: UUID) -> tuple[UUID, Path]:
     return audio_id, audio_path
 
 
-def _transcribe(audio_path: Path) -> str:
-    """Transcribe audio with Whisper.
+async def _score(content: bytes, data: SpeechAssessmentRequest) -> dict:
+    """Send audio to the M-CASA inference service and map failures to AppError."""
 
-    Args:
-        audio_path: Path to the audio file.
+    try:
+        return await _asa.assess(
+            content,
+            task_id=data.task_id,
+            filename=data.file.filename or "audio.wav",
+        )
+    except ASAError as err:
+        if err.status == 404:
+            # The service refuses unmapped ids rather than scoring the wrong task.
+            raise AppError(
+                status_code=400,
+                error_type=ErrorType.BAD_REQUEST,
+                message=f"Unknown task_id {data.task_id}.",
+            ) from err
 
-    Returns:
-        str: The transcribed text.
-    """
-
-    ts = get_transcriber()
-    result = ts(str(audio_path), language="fi")
-    text = result["text"]
-    transcript = " ".join(text) if isinstance(text, list) else str(text)
-    return transcript
+        logger.error("ASA scoring failed for user %s: %s", data.guid, err)
+        raise AppError(
+            status_code=503,
+            error_type=ErrorType.SCORING_UNAVAILABLE,
+            message="Speech scoring is temporarily unavailable. Please try again shortly.",
+        ) from err
 
 
 async def assess_speech_request(
@@ -73,14 +85,15 @@ async def assess_speech_request(
     audio.validate_wav_structure(audio_path)
     audio.validate_audio_duration(audio_path)
 
-    # Transcribe the audio using the Whisper model
-    transcript = _transcribe(audio_path)
+    result = await _score(content, data)
 
-    accuracy = round(uniform(0, 5), 1)
-    fluency = round(uniform(0, 5), 1)
-    proficiency = round(uniform(0, 5), 1)
-    pronunciation = round(uniform(0, 5), 1)
-    range_score = round(uniform(0, 5), 1)
+    transcript = result["transcript"]
+    scores = result["scores"]  # keys match the DB columns, except range -> range_score
+    accuracy = scores["accuracy"]
+    fluency = scores["fluency"]
+    proficiency = scores["proficiency"]
+    pronunciation = scores["pronunciation"]
+    range_score = scores["range"]
 
     assessment_id = create_assessment(AssessmentCreateInput(
         guid=data.guid,
@@ -113,5 +126,8 @@ async def assess_speech_request(
             range=range_score,
         ),
         transcript=transcript,
+        cefr_label=result["cefr_label"],
+        cefr_label_fine=result["cefr_label_fine"],
+        clipped=result["clipped"],
     )
     return JSONResponse(content=jsonable_encoder(results), status_code=200)

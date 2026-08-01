@@ -7,7 +7,10 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.validators import audio
 
-Score = Annotated[float, Field(ge=0, le=5)]
+# Scores are CEFR values on a 0-6 scale (0 = below A1, 1 = A1, 2 = A2, 3 = B1,
+# 4 = B2, 5 = C1, 6 = C2). The served model's calibrated output is capped at
+# 3.5 (B1+); the bound exists so the schema states the true scale, not a limit.
+Score = Annotated[float, Field(ge=0, le=6)]
 
 
 class SpeechAssessmentRequest(BaseModel):
@@ -75,13 +78,24 @@ class SpeechAssessmentResponse(BaseModel):
 
     Attributes:
         assessment_id (int): The created assessment ID.
-        scores (SpeechAssessmentScores): The individual scores.
+        scores (SpeechAssessmentScores): The individual scores. Only `proficiency`
+            is calibrated; the four dimensions are raw model outputs on the same
+            CEFR scale.
         transcript (str): The transcribed text.
+        cefr_label (str): Coarse CEFR label for `proficiency` (2.9 -> "A2").
+            Prefer showing labels in the UI: "2.1" reads as a mark out of 5.
+        cefr_label_fine (str): Half-step CEFR label (2.5 -> "A2+").
+        clipped (bool): True when the raw prediction fell outside the calibrator's
+            range, so `proficiency` is a boundary value (the model cannot resolve
+            above B1+ / 3.5) rather than a measurement.
     """
 
     assessment_id: int
     scores: SpeechAssessmentScores
     transcript: str
+    cefr_label: str
+    cefr_label_fine: str
+    clipped: bool = False
 
 
 class AssessmentCreateInput(BaseModel):

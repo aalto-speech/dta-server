@@ -157,11 +157,17 @@ absorb once:
 
 ## GitHub Container Registry (ghcr) access
 
-The first CI push after adding the inference container creates a **new** ghcr
-package `dta-server/inference`, and new packages default to **private**. An org
-admin must set it to the same visibility as `dta-server` (package → settings →
-visibility), or every server needs `podman login ghcr.io` with a personal access
-token that has `read:packages`.
+The `aalto-speech` organization **disables public packages**, so both images are
+private and every server must authenticate to ghcr once before it can pull:
+
+```bash
+gh auth login                      # or use a PAT with read:packages
+gh auth token | podman login ghcr.io -u <github-username> --password-stdin
+```
+
+Podman stores the login (rootless: `${XDG_RUNTIME_DIR}/containers/auth.json`;
+it survives restarts of the stack). If pulls start failing with `unauthorized`,
+the token expired — re-run the two commands above.
 
 ## Cheat sheet
 

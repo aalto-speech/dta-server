@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.error_handlers import AppError, ErrorType
 from app.main import app
 from app.models.speech_assessment import SpeechAssessmentRequest, SpeechAssessmentScores
+from app.utils.asa_client import ASAError
 
 
 @pytest.fixture
@@ -34,6 +35,64 @@ def _valid_wav_bytes() -> bytes:
     return b"RIFF" + b"\x00\x00\x00\x00" + b"WAVE" + (b"\x00" * 32)
 
 
+def _fake_asa_result() -> dict:
+    """A canned ASAClient.assess() return value (to_server_shape output).
+
+    accuracy is deliberately above 5: scores are CEFR 0-6, and this guards the
+    widened Score bound end to end.
+    """
+
+    return {
+        "transcript": "Hei maailma",
+        "scores": {
+            "proficiency": 2.1,
+            "fluency": 2.2,
+            "pronunciation": 2.4,
+            "range": 1.9,
+            "accuracy": 5.6,
+        },
+        "cefr_label": "A2",
+        "cefr_label_fine": "A2",
+        "clipped": False,
+        "reportable_range": [1.14, 3.5],
+        "proficiency_uncalibrated": 1.98,
+        "task": {"task_id": "03_m", "task_name": "dta-task2_a", "model_task_id": 23},
+        "audio": {"duration_sec": 27.4, "truncated": False},
+        "model_checkpoint": "finnish-v3_le40_mcasa_noac_eqcap2x_ttsfluall3_s2022",
+    }
+
+
+def _patch_happy_path(monkeypatch: pytest.MonkeyPatch, captured: dict) -> None:
+    """Stub auth, audio validators and the ASA client for a successful request."""
+
+    async def _fake_validate_file_size(_):
+        return _valid_wav_bytes()
+
+    def _record_wav_structure(path: str):
+        captured["temp_path"] = path
+        assert os.path.exists(path)
+
+    async def _fake_assess(content, task_id, filename="audio.wav", transcript=None):
+        captured["assess_args"] = {
+            "content": content,
+            "task_id": task_id,
+            "filename": filename,
+            "transcript": transcript,
+        }
+        return _fake_asa_result()
+
+    monkeypatch.setattr("app.services.speech_assessment_service.auth.validate_user_access",
+                        lambda _guid: None)
+    monkeypatch.setattr("app.services.speech_assessment_service.audio.validate_file_size",
+                        _fake_validate_file_size)
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.audio.validate_wav_structure", _record_wav_structure)
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.audio.validate_audio_duration", lambda _path: None)
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service._asa.assess", _fake_assess)
+
+
 def test_assess_speech_success_returns_scores_and_transcript(
     monkeypatch: pytest.MonkeyPatch,
     client: TestClient,
@@ -44,32 +103,7 @@ def test_assess_speech_success_returns_scores_and_transcript(
     logged = []
     form_data = _valid_form_data()
 
-    async def _fake_validate_file_size(_):
-        return _valid_wav_bytes()
-
-    def _fake_validate_user_access(_):
-        return None
-
-    def _record_wav_structure(path: str):
-        captured["temp_path"] = path
-        assert os.path.exists(path)
-
-    def _fake_transcribe(*_args, **_kwargs):
-        "returns fake transcribed text"
-        return {"text": ["Hei", "maailma"]}
-
-    monkeypatch.setattr("app.services.speech_assessment_service.auth.validate_user_access",
-                        _fake_validate_user_access)
-    monkeypatch.setattr("app.services.speech_assessment_service.audio.validate_file_size",
-                        _fake_validate_file_size)
-    monkeypatch.setattr(
-        "app.services.speech_assessment_service.audio.validate_wav_structure", _record_wav_structure)
-    monkeypatch.setattr(
-        "app.services.speech_assessment_service.audio.validate_audio_duration", lambda _path: None)
-    monkeypatch.setattr("app.services.speech_assessment_service.get_transcriber",
-                        lambda: _fake_transcribe)
-    monkeypatch.setattr("app.services.speech_assessment_service.uniform",
-                        lambda _a, _b: 2.5)
+    _patch_happy_path(monkeypatch, captured)
     monkeypatch.setattr(
         "app.services.speech_assessment_service.create_assessment", lambda _data: 1
     )
@@ -88,13 +122,18 @@ def test_assess_speech_success_returns_scores_and_transcript(
     payload = response.json()
     assert payload["assessment_id"] == 1
     assert payload["scores"] == {
-        "accuracy": 2.5,
-        "fluency": 2.5,
-        "proficiency": 2.5,
-        "pronunciation": 2.5,
-        "range": 2.5,
+        "accuracy": 5.6,
+        "fluency": 2.2,
+        "proficiency": 2.1,
+        "pronunciation": 2.4,
+        "range": 1.9,
     }
     assert payload["transcript"] == "Hei maailma"
+    assert payload["cefr_label"] == "A2"
+    assert payload["cefr_label_fine"] == "A2"
+    assert payload["clipped"] is False
+    assert captured["assess_args"]["task_id"] == 1
+    assert captured["assess_args"]["filename"] == "sample.wav"
     assert "temp_path" in captured
     assert os.path.exists(captured["temp_path"])
     assert logged == [
@@ -207,54 +246,59 @@ def test_assess_speech_stops_before_file_processing_when_auth_fails(
     assert called["validate_file_size"] is False
 
 
-def test_assess_speech_keeps_audio_file_on_unhandled_error(
+def test_assess_speech_returns_503_when_scoring_unavailable(
     monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
 ):
-    """Test persisted audio file remains if transcription raises an exception."""
+    """An unreachable/failed inference service maps to 503 SCORING_UNAVAILABLE,
+    and the persisted audio file is kept for later inspection."""
 
     captured = {}
+    _patch_happy_path(monkeypatch, captured)
 
-    async def _fake_validate_file_size(_):
-        return _valid_wav_bytes()
+    async def _fail_assess(*_args, **_kwargs):
+        raise ASAError("inference service unreachable at http://inference:8000")
 
-    def _fake_validate_user_access(_):
-        return None
-
-    def _record_wav_structure(path: str):
-        captured["temp_path"] = path
-        assert os.path.exists(path)
-
-    def _fake_transcribe_fails(*_args, **_kwargs):
-        "fake transcription that always fails"
-        raise RuntimeError("transcription failure")
-
-    monkeypatch.setattr("app.services.speech_assessment_service.auth.validate_user_access",
-                        _fake_validate_user_access)
-    monkeypatch.setattr("app.services.speech_assessment_service.audio.validate_file_size",
-                        _fake_validate_file_size)
     monkeypatch.setattr(
-        "app.services.speech_assessment_service.audio.validate_wav_structure", _record_wav_structure)
-    monkeypatch.setattr(
-        "app.services.speech_assessment_service.audio.validate_audio_duration", lambda _path: None)
-    monkeypatch.setattr("app.services.speech_assessment_service.get_transcriber",
-                        lambda: _fake_transcribe_fails)
+        "app.services.speech_assessment_service._asa.assess", _fail_assess)
 
-    with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.post(
-            "/speech/assess",
-            data=_valid_form_data(),
-            files={"file": ("sample.wav", b"ignored", "audio/wav")},
-        )
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
 
-    assert response.status_code == 500
-    assert response.json() == {
-        "detail": {
-            "type": "INTERNAL_SERVER_ERROR",
-            "message": "Internal server error",
-        }
-    }
+    assert response.status_code == 503
+    assert response.json()["detail"]["type"] == "SCORING_UNAVAILABLE"
     assert "temp_path" in captured
     assert os.path.exists(captured["temp_path"])
+    os.unlink(captured["temp_path"])
+
+
+def test_assess_speech_returns_400_for_unmapped_task_id(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """A 404 from the inference service (unmapped task id) maps to 400."""
+
+    captured = {}
+    _patch_happy_path(monkeypatch, captured)
+
+    async def _unknown_task(*_args, **_kwargs):
+        raise ASAError("scoring failed (404): unknown task", 404, "unknown task")
+
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service._asa.assess", _unknown_task)
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(task_id="99"),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["type"] == "BAD_REQUEST"
+    assert "99" in response.json()["detail"]["message"]
     os.unlink(captured["temp_path"])
 
 
@@ -265,40 +309,7 @@ def test_assess_speech_returns_database_error_when_assessment_insert_fails(
     """A failed assessment insert should map to DATABASE_ERROR response."""
 
     captured = {}
-
-    async def _fake_validate_file_size(_):
-        return _valid_wav_bytes()
-
-    def _fake_validate_user_access(_):
-        return None
-
-    def _record_wav_structure(path: str):
-        captured["temp_path"] = path
-        assert os.path.exists(path)
-
-    def _fake_transcribe(*_args, **_kwargs):
-        return {"text": "Hei"}
-
-    monkeypatch.setattr(
-        "app.services.speech_assessment_service.auth.validate_user_access",
-        _fake_validate_user_access,
-    )
-    monkeypatch.setattr(
-        "app.services.speech_assessment_service.audio.validate_file_size",
-        _fake_validate_file_size,
-    )
-    monkeypatch.setattr(
-        "app.services.speech_assessment_service.audio.validate_wav_structure",
-        _record_wav_structure,
-    )
-    monkeypatch.setattr(
-        "app.services.speech_assessment_service.audio.validate_audio_duration",
-        lambda _path: None,
-    )
-    monkeypatch.setattr(
-        "app.services.speech_assessment_service.get_transcriber",
-        lambda: _fake_transcribe,
-    )
+    _patch_happy_path(monkeypatch, captured)
     monkeypatch.setattr(
         "app.services.speech_assessment_service.create_assessment",
         lambda _data: 0,
@@ -345,9 +356,15 @@ def test_assess_speech_rejects_too_long_description(
 
 
 def test_speech_assessment_scores_enforce_range():
-    """Directly constructing SpeechAssessmentScores with out-of-range values should fail."""
+    """Scores accept the full CEFR 0-6 scale and reject values beyond it."""
+
+    # 6.0 (C2) is valid on the CEFR scale
+    scores = SpeechAssessmentScores(
+        accuracy=6.0, fluency=1.0, proficiency=1.0, pronunciation=1.0, range=1.0
+    )
+    assert scores.accuracy == 6.0
 
     with pytest.raises(ValidationError):
         SpeechAssessmentScores(
-            accuracy=6.0, fluency=1.0, proficiency=1.0, pronunciation=1.0, range=1.0
+            accuracy=6.5, fluency=1.0, proficiency=1.0, pronunciation=1.0, range=1.0
         )

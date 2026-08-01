@@ -50,14 +50,20 @@ class Settings:  # pylint: disable=too-many-instance-attributes
     admin_api_key: str
     min_cohort_size: int
     min_user_assessments: int
+    asa_url: str
+    asa_timeout: float
 
 
 def _parse_app_env() -> AppEnv:
     raw_env = os.getenv("APP_ENV", AppEnv.DEVELOPMENT.value).strip().lower()
     try:
         return AppEnv(raw_env)
-    except ValueError:
-        return AppEnv.DEVELOPMENT
+    except ValueError as err:
+        # Fail loudly: a typo like APP_ENV=stagin would otherwise silently run a
+        # development configuration (local ./development.db) inside the container.
+        valid = ", ".join(member.value for member in AppEnv)
+        raise RuntimeError(
+            f"Unknown APP_ENV {raw_env!r}; expected one of: {valid}") from err
 
 
 def _database_for_env(env: AppEnv) -> str:
@@ -84,6 +90,30 @@ def _log_save_dir_for_env(env: AppEnv) -> str:
 def _create_directory(path: str, mode: int = 0o700) -> None:
     Path(path).mkdir(parents=True, exist_ok=True)
     os.chmod(path, mode)
+
+
+def _parse_float_env(name: str, default: float, minimum: float) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+
+    try:
+        value = float(raw_value)
+    except ValueError:
+        logger.warning(
+            "Environment variable %s has invalid value %r (not a number). Using default %s.",
+            name, raw_value, default,
+        )
+        return default
+
+    if value < minimum:
+        logger.warning(
+            "Value for %s (%s) is below minimum (%s). Using default %s.",
+            name, value, minimum, default,
+        )
+        return default
+
+    return value
 
 
 def _parse_int_env(name: str, default: int, minimum: int) -> int:
@@ -131,6 +161,10 @@ def _build_settings() -> Settings:
     min_user_assessments = _parse_int_env(
         "MIN_USER_ASSESSMENTS", default=3, minimum=1)
 
+    asa_url = os.getenv("ASA_URL", "http://inference:8000")
+    # GPU scoring takes ~2-8 s; CPU staging takes 30-60 s and sets ASA_TIMEOUT=300.
+    asa_timeout = _parse_float_env("ASA_TIMEOUT", default=60.0, minimum=1.0)
+
     if env == AppEnv.PRODUCTION and not admin_api_key:
         raise RuntimeError("ADMIN_API_KEY must be set in production")
 
@@ -143,6 +177,8 @@ def _build_settings() -> Settings:
         admin_api_key=admin_api_key,
         min_cohort_size=min_cohort_size,
         min_user_assessments=min_user_assessments,
+        asa_url=asa_url,
+        asa_timeout=asa_timeout,
     )
 
 
