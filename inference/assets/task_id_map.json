@@ -1,0 +1,39 @@
+{
+  "schema": "dta-task-id-map/1",
+  "confirmed_by_deployer": true,
+  "confirmed_note": "Confirmed 2026-08-01 by the app owner. The app has FIVE tasks; the sixth DTA task (04_dev) is a development-phase task, not used in the test or in production, and is deliberately absent from this map.",
+  "purpose": "Maps the dta-server's INTEGER task_id (assessments.task_id) onto this package's string task ids. Hand-authored deployment config, NOT derived from the checkpoint.",
+  "WARNING": "An integer task id must never reach the model directly: `model_task_id` in tasks.json is a row index into the learned task-embedding table, and a wrong-but-valid index returns a plausible score with no error. Unmapped integers raise UnknownTask by design -- keep it that way.",
+  "how_it_was_confirmed": {
+    "1": "app 'your friend borrows money' == 03_m: 'Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä vastaat hänelle?'",
+    "2": "app 'cannot come to work' == 03_n: 'Sinä et voi tulla tänään kurssille/töihin. Sinä lähetät ääniviestin opettajalle/pomolle ja kerrot, miksi sinä et voi tulla.'",
+    "3": "app 'describe what you do at home' == 04_h: 'Kerro, mitä kaikkea sinä teet normaalisti kotona.'",
+    "4": "app 'what language you use and where' == 04_i: 'Kerro, mitä kieliä sinä käytät ja missä.'",
+    "5": "app 'describe the shopping picture' == 04_test (dta-task5). The suffix is the tell: 04_test is the task used in the actual DTA test, 04_dev the development-phase version. THE PICTURE IS NOT A DISCRIMINATOR -- csv/task_prompts/task_id_remap.csv marks BOTH as picture tasks ('~1 min pic: shopping habits' for 04_test, '~1 min pic: shop + shopping questions' for 04_dev), and it is the same picture. 04_dev's prompt merely spells out 'Kerro kuvasta' in its text while 04_test's does not; the picture is shown in the UI regardless. An earlier draft of this file mapped 5 to 04_dev on exactly that mistaken reading."
+  },
+  "map": {
+    "1": "03_m",
+    "2": "03_n",
+    "3": "04_h",
+    "4": "04_i",
+    "5": "04_test"
+  },
+  "readable": {
+    "1": "dta-task2_a  reaction: friend asks to borrow 100 euros (30 s)",
+    "2": "dta-task2_b  reaction: voice message explaining absence (30 s)",
+    "3": "dta-task4_a  monologue: what you normally do at home (1 min)",
+    "4": "dta-task4_b  monologue: which languages you use and where (1 min)",
+    "5": "dta-task5    picture: shopping habits (~1 min)"
+  },
+  "unmapped_dta_tasks": {
+    "04_dev": "dta-task3 -- development-phase picture task on the same shop image, not used in the DTA test or in production. Still reachable by string id if that ever changes; add it here as an integer only after confirming what the app sends."
+  },
+  "training_support": {
+    "note": "Recordings per task in the le40 training pool. Task 5 (04_test) has the thinnest support of the five, so its task embedding is the least-informed; treat per-task comparisons involving it with more caution.",
+    "1_03_m": 72,
+    "2_03_n": 72,
+    "3_04_h": 71,
+    "4_04_i": 73,
+    "5_04_test": 41
+  }
+}

@@ -254,19 +254,19 @@ def main() -> None:
             args.min_assessments, args.max_assessments)
         for idx in range(assessment_count):
             ts = _random_timestamp_current_year(rng, now)
-            proficiency = round(rng.uniform(0.0, 5.0), 1)
+            proficiency = round(rng.uniform(0.0, 6.0), 1)
             assessments_rows.append(
                 (
                     guid,
-                    f"task-{rng.randint(1, 40)}",
+                    rng.randint(1, 5),
                     str(uuid4()),
                     f"audio/{guid}/{idx}.wav",
                     f"synthetic transcript {idx}",
-                    round(rng.uniform(0.0, 5.0), 1),
-                    round(rng.uniform(0.0, 5.0), 1),
+                    round(rng.uniform(0.0, 6.0), 1),
+                    round(rng.uniform(0.0, 6.0), 1),
                     proficiency,
-                    round(rng.uniform(0.0, 5.0), 1),
-                    round(rng.uniform(0.0, 5.0), 1),
+                    round(rng.uniform(0.0, 6.0), 1),
+                    round(rng.uniform(0.0, 6.0), 1),
                     _to_sql_timestamp(ts),
                 )
             )
@@ -306,15 +306,15 @@ def main() -> None:
             assessments_rows.append(
                 (
                     fixed_guid,
-                    f"task-{rng.randint(1, 40)}",
+                    rng.randint(1, 5),
                     str(uuid4()),
                     f"audio/{fixed_guid}/fixed-{idx}.wav",
                     f"fixed user synthetic transcript {idx}",
-                    round(rng.uniform(0.0, 5.0), 1),
-                    round(rng.uniform(0.0, 5.0), 1),
-                    round(rng.uniform(0.0, 5.0), 1),
-                    round(rng.uniform(0.0, 5.0), 1),
-                    round(rng.uniform(0.0, 5.0), 1),
+                    round(rng.uniform(0.0, 6.0), 1),
+                    round(rng.uniform(0.0, 6.0), 1),
+                    round(rng.uniform(0.0, 6.0), 1),
+                    round(rng.uniform(0.0, 6.0), 1),
+                    round(rng.uniform(0.0, 6.0), 1),
                     _to_sql_timestamp(ts),
                 )
             )

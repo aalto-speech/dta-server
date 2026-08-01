@@ -1,7 +1,9 @@
 services:
   dta:
     container_name: dta
-    image: ghcr.io/aalto-speech/dta-server:latest
+    # DTA_TAG comes from ~/.config/dta/env via the systemd unit's EnvironmentFile.
+    # Production leaves it unset (:latest); staging sets DTA_TAG=staging.
+    image: ghcr.io/aalto-speech/dta-server:${DTA_TAG:-latest}
     restart: unless-stopped
     volumes:
       - database:/data
@@ -12,6 +14,38 @@ services:
       DATABASE: ${DATABASE:-/data/dta.db}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Internal address of the inference service (compose network, never published).
+      ASA_URL: ${ASA_URL:-http://inference:8000}
+      # Seconds the app waits for one scoring call. GPU scoring takes ~2-8 s;
+      # CPU staging takes 30-60 s, so staging sets ASA_TIMEOUT=300.
+      ASA_TIMEOUT: ${ASA_TIMEOUT:-60}
+
+  # M-CASA speech scorer. No `ports:` on purpose - the /score endpoint is
+  # unauthenticated and must stay reachable only from the compose network.
+  # No `depends_on: condition: service_healthy` either: podman-compose does not
+  # honour it, and the app already degrades correctly (503) while the model loads
+  # (~20 s on GPU, ~10 min on CPU).
+  inference:
+    container_name: dta-inference
+    image: ghcr.io/aalto-speech/dta-server/inference:${DTA_TAG:-latest}
+    restart: unless-stopped
+    volumes:
+      - asa-weights:/weights:ro
+    environment:
+      DTA_WEIGHTS_DIR: /weights
+      # cuda on the GPU production host; staging (no GPU) sets DTA_DEVICE=cpu in env.
+      DTA_DEVICE: ${DTA_DEVICE:-cuda}
+      DTA_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DTA_WARMUP: "1"
+    # Uncomment on GPU hosts (production). Left commented because podman-compose on a
+    # GPU-less host handles nvidia device reservations unreliably.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
   caddy:
     container_name: caddy
@@ -42,4 +76,7 @@ volumes:
   hf-models:
     external: true
   hf-cache:
+    external: true
+  # Created by inference/deploy/fetch_weights.sh (~15.9 GB, not in any image).
+  asa-weights:
     external: true

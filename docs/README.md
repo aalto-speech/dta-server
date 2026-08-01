@@ -50,6 +50,7 @@ All authors contributed equally.
 1. See the [pouta](/docs/POUTA.md) documentation.
 2. See the [setup](/docs/SETUP.md) documentation.
 
+- See the [Workflow guide](/docs/WORKFLOW.md) for how changes travel from `dev` to staging to production (start here if you are new to the deployment process).
 - See [Updating guide](/docs/UPDATING.md) for updating the DTA server or configuration files.
 
 ## Development Quickstart

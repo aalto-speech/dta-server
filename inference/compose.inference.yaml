@@ -1,0 +1,47 @@
+# Fragment to merge into dta-server's compose.yaml — adds the inference service.
+#
+#   podman compose -f compose.yaml -f compose.inference.yaml up -d
+# (or, on the deployment server, it is already merged into ~/dta/compose.yaml and
+#  started by `systemctl --user start dta-compose.service`)
+#
+# or paste the `inference:` block and the `asa-weights` volume into compose.yaml directly.
+#
+# The GPU is the reason this is a separate service: it holds ~10 GB of VRAM permanently and
+# scoring is serialised, so it scales per-GPU while the `dta` app scales per-CPU. Keeping
+# them apart also leaves dta-server's conda lock free of CUDA torch.
+services:
+  inference:
+    container_name: dta-inference
+    build: ./inference          # or: image: ghcr.io/aalto-speech/dta-inference:latest
+    restart: unless-stopped
+    # Weights (~15.9 GB) are mounted, never baked into the image: they change on a different
+    # cadence than the code, and a 16 GB layer is painful to push and pull.
+    volumes:
+      - asa-weights:/weights:ro
+    environment:
+      DTA_WEIGHTS_DIR: /weights
+      DTA_DEVICE: cuda
+      DTA_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DTA_WARMUP: "1"              # pay CUDA init at startup, not on the first learner
+    # No `ports:` — only the app needs to reach it, over the compose network. Publishing it
+    # would expose an unauthenticated scoring endpoint.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  dta:
+    environment:
+      ASA_URL: http://inference:8000
+    depends_on:
+      inference:
+        # /health returns 503 until the model is resident, so the app waits rather than
+        # failing its first requests.
+        condition: service_healthy
+
+volumes:
+  asa-weights:
+    external: true      # created and filled by deploy/fetch_weights.sh
