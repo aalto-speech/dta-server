@@ -90,8 +90,13 @@ def main() -> int:
     check("end-to-end score returned", isinstance(c["score"], float), f"{elapsed:.1f}s")
     check("calibrated CEFR inside the reportable range", lo - 1e-6 <= c["score"] <= hi + 1e-6,
           f"{c['score']:.3f} in [{lo:.2f}, {hi:.2f}]")
+    # The response rounds both score and score_uncalibrated to 3 decimals, so the
+    # recomputation can differ by up to ~3e-3 (5e-4 output rounding + max knot
+    # slope x 5e-4 input rounding). An *uncalibrated* score would differ by ~0.4,
+    # so 5e-3 still separates the two cases cleanly. (1e-6 failed spuriously at
+    # the calibration floor: served round(1.13875, 3)=1.139 vs recomputed 1.13875.)
     check("calibration actually applied",
-          abs(c["score"] - cal(c["score_uncalibrated"])) < 1e-6,
+          abs(c["score"] - cal(c["score_uncalibrated"])) < 5e-3,
           f"raw {c['score_uncalibrated']:.3f} -> {c['score']:.3f}")
     check("all four dimensions returned",
           all(d in out["dimensions"] for d in DIMS),
