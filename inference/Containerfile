@@ -35,9 +35,18 @@ ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /app
 
 # Dependencies first so a code change does not re-resolve the (large) CUDA layer.
+#
+# Torch build is a build arg because production's GPU is a Tesla P100 (Pascal, sm_60):
+# cu128 wheels and ALL torch >= 2.8 wheels ship sm_61+ kernels only, so torch 2.9.1/cu128
+# fails on the P100 with "no kernel image is available". The 2.7 line is the last with
+# sm_60 kernels; cu126 wheels need driver >= 525, same as cu128. requirements.txt pins the
+# rest; transformers 5.8.1 only needs torch >= 2.4. When production moves to an sm_70+ GPU,
+# restore TORCH_SPEC=torch==2.9.1 / TORCH_INDEX=...whl/cu128 (the trained-under version).
+ARG TORCH_SPEC="torch==2.7.1"
+ARG TORCH_INDEX="https://download.pytorch.org/whl/cu126"
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir torch==2.9.1 --index-url https://download.pytorch.org/whl/cu128 \
+    && pip install --no-cache-dir "${TORCH_SPEC}" --index-url "${TORCH_INDEX}" \
     && pip install --no-cache-dir -r requirements.txt
 
 COPY dta_scorer/ ./dta_scorer/

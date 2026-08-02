@@ -35,6 +35,12 @@ services:
       DTA_WEIGHTS_DIR: /weights
       # cuda on the GPU production host; staging (no GPU) sets DTA_DEVICE=cpu in env.
       DTA_DEVICE: ${DTA_DEVICE:-cuda}
+      # Default bfloat16 reproduces the training/eval numerics from the model card.
+      # Production sets DTA_AUTOCAST_DTYPE=float16 in ~/.config/dta/env: its GPU is a
+      # Tesla P100 (Pascal, pre-Ampere) with no bf16 support, and fp32 would halve
+      # throughput -- fp16 runs at native double rate on the P100. Parity vs the
+      # staging-verified CPU path is checked before each release (see inference docs).
+      DTA_AUTOCAST_DTYPE: ${DTA_AUTOCAST_DTYPE:-bfloat16}
       DTA_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DTA_WARMUP: "1"
     # Uncomment on GPU hosts (production). Left commented because podman-compose on a
