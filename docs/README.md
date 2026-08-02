@@ -78,6 +78,7 @@ All authors contributed equally.
 
 - See [Development guide](/docs/DEVELOPMENT.md) for local setup, running tests, and lockfile maintenance.
 - See [API reference](/docs/API.md) for endpoints and request details.
+- See [Frontend integration guide](/docs/FRONTEND.md) for building a client app: every field, error, call order, and how to present the scores. The live contract is also served at `/api/v1/docs` and `/api/v1/openapi.json`.
 
 ## License
 
