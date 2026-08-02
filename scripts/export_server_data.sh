@@ -173,9 +173,9 @@ export_audio() {
   fi
 }
 
-# Data-protection cross-checks. Deleting a user (admin DELETE /users, or an approved
-# deletion request) removes their database rows but NOT their WAV files, so audio can
-# outlive the consent that covers it. Both checks are reported, never acted on.
+# Data-protection cross-checks. Since v1.1.2 deleting a user also deletes their
+# recordings, but audio orphaned by an older deletion can still be on disk, and copies
+# already downloaded are outside the server's reach. Both checks report, never act.
 report_compliance() {
   local pending
   pending="$(sqlite3 -readonly -noheader "$DB_PATH" \
@@ -199,7 +199,7 @@ report_compliance() {
   if [[ "$orphans" -gt 0 ]]; then
     echo ""
     echo "NOTE: $orphans audio director(ies) belong to GUIDs no longer in the users table."
-    echo "      Deleting a user does not delete their recordings — review and remove these."
+    echo "      Likely left by a deletion from before v1.1.2 — review and remove these."
   fi
 }
 
