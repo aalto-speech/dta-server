@@ -160,28 +160,26 @@ ID travels with the recording through your UI code. IDs outside 1–5 are reject
 
 Keep `assessment_id` — feedback references it.
 
-### Presenting the scores (please read)
+### Working with the scores
 
-Scores are **CEFR values on a 0–6 scale**, not marks out of 5:
+Scores are numbers on a **CEFR 0–6 scale** — not marks out of 5:
 
 | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
 | --- | --- | --- | --- | --- | --- | --- |
 | below A1 | A1 | A2 | B1 | B2 | C1 | C2 |
 
-Three rules that matter for the UI:
+Three facts that affect how you use them:
 
-1. **Show `cefr_label` / `cefr_label_fine`, not the number.** "2.1" reads as a mark out
-   of five to a learner and is badly misleading. If you show a number at all, show it
-   next to the label.
-2. **`proficiency` is the only calibrated score** — the one the model stands behind.
-   `fluency`, `pronunciation`, `range` and `accuracy` are raw outputs on the same scale;
-   they are indicative, not mutually consistent, and do not average to `proficiency`.
-   Label them as indicative in the UI.
-3. **Handle `clipped: true`.** The model cannot resolve above **B1+ (3.5)** or below
-   about **1.14**. When `clipped` is true, `proficiency` is a boundary value, not a
-   measurement. Show something like "B1+ or above" rather than presenting the capped
-   number as a real result — a strong speaker who is told they are exactly B1+ every
-   time will not trust the app.
+1. **`clipped: true` means the number is a boundary, not a measurement.** The model
+   cannot resolve above **B1+ (3.5)** or below about **1.14**; when the raw prediction
+   falls outside that range `proficiency` is pinned to the edge. Handle this case
+   explicitly — a strong speaker scored 3.5 every time has not been measured at 3.5.
+2. **Only `proficiency` is calibrated.** `fluency`, `pronunciation`, `range` and
+   `accuracy` are raw model outputs on the same scale: indicative, not mutually
+   consistent, and they do not average to `proficiency`.
+3. `cefr_label` (`"A2"`) and `cefr_label_fine` (`"A2+"`) are precomputed from
+   `proficiency` if you want a label rather than a number — no need to derive them
+   client-side, and they stay correct if the scale ever changes.
 
 ### How long it takes
 
@@ -300,10 +298,13 @@ erases the database rows and the stored recordings.
 
 ## Testing against a server
 
-Staging (the staging host) runs the same API on CPU, so scoring
+Develop against **staging**, not production: it runs the same API on CPU, so scoring
 takes 30–60 s per request instead of 2–8 s — fine for wiring up your integration, and it
 keeps test rows out of production. Point the app at production only for timing-sensitive
 checks, and use a dedicated test GUID so the rows can be removed afterwards.
+
+Server hostnames are not published in this repository — ask the maintainers for the
+staging and production URLs.
 
 A quick end-to-end check from a terminal:
 
