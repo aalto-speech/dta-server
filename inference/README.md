@@ -43,6 +43,10 @@ acoustic branch.
   Qwen3.5-2B (bf16, 4 GB) + the scorer's Whisper encoder (fp32, 3 GB) + a *second* Whisper
   for ASR (fp16, 1.5 GB). The two Whispers are not redundant — the scorer's copy was further
   trained and is overwritten by the checkpoint, while ASR needs the original decoder.
+  **On a 16 GB card there is no headroom for a second copy**: `selftest.py` loads its own
+  pipeline, so `podman exec <server> python selftest.py` OOMs while the server holds its
+  ~10 GB (observed on the production P100). Run it one-shot instead, with the server
+  stopped or in a separate `podman run --rm` before starting the stack.
 - ~20 GB disk for weights
 - CPU-only will run but takes tens of seconds per request; it is for smoke tests, not service
 - `libsndfile` (`apt install libsndfile1`) — soundfile's C dependency
@@ -57,6 +61,20 @@ cd inference
 pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements.txt
 ```
+
+> **Pascal GPUs (production is a Tesla P100, sm_60):** torch ≥ 2.8 wheels (and every cu128
+> build) ship sm_61+ kernels only — 2.9.1/cu128 dies on the P100 with "no kernel image is
+> available". Use the last line with sm_60 kernels instead, and fp16 autocast (Pascal has
+> no bf16; fp32 halves throughput):
+>
+> ```bash
+> pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu126
+> export DTA_AUTOCAST_DTYPE=float16
+> ```
+>
+> The Containerfile defaults (`TORCH_SPEC`/`TORCH_INDEX` build args) already do the former;
+> production's `~/.config/dta/env` sets the latter. Re-run the parity check after either
+> change (see the pin note below).
 
 Conda alternative if pip's torch fights the system CUDA:
 
