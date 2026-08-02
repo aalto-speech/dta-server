@@ -5,9 +5,14 @@
 # silently renamed adapter (quiet, wrong scores).
 #
 # torch is deliberately NOT pinned to a CUDA build here -- install it first, matched to the
-# server's driver, e.g.:
+# server's driver AND GPU generation, e.g.:
 #   pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cu128
-torch==2.9.1
+# The floor (not a pin) exists because transformers 5.8.1 requires torch>=2.4. The
+# Containerfile installs the exact build via TORCH_SPEC/TORCH_INDEX build args: currently
+# torch 2.7.1/cu126, the last line with sm_60 kernels, because production's GPU is a
+# Tesla P100 (Pascal). A hard ==2.9.1 pin here would silently re-upgrade torch from PyPI
+# over the CUDA-matched install in the layer above.
+torch>=2.4
 
 transformers==5.8.1
 peft==0.19.1
