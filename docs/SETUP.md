@@ -90,6 +90,74 @@ of `:latest`, and typically has no GPU. Differences from the production install:
   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
   ```
 
+### Big storage volume
+
+Both servers should keep podman's storage on a dedicated **500 GB block volume**, not the
+~80 GB root disk: the inference image is ~10 GB, the model weights ~16 GB, and the
+database volume grows with every audio upload. Production was migrated 2026-08-02;
+staging should do the same once its volume is attached (`setup.sh` does **not** do this).
+
+With the volume attached as `/dev/vdb`, once:
+
+```bash
+sudo parted -s /dev/vdb mklabel gpt mkpart primary ext4 1MiB 100%
+sudo mkfs.ext4 -L dta-storage /dev/vdb1
+sudo mkdir -p /srv/dta-storage
+echo "UUID=$(sudo blkid -s UUID -o value /dev/vdb1) /srv/dta-storage ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+sudo systemctl daemon-reload && sudo mount /srv/dta-storage
+sudo mkdir -p /srv/dta-storage/containers/storage /srv/dta-storage/backups
+sudo chown -R ubuntu:ubuntu /srv/dta-storage/containers /srv/dta-storage/backups
+
+mkdir -p ~/.config/containers
+cat > ~/.config/containers/storage.conf <<'EOF'
+[storage]
+driver = "overlay"
+graphroot = "/srv/dta-storage/containers/storage"
+EOF
+```
+
+> [!IMPORTANT]
+> Changing `graphroot` makes podman see an **empty** storage: do this on a fresh server
+> before `setup.sh`, or on an existing one export/back up the database volume first, stop
+> the stack, then re-pull images and re-fetch weights afterwards. Data paths after the
+> move are documented in [DATA.md](./DATA.md).
+
+### GPU runtime (production only)
+
+The production VM has a **Tesla P100 (Pascal)** — see the warning in
+[WORKFLOW.md](./WORKFLOW.md#the-production-gpu-is-pascal) before touching torch versions.
+Fresh-server GPU setup (staging skips all of this and runs `DTA_DEVICE=cpu`):
+
+```bash
+sudo apt install -y nvidia-driver-570-server "linux-headers-$(uname -r)"   # installs the 580 branch, last with Pascal support
+# NVIDIA container toolkit is not in the Ubuntu archive:
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
+sudo apt update && sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+```
+
+**podman 4.9 (Ubuntu 24.04) cannot parse the CDI spec that toolkit ≥ 1.19 generates**
+(spec version 0.7.0 / `additionalGids`) — every `--device nvidia.com/gpu=all` then fails
+with `unresolvable CDI devices`. Production carries a post-processing script
+`/usr/local/sbin/cdi-podman-compat.sh` (strips `additionalGids`, downgrades the version
+field) hooked as `ExecStartPost` into `nvidia-cdi-refresh.service` so driver upgrades
+stay compatible. Copy both from production when provisioning a new GPU server, then verify:
+
+```bash
+podman run --rm --device nvidia.com/gpu=all docker.io/nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi
+```
+
+In `~/dta/compose.yaml`, give the inference service the GPU with the CDI form
+(the commented `deploy.resources` block is unreliable under podman-compose):
+
+```yaml
+    devices:
+      - nvidia.com/gpu=all
+```
+
 ### Model weights (both staging and production)
 
 The speech scorer's weights (~15.9 GB) are **not** in any container image. Fetch
@@ -200,6 +268,7 @@ when the line is left empty.
 | `MIN_USER_ASSESSMENTS` | `3`               | Minimum number of user assessments required.                         |
 | `DTA_TAG`              | `latest`          | Image tag both containers run (`staging` on staging servers).        |
 | `DTA_DEVICE`           | `cuda`            | Device for the speech scorer (`cpu` on staging without GPU).         |
+| `DTA_AUTOCAST_DTYPE`   | `bfloat16`        | Scorer autocast dtype. Production sets `float16`: its P100 (Pascal) has no bf16, and fp32 halves throughput. |
 | `ASA_TIMEOUT`          | `60`              | App-side timeout (s) for one scoring call (`300` on CPU staging).    |
 
 ### Advanced variables (only used during setup)
