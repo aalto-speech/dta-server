@@ -2,7 +2,6 @@ from pathlib import Path
 import os
 import wave
 
-import torchaudio
 from fastapi import UploadFile
 
 from app.error_handlers import AppError, ErrorType
@@ -103,15 +102,24 @@ def validate_wav_structure(path: Path) -> None:
 def validate_audio_duration(path: Path) -> None:
     """Reject audio files longer than the configured maximum."""
     try:
-        waveform, sample_rate = torchaudio.load(path)
-    except Exception as err:
+        with wave.open(str(path), "rb") as wf:
+            frames = wf.getnframes()
+            sample_rate = wf.getframerate()
+    except (wave.Error, EOFError) as err:
         raise AppError(
             status_code=400,
             error_type=ErrorType.BAD_REQUEST,
             message="Could not read audio metadata.",
         ) from err
 
-    duration = waveform.shape[1] / sample_rate
+    if sample_rate <= 0:
+        raise AppError(
+            status_code=400,
+            error_type=ErrorType.BAD_REQUEST,
+            message="Could not read audio metadata.",
+        )
+
+    duration = frames / sample_rate
     if duration > MAX_AUDIO_DURATION:
         raise AppError(
             status_code=413,

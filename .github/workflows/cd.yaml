@@ -1,20 +1,56 @@
+# Builds and pushes the app image and the inference image. The app image is built exactly
+# as before; the inference image is built from inference/Containerfile and pushed to
+# ghcr.io/aalto-speech/dta-server/inference with the SAME tags, so a release moves both
+# together and staging/production never run mismatched code.
+#
+# Trigger is unchanged and comes from ci.yaml: a push to `dev` produces :staging, a release
+# off `main` produces :latest. Production is therefore untouched until a release, exactly as
+# for the app image.
+#
+# The inference image is ~10 GB (CUDA + torch) and takes several minutes to build. The
+# `changes` job skips it when a push touched only app/ — releases always build both, because
+# a release must produce a complete, self-consistent pair.
 name: CD
 
 on:
   workflow_call:
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-24.04
+    outputs:
+      # NB: expression outputs are strings — compare against 'true' explicitly. A bare
+      # `steps.filter.outputs.inference || ...` would short-circuit on the truthy string
+      # 'false' and skip the inference build on releases that did not touch inference/.
+      inference: ${{ steps.filter.outputs.inference == 'true' || github.event_name == 'release' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        # paths-filter needs a push base ref to diff against; on release events it is
+        # skipped (empty output) and the `== 'true'` above stays false while the
+        # release clause forces both builds anyway.
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            inference:
+              - 'inference/**'
+
   build-and-deploy:
     name: Build and deploy
     runs-on: ubuntu-24.04
+    needs: changes
     permissions:
       contents: read
       packages: write
 
     env:
       IMAGE_NAME: ghcr.io/${{ github.repository }}
+      INFERENCE_IMAGE: ghcr.io/${{ github.repository }}/inference
       TAG_NAME: ${{ github.event_name == 'release' && 'latest' || 'staging' }}
       RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+      BUILD_INFERENCE: ${{ needs.changes.outputs.inference }}
 
     steps:
       - name: Checkout code
@@ -43,10 +79,32 @@ jobs:
               .
           fi
 
+      - name: Build and tag inference image
+        if: env.BUILD_INFERENCE == 'true'
+        run: |
+          set -euo pipefail
+          # Build context is inference/ so the app tree is not sent to the daemon.
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            podman build --pull \
+              --tag "$INFERENCE_IMAGE:$TAG_NAME" \
+              --tag "$INFERENCE_IMAGE:$RELEASE_TAG" \
+              -f inference/Containerfile inference/
+          else
+            podman build --pull \
+              --tag "$INFERENCE_IMAGE:$TAG_NAME" \
+              -f inference/Containerfile inference/
+          fi
+
       - name: Push container images to GitHub Container Registry
         run: |
           set -euo pipefail
           podman push "$IMAGE_NAME:$TAG_NAME"
           if [[ "${{ github.event_name }}" == "release" ]]; then
             podman push "$IMAGE_NAME:$RELEASE_TAG"
+          fi
+          if [[ "$BUILD_INFERENCE" == "true" ]]; then
+            podman push "$INFERENCE_IMAGE:$TAG_NAME"
+            if [[ "${{ github.event_name }}" == "release" ]]; then
+              podman push "$INFERENCE_IMAGE:$RELEASE_TAG"
+            fi
           fi

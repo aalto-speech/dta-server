@@ -531,8 +531,10 @@ setup_env_file() {
   local env_file="${env_path}/env"
 
   if [[ -f "${env_file}" ]]; then
-    log "Env file '${env_file}' already exists, skipping creation..."
-    return 1
+    # Return 0: under `set -e` a non-zero return here would abort main() before
+    # enable_services, making the script unsafe to re-run.
+    log "Env file '${env_file}' already exists, leaving it in place..."
+    return 0
   fi
 
   mkdir -p "${env_path}"
@@ -557,6 +559,16 @@ LOG_LEVEL=${LOG_LEVEL:-}
 ADMIN_API_KEY=${ADMIN_API_KEY:-}
 MIN_COHORT_SIZE=${MIN_COHORT_SIZE:-}
 MIN_USER_ASSESSMENTS=${MIN_USER_ASSESSMENTS:-}
+
+# Image tag both images run (unset = latest = production releases).
+# Staging boxes set: DTA_TAG=staging
+DTA_TAG=${DTA_TAG:-}
+
+# Environment variables for the inference (speech scorer) service
+# Device for the M-CASA scorer: cuda (default, production) or cpu (staging without GPU).
+DTA_DEVICE=${DTA_DEVICE:-}
+# App-side timeout in seconds for one scoring call (default 60; CPU staging needs 300).
+ASA_TIMEOUT=${ASA_TIMEOUT:-}
 ENV_EOF
   chmod 600 "${env_file}"
 }

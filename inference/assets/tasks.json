@@ -1,0 +1,318 @@
+{
+  "schema": "dta-task-catalogue/1",
+  "prompt_template": "<TASK task_id={task_id} task_name={task_name}>\nQ1: {question}\nA1: {answer}",
+  "prompt_version": "finnish-asr-content-v1-finnishv3",
+  "n_tasks_embedding_table": 64,
+  "tasks": {
+    "02_a": {
+      "model_task_id": 0,
+      "task_name": "spring-task3_a",
+      "alternate_task_names": [],
+      "corpus": "spring",
+      "prompt_fi": "Webinaari. Järjestät webinaarin ystävyyskoulun opiskelijoille ja opettajille. Käytte alkuun läpi osallistujien kuulumisia, joita he kirjoittavat chattiin. 3a-b,e-f) Reagoi kunkin osallistujan kommenttiin suullisesti (á 15 sek). 3c-d) Esitä osallistujille kysymys annetusta aiheesta. (á 15 sek) Äänitä alla olevaan kommenttiin sopiva vastaus (15 sek). ANTON: Ihan hyvää, paitsi heräsin juuri – nukuin melkein pommiin! 🛌😴",
+      "n_train_recordings": 17
+    },
+    "02_b": {
+      "model_task_id": 1,
+      "task_name": "spring-task3_b",
+      "alternate_task_names": [],
+      "corpus": "spring",
+      "prompt_fi": "Webinaari. Järjestät webinaarin ystävyyskoulun opiskelijoille ja opettajille. Käytte alkuun läpi osallistujien kuulumisia, joita he kirjoittavat chattiin. 3a-b,e-f) Reagoi kunkin osallistujan kommenttiin suullisesti (á 15 sek). 3c-d) Esitä osallistujille kysymys annetusta aiheesta. (á 15 sek) Äänitä alla olevaan kommenttiin sopiva vastaus (15 sek). MILLA: Olen ollut flunssassa koko viikon... 🤒",
+      "n_train_recordings": 17
+    },
+    "02_c": {
+      "model_task_id": 2,
+      "task_name": "spring-task3_c",
+      "alternate_task_names": [],
+      "corpus": "spring",
+      "prompt_fi": "Webinaari. Järjestät webinaarin ystävyyskoulun opiskelijoille ja opettajille. Käytte alkuun läpi osallistujien kuulumisia, joita he kirjoittavat chattiin. 3a-b,e-f) Reagoi kunkin osallistujan kommenttiin suullisesti (á 15 sek). 3c-d) Esitä osallistujille kysymys annetusta aiheesta. (á 15 sek) Esitä webinaarin osallistujille kysymys (15 sek) seuraavasta aiheesta: suunnitelmat lukion jälkeen",
+      "n_train_recordings": 4
+    },
+    "02_d": {
+      "model_task_id": 3,
+      "task_name": "spring-task3_d",
+      "alternate_task_names": [],
+      "corpus": "spring",
+      "prompt_fi": "Webinaari. Järjestät webinaarin ystävyyskoulun opiskelijoille ja opettajille. Käytte alkuun läpi osallistujien kuulumisia, joita he kirjoittavat chattiin. 3a-b,e-f) Reagoi kunkin osallistujan kommenttiin suullisesti (á 15 sek). 3c-d) Esitä osallistujille kysymys annetusta aiheesta. (á 15 sek) Esitä webinaarin osallistujille kysymys (15 sek) seuraavasta aiheesta: kotipaikkakunta ja siellä viihtyminen",
+      "n_train_recordings": 4
+    },
+    "02_e": {
+      "model_task_id": 4,
+      "task_name": "spring-task3_e",
+      "alternate_task_names": [],
+      "corpus": "spring",
+      "prompt_fi": "Webinaari. Järjestät webinaarin ystävyyskoulun opiskelijoille ja opettajille. Käytte alkuun läpi osallistujien kuulumisia, joita he kirjoittavat chattiin. 3a-b,e-f) Reagoi kunkin osallistujan kommenttiin suullisesti (á 15 sek). 3c-d) Esitä osallistujille kysymys annetusta aiheesta. (á 15 sek) Äänitä sopiva vastaus (15 sek) alla olevaan kommenttiin. ELINA sanoo: Mulla on tänään syntymäpäivä! 🥧 Miten vastaat?",
+      "n_train_recordings": 12
+    },
+    "02_f": {
+      "model_task_id": 5,
+      "task_name": "spring-task3_f",
+      "alternate_task_names": [],
+      "corpus": "spring",
+      "prompt_fi": "Webinaari. Järjestät webinaarin ystävyyskoulun opiskelijoille ja opettajille. Käytte alkuun läpi osallistujien kuulumisia, joita he kirjoittavat chattiin. 3a-b,e-f) Reagoi kunkin osallistujan kommenttiin suullisesti (á 15 sek). 3c-d) Esitä osallistujille kysymys annetusta aiheesta. (á 15 sek) Äänitä sopiva vastaus (15 sek) alla olevaan kommenttiin. JOONA sanoo: Millon alotetaan, ehdinkö hakea kahvia? ☕ Miten vastaat?",
+      "n_train_recordings": 13
+    },
+    "02_g": {
+      "model_task_id": 6,
+      "task_name": "spring-task4_a",
+      "alternate_task_names": [],
+      "corpus": "spring",
+      "prompt_fi": "Jokaisella oppilaalla on kummioppilas ystävyyskoulussa. Teillä on puhelu ja vastailet hänen kysymyksiinsä (á 15sek), jotka kuulet. HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kuuntele äänite ja vastaa kuulemaasi kysymykseen (15sek). HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kysymys: [Moikka, mä olen Maria Erikäinen. Kiva tavata! Mitä sulle kuuluu tänään?]",
+      "n_train_recordings": 4
+    },
+    "02_h": {
+      "model_task_id": 7,
+      "task_name": "autumn-task4_b",
+      "alternate_task_names": [
+        "spring-task4_b"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Jokaisella oppilaalla on kummioppilas ystävyyskoulussa. Teillä on puhelu ja vastailet hänen kysymyksiinsä (á 15sek), jotka kuulet. HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kuuntele äänite ja vastaa kuulemaasi kysymykseen (15sek). HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kysymys: [Millainen sää siellä on?]",
+      "n_train_recordings": 44
+    },
+    "02_i": {
+      "model_task_id": 8,
+      "task_name": "autumn-task4_c",
+      "alternate_task_names": [
+        "spring-task4_c"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Jokaisella oppilaalla on kummioppilas ystävyyskoulussa. Teillä on puhelu ja vastailet hänen kysymyksiinsä (á 15sek), jotka kuulet. HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kuuntele äänite ja vastaa kuulemaasi kysymykseen (15sek). HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kysymys: [Mitä olet tehnyt tänään?]",
+      "n_train_recordings": 44
+    },
+    "02_j": {
+      "model_task_id": 9,
+      "task_name": "autumn-task4_d",
+      "alternate_task_names": [
+        "spring-task4_d"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Jokaisella oppilaalla on kummioppilas ystävyyskoulussa. Teillä on puhelu ja vastailet hänen kysymyksiinsä (á 15sek), jotka kuulet. HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kuuntele äänite ja vastaa kuulemaasi kysymykseen (15sek). HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kysymys: [Millaisia suunnitelmia sinulla on viikonlopulle?]",
+      "n_train_recordings": 44
+    },
+    "02_k": {
+      "model_task_id": 10,
+      "task_name": "autumn-task4_e",
+      "alternate_task_names": [
+        "spring-task4_e"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Jokaisella oppilaalla on kummioppilas ystävyyskoulussa. Teillä on puhelu ja vastailet hänen kysymyksiinsä (á 15sek), jotka kuulet. HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kuuntele äänite ja vastaa kuulemaasi kysymykseen (15sek). HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. Kysymys: [Moikka, mä oon Maria Erikäinen. Mitä sulle kuuluu tänään?]",
+      "n_train_recordings": 41
+    },
+    "03_a": {
+      "model_task_id": 11,
+      "task_name": "autumn-task8_a",
+      "alternate_task_names": [
+        "spring-task8_a"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Puhelimessa Alla on neljä tilannetta, jotka liittyvät ystävyyskoulun vierailuun. Tutustu tilanteeseen, kuuntele äänite ja esitä asiasi kohteliaasti (max 30sek). Tilanne: Olette lähdössä ystävyyskoulun kanssa retkelle. Bussi on varattu väärälle päivälle! Oikea ajankohta on 31.5., lähtö klo 9 ja paluu klo 16. Soitat koulusihteerille ja kuulet vastaajaviestin: [Koulusihteeri Kaisa tässä hei! En juuri nyt pääse vastaamaan, mutta jätäthän viestin ja yhteystietosi niin otan sinuun yhteyttä. Kiitos, kuulemiin!] Jätä kohtelias viesti (max 30sek) vastaajaan: Esittele itsesi. Kerro ongelma. Pyydä häntä korjaamaan asia. HUOM! Älä kerro oikeaa nimeäsi tai henkilökohtaisia asioita. Oman nimesi sijaan voit käyttää nimeä Maija / Matti Meikäläinen",
+      "n_train_recordings": 24
+    },
+    "03_b": {
+      "model_task_id": 12,
+      "task_name": "autumn-task8_b",
+      "alternate_task_names": [
+        "spring-task8_b"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Puhelimessa Alla on neljä tilannetta, jotka liittyvät ystävyyskoulun vierailuun. Tutustu tilanteeseen, kuuntele äänite ja esitä asiasi kohteliaasti (max 30sek). Tilanne: Vastaat puhelimeen. Soittaja sanoo: [No hei, se on paikallislehden toimittaja täällä. Teen juttua lukiolaisten ajankäytöstä. Voisinko haastatella sinua 5-10 minuutin ajan?] Vastaa soittajalle (max 30sek): Et juuri nyt voi puhua. Kieltäydy kohteliaasti. Ehdota toista ajankohtaa.",
+      "n_train_recordings": 27
+    },
+    "03_c": {
+      "model_task_id": 13,
+      "task_name": "autumn-task8_c",
+      "alternate_task_names": [
+        "spring-task8_c"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Puhelimessa Alla on neljä tilannetta, jotka liittyvät ystävyyskoulun vierailuun. Tutustu tilanteeseen, kuuntele äänite ja esitä asiasi kohteliaasti (max 30sek). Tilanne: Suunnittelitte eilen illalla ystävyyskoulun vierailua kahvilassa. Kotona huomaat hupparisi kadonneen. Soitat kahvilaan (max 30sek): Esittele itsesi. Kerro asiasi kohteliaasti. Kuvaile hupparia, se näyttää tältä: [kuva henkilöstä ko. huppari päällä] HUOM! Älä kerro oikeaa nimeäsi tai henkilökohtaisia asioita. Oman nimesi sijaan voit käyttää nimeä Maija / Matti Meikäläinen",
+      "n_train_recordings": 22
+    },
+    "03_d": {
+      "model_task_id": 14,
+      "task_name": "autumn-task8_d",
+      "alternate_task_names": [
+        "spring-task8_d"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Puhelimessa Alla on neljä tilannetta, jotka liittyvät ystävyyskoulun vierailuun. Tutustu tilanteeseen, kuuntele äänite ja esitä asiasi kohteliaasti (max 30sek). Tilanne: Kaverisi onkin ottanut hupparisi talteen ja tuonut sen kotiisi. Jätä ääniviesti (max 30sek) kaverillesi: Kerro, miltä sinusta tuntuu. Kiitä kaveriasi. Kysy kaveriasi ulos huomenna.",
+      "n_train_recordings": 24
+    },
+    "03_e": {
+      "model_task_id": 15,
+      "task_name": "autumn-task11_a",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Mitä sanot? Tapaat uuden kurssikaverin kahvilassa. Mitä voit sanoa eri tilanteissa? Vastaa kokonaisella lauseella. You meet your new classmate in a café. What can you say in the following situations? Reply using full sentences. Paina Start recording -painiketta ja tilaa kahvi Click on \"Start recording\" and order a coffee",
+      "n_train_recordings": 111
+    },
+    "03_f": {
+      "model_task_id": 16,
+      "task_name": "autumn-task11_b",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Mitä sanot? Tapaat uuden kurssikaverin kahvilassa. Mitä voit sanoa eri tilanteissa? Vastaa kokonaisella lauseella. You meet your new classmate in a café. What can you say in the following situations? Reply using full sentences. Paina Start recording -painiketta ja kysy kahvin hintaa Click on \"Start recording\" and ask how much the coffee costs",
+      "n_train_recordings": 112
+    },
+    "03_g": {
+      "model_task_id": 17,
+      "task_name": "autumn-task11_c",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Mitä sanot? Tapaat uuden kurssikaverin kahvilassa. Mitä voit sanoa eri tilanteissa? Vastaa kokonaisella lauseella. You meet your new classmate in a café. What can you say in the following situations? Reply using full sentences. Paina Start recording -painiketta ja vastaa, kun kaveri soittaa ja kysyy, missä olet. Click on \"Start recording\" and answer to your friend who calls and asks where you are.",
+      "n_train_recordings": 111
+    },
+    "03_h": {
+      "model_task_id": 18,
+      "task_name": "autumn-task11_d",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Mitä sanot? Tapaat uuden kurssikaverin kahvilassa. Mitä voit sanoa eri tilanteissa? Vastaa kokonaisella lauseella. You meet your new classmate in a café. What can you say in the following situations? Reply using full sentences. Paina Start recording -painiketta ja kysy vähintään kaksi kysymystä kaverilta. Haluat tutustua kaveriin. Click on \"Start recording\" and ask your friend at least two questions. You want to get to know him/her.",
+      "n_train_recordings": 110
+    },
+    "03_i": {
+      "model_task_id": 19,
+      "task_name": "autumn-task12_a",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Kurssikaveriin tutustuminen Saatte läksyksi tutustua kurssikaveriin. Puhutte puhelimessa ja tutustutte enemmän. Kuuntele ja vastaa kaverin kysymyksiin. Älä kerro oikeita osoitteita tai nimiä. Your homework is to interview a classmate. You talk on the phone and get to know each other. Listen to your classmate and answer the questions. Do not give real addresses or names. Kuuntele ja nauhoita vastaus. Listen to the question and record your answer. \"Moi, Anna tässä. Mitä sulle kuuluu?\"",
+      "n_train_recordings": 111
+    },
+    "03_j": {
+      "model_task_id": 20,
+      "task_name": "autumn-task12_b",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Kurssikaveriin tutustuminen Saatte läksyksi tutustua kurssikaveriin. Puhutte puhelimessa ja tutustutte enemmän. Kuuntele ja vastaa kaverin kysymyksiin. Älä kerro oikeita osoitteita tai nimiä. Your homework is to interview a classmate. You talk on the phone and get to know each other. Listen to your classmate and answer the questions. Do not give real addresses or names. Kuuntele ja nauhoita vastaus. Listen to the question and record your answer. \"Nii missä sä asut?\"",
+      "n_train_recordings": 110
+    },
+    "03_k": {
+      "model_task_id": 21,
+      "task_name": "autumn-task12_c",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Kurssikaveriin tutustuminen Saatte läksyksi tutustua kurssikaveriin. Puhutte puhelimessa ja tutustutte enemmän. Kuuntele ja vastaa kaverin kysymyksiin. Älä kerro oikeita osoitteita tai nimiä. Your homework is to interview a classmate. You talk on the phone and get to know each other. Listen to your classmate and answer the questions. Do not give real addresses or names. Kuuntele ja nauhoita vastaus. Listen to the question and record your answer. \"Millainen sun asunto on?\"",
+      "n_train_recordings": 111
+    },
+    "03_l": {
+      "model_task_id": 22,
+      "task_name": "autumn-task12_d",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Kurssikaveriin tutustuminen Saatte läksyksi tutustua kurssikaveriin. Puhutte puhelimessa ja tutustutte enemmän. Kuuntele ja vastaa kaverin kysymyksiin. Älä kerro oikeita osoitteita tai nimiä. Your homework is to interview a classmate. You talk on the phone and get to know each other. Listen to your classmate and answer the questions. Do not give real addresses or names. Kuuntele ja nauhoita vastaus. Listen to the question and record your answer. \"Onks sulla sauna? Tykkäätkö saunoa?\"",
+      "n_train_recordings": 107
+    },
+    "03_m": {
+      "model_task_id": 23,
+      "task_name": "dta-task2_a",
+      "alternate_task_names": [],
+      "corpus": "dta",
+      "prompt_fi": "Teet 2 reagointitehtävää. Lue ohje tarkasti. Voit miettiä, mitä sanot. Klikkaa \"Start recording\" ja puhu. Sinulla on 30 sekuntia aikaa. Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä vastaat hänelle?",
+      "n_train_recordings": 72
+    },
+    "03_n": {
+      "model_task_id": 24,
+      "task_name": "dta-task2_b",
+      "alternate_task_names": [],
+      "corpus": "dta",
+      "prompt_fi": "Teet 2 reagointitehtävää. Lue ohje tarkasti. Voit miettiä, mitä sanot. Klikkaa \"Start recording\" ja puhu. Sinulla on 30 sekuntia aikaa. Sinä et voi tulla tänään kurssille/töihin. Sinä lähetät ääniviestin opettajalle/pomolle ja kerrot, miksi sinä et voi tulla. Mitä sinä sanot viestissä?",
+      "n_train_recordings": 72
+    },
+    "04_a": {
+      "model_task_id": 25,
+      "task_name": "autumn-task2",
+      "alternate_task_names": [
+        "spring-task2"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Tärkeä paikka. Teette puheharjoituksia suomen kurssilla. Tänään aiheena ovat tärkeät paikat. Kerro sinulle tärkeästä paikasta alla olevien kysymysten avulla. Sinun ei tarvitse vastata kaikkiin kysymyksiin. Valmistaudu lukemalla kysymykset, mieti mistä paikasta haluat puhua, ja paina sitten vasta Start recording-painiketta. Yritä pitää yllä puhetta noin 1 minuutin ajan. HUOM! Älä kerro nimiä, tarkkaa osoitetta tai henkilökohtaisia asioita. Miksi paikka on sinulle tärkeä? Mikä on tässä paikassa parasta? Miksi? Mitä teet tässä paikassa? Millainen tämä paikka on? Kuinka kauan tämä paikka on ollut sinulle tärkeä?",
+      "n_train_recordings": 70
+    },
+    "04_b": {
+      "model_task_id": 26,
+      "task_name": "autumn-task5",
+      "alternate_task_names": [
+        "spring-task5"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Jatko-opiskelupaikka. Näet seuraavaksi kuvan korkeakoulusta, johon olet aikeissa hakea lukion jälkeen. Kerro, mitä näet kuvassa (max 1min). Voit kuvailla rakennusta / tilaa / huonekaluja / ihmisiä tiloissa. Voit kertoa väreistä ja muodoista, kuvakulmasta, valaistuksesta. Voit suunnitella vastaustasi hetken ennen äänittämistä, jotta sinulla riittää sanottavaa. Yritä pitää yllä puhetta 1 minuutin ajan.",
+      "n_train_recordings": 43
+    },
+    "04_d": {
+      "model_task_id": 27,
+      "task_name": "autumn-task6_b",
+      "alternate_task_names": [
+        "spring-task6_b"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Instagram. Teillä on ollut koulujen välinen kuvakilpailu Instagramissa. Voit suunnitella vastaustasi hetken ennen äänittämistä, jotta sinulla riittää sanottavaa. Yritä pitää yllä puhetta ainakin 1 minuutin ajan (max 1,5min): Mitä pidät kuvista 1-3? Millaisia ajatuksia kuvista 1-3 herää? Mikä on sinun suosikkisi? Miksi? HUOM! Älä kerro nimiä tai henkilökohtaisia asioita. [kuva 1:] Jäiden lähtö #kevät #luonto (Kuva: Mostphotos) [kuva 2:] Uusi perheenjäsen #koiranpentu (Kuva:123rf) [kuva 3:] Sataa sataa ropisee #syksy (Kuva 123rf)",
+      "n_train_recordings": 21
+    },
+    "04_dev": {
+      "model_task_id": 28,
+      "task_name": "dta-task3",
+      "alternate_task_names": [],
+      "corpus": "dta",
+      "prompt_fi": "Kerro kuvasta. Voit kertoa myös muuta. Mitä kaupasta voi ostaa? Mitä sinä normaalisti ostat kaupasta? Mitä sinä et normaalisti osta kaupasta? Milloin kauppa on auki? Milloin sinä normaalisti käyt kaupassa?",
+      "n_train_recordings": 32
+    },
+    "04_e": {
+      "model_task_id": 29,
+      "task_name": "autumn-task10",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Minun päiväni Kerro päivästäsi. Älä kerro nimiä tai osoitteita. Paina Start recording -painiketta ja yritä puhua minuutin ajan. Apukysymyksiä: Tell about your day. Do not use real names or addresses. Click on \"Start recording\" and try to speak for 1 minute. Supporting questions: Mihin aikaan sä heräät? Mitä sä syöt ja juot aamulla? Mitä sä teet päivällä? Kenen kanssa sä olet? Missä sä olet illalla? Mitä sä teet illalla? Mihin aikaan sä meet nukkumaan?",
+      "n_train_recordings": 110
+    },
+    "04_f": {
+      "model_task_id": 30,
+      "task_name": "autumn-task13",
+      "alternate_task_names": [],
+      "corpus": "autumn",
+      "prompt_fi": "Kerro kuvasta Kerro, mitä kuvassa on. Yritä puhua minuutin ajan. Suunnittele hetki, mitä aiot sanoa. Paina sitten Start recording -painiketta ja nauhoita vastaus. Tell about the picture. What do you see? Try to speak for 1 minute. Plan for a moment what you are going to say. Then click on \"Start recording\". Apukysymyksiä (Supporting questions): Millainen perhe on? (esimerkiksi kuka on kuka, nimi, ikä) Mitä he tekevät? Mitä he syövät? Mitä he juovat? Missä he ovat? Missä he asuvat?",
+      "n_train_recordings": 110
+    },
+    "04_h": {
+      "model_task_id": 31,
+      "task_name": "dta-task4_a",
+      "alternate_task_names": [],
+      "corpus": "dta",
+      "prompt_fi": "Teet 2 monologitehtävää. Puhu niin paljon kuin voit ja osaat. Lue ohje tarkasti. Voit suunnitella, mitä sanot. Klikkaa \"Start recording\" ja puhu. Sinulla on 1 minuutti aikaa. Kerro, mitä kaikkea sinä teet normaalisti kotona.",
+      "n_train_recordings": 71
+    },
+    "04_i": {
+      "model_task_id": 32,
+      "task_name": "dta-task4_b",
+      "alternate_task_names": [],
+      "corpus": "dta",
+      "prompt_fi": "Teet 2 monologitehtävää. Puhu niin paljon kuin voit ja osaat. Lue ohje tarkasti. Voit suunnitella, mitä sanot. Klikkaa \"Start recording\" ja puhu. Sinulla on 1 minuutti aikaa. Kerro, mitä kieliä sinä käytät ja missä. Mitä kieliä sinä puhut kotona, kaupassa, työssä...? Katsotko televisiota tai kuunteletko musiikkia: mitä kieliä sinä kuulet? Entä mitä kieliä luet tai kirjoitat?",
+      "n_train_recordings": 73
+    },
+    "04_test": {
+      "model_task_id": 33,
+      "task_name": "dta-task5",
+      "alternate_task_names": [],
+      "corpus": "dta",
+      "prompt_fi": "Mitä sinä normaalisti ostat kaupasta? Mitä sinä et normaalisti osta kaupasta? Milloin sinä normaalisti käyt kaupassa?",
+      "n_train_recordings": 41
+    },
+    "05": {
+      "model_task_id": 34,
+      "task_name": "autumn-task7",
+      "alternate_task_names": [
+        "spring-task7"
+      ],
+      "corpus": "autumn",
+      "prompt_fi": "Uutinen. Katsele lyhyt uutinen ja ota sen pohjalta kantaa. Yritä pitää puhetta yllä ainakin minuutin ajan (max 1,5min). Voit suunnitella vastaustasi hetken, jotta sinulla riittää sanottavaa. Apukysymyksiä -- kaikkiin ei tarvitse vastata: Onko geenimuunneltu ruoka sinulle aiheena tuttu? Söisitkö itse geenimuunneltua ruokaa? Miksi / miksi et? Mitä hyviä puolia geenimuunnellussa ruoassa on? Mitä huonoja puolia geenimuunnellussa ruassa on? Mitä haluaisit tietää geennimuunnellusta ruoasta? Huom! Älä kerro oikeita nimiä tai henkilökohtaisia asioita Geenimuunneltua lohta, olkaa hyvä! Ylen kuvausryhmä kävi lohen kehittäneen bioteknologiayhtiö AquaBounty Technologiesin kalankasvattamolla Kanadassa. (Yle Uutisvideot, 1.3.2021, https://areena.yle.fi/1-50776809) Jos video ei näy yllä, klikkaa: linkki Yle Areenaan (aukeaa uuteen välilehteen)",
+      "n_train_recordings": 25
+    }
+  },
+  "reserved_task_ids_without_prompt": {
+    "06_a": 35,
+    "06_b": 36,
+    "06_c": 37,
+    "06_d": 38
+  }
+}

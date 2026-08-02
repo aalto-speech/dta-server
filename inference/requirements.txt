@@ -1,0 +1,31 @@
+# Versions are the ones the checkpoint was trained and evaluated under
+# (/scratch/elec/t412-slaam/envs/SLaAM, python 3.12.13). Pinned rather than ranged because
+# transformers 5.x and peft both changed state-dict key layouts across minor versions, and a
+# key mismatch here surfaces as a strict-load failure at startup (loud) or, worse, as a
+# silently renamed adapter (quiet, wrong scores).
+#
+# torch is deliberately NOT pinned to a CUDA build here -- install it first, matched to the
+# server's driver, e.g.:
+#   pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cu128
+torch==2.9.1
+
+transformers==5.8.1
+peft==0.19.1
+safetensors==0.7.0
+accelerate>=1.0
+
+numpy==2.4.6
+scipy==1.17.1
+soundfile==0.13.1        # needs libsndfile on the system (apt: libsndfile1)
+
+# HTTP layer for the inference container (dta_scorer/server.py). Drop these three if you
+# import ScoringPipeline directly instead of running it as its own service.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9  # FastAPI needs this for multipart file uploads
+
+# Not needed at inference. scikit-learn only refits the calibrator (scripts/dta_production/export_assets.py);
+# the library reads exported knots. pandas/jiwer only for verify_parity.py, also repo-side.
+# scikit-learn==1.8.0
+# pandas==2.2.3
+# jiwer

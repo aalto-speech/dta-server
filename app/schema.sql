@@ -66,23 +66,23 @@ CREATE TABLE
     -- ASA model outputs
     accuracy REAL CHECK (
       accuracy IS NULL
-      OR (accuracy BETWEEN 0 AND 5)
+      OR (accuracy BETWEEN 0 AND 6)
     ),
     fluency REAL CHECK (
       fluency IS NULL
-      OR (fluency BETWEEN 0 AND 5)
+      OR (fluency BETWEEN 0 AND 6)
     ),
     proficiency REAL CHECK (
       proficiency IS NULL
-      OR (proficiency BETWEEN 0 AND 5)
+      OR (proficiency BETWEEN 0 AND 6)
     ),
     pronunciation REAL CHECK (
       pronunciation IS NULL
-      OR (pronunciation BETWEEN 0 AND 5)
+      OR (pronunciation BETWEEN 0 AND 6)
     ),
     range_score REAL CHECK (
       range_score IS NULL
-      OR (range_score BETWEEN 0 AND 5)
+      OR (range_score BETWEEN 0 AND 6)
     ),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE

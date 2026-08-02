@@ -1,0 +1,26 @@
+# Conda alternative to requirements.txt, for servers where pip's torch wheel fights the
+# system CUDA. Creates a self-contained env so nothing collides with the server's own
+# packages:  conda env create -f environment.yml && conda activate dta-scorer
+name: dta-scorer
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - libsndfile          # soundfile's C dependency; the usual cause of "cannot open audio"
+  - ffmpeg              # only needed if the app uploads webm/opus/m4a (see README)
+  - pytorch=2.9.1
+  - pytorch-cuda=12.8   # match to the server driver; drop this line for a CPU-only box
+  - numpy=2.4.6
+  - scipy=1.17.1
+  - pip:
+      - transformers==5.8.1
+      - peft==0.19.1
+      - safetensors==0.7.0
+      - accelerate>=1.0
+      - soundfile==0.13.1
+      - fastapi>=0.115
+      - uvicorn[standard]>=0.30
+      - python-multipart>=0.0.9

@@ -1,0 +1,59 @@
+# Inference container for the DTA speaking scorer. Built by .github/workflows/cd.yaml
+# alongside the app image, pushed to ghcr.io/aalto-speech/dta-server/inference.
+#
+#   podman build -t dta-inference -f inference/Containerfile inference/
+#
+# Deliberately NOT micromamba/conda-lock like the app image: this stack is pip + CUDA wheels,
+# and its pins exist for a different reason. transformers and peft changed state-dict key
+# layouts across minor versions, so a mismatch here either fails the strict checkpoint load at
+# startup (loud) or silently renames an adapter (quiet, wrong scores). Keeping the two images
+# on separate dependency solvers is the point of splitting the container.
+#
+# WEIGHTS ARE NOT IN THE IMAGE. ~15.9 GB that change only on retrain, while this image
+# rebuilds on every code change. They live in the `asa-weights` podman volume, mounted at
+# /weights. See docs/WEIGHTS.md.
+#
+# Base image CUDA must be <= the host driver's supported version; cu128 wheels need >= 525.
+# ubuntu24.04 (noble) ships python3.12 natively; jammy does not (would need deadsnakes).
+FROM docker.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04 AS runner
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HUB_OFFLINE=1 \
+    TOKENIZERS_PARALLELISM=false
+
+# libsndfile is soundfile's C dependency and the usual cause of "could not decode audio".
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-venv libsndfile1 ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.12 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+WORKDIR /app
+
+# Dependencies first so a code change does not re-resolve the (large) CUDA layer.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir torch==2.9.1 --index-url https://download.pytorch.org/whl/cu128 \
+    && pip install --no-cache-dir -r requirements.txt
+
+COPY dta_scorer/ ./dta_scorer/
+COPY modeling/ ./modeling/
+COPY assets/ ./assets/
+COPY score_cli.py selftest.py ./
+
+ENV DTA_WEIGHTS_DIR=/weights \
+    DTA_DEVICE=cuda
+EXPOSE 8000
+
+# /health returns 503 until the model is resident: ~20 s on GPU, but ~10 MINUTES on CPU
+# (staging runs DTA_DEVICE=cpu). start-period covers the slow case so staging does not flap.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=900s --retries=3 \
+    CMD curl -fsS http://localhost:8000/health >/dev/null || exit 1
+
+# ONE worker on purpose: the model holds ~10 GB of VRAM and scoring is serialised inside the
+# pipeline, so a second worker doubles memory for zero throughput. Scale with containers.
+CMD ["uvicorn", "dta_scorer.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

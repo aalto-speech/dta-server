@@ -1,0 +1,5 @@
+# Model weights are staged by scripts/dta_production/stage_weights.py (research repo), never committed (~15 GB).
+weights/
+parity_report.csv
+__pycache__/
+*.pyc
