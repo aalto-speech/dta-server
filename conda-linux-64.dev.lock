@@ -115,7 +115,7 @@ https://conda.anaconda.org/conda-forge/noarch/pytest-9.1.1-pyhc364b38_2.conda#64
 https://conda.anaconda.org/conda-forge/noarch/python-build-1.5.0-pyhc364b38_0.conda#fa587158c0d768127faa1a3b4df01e5d
 https://conda.anaconda.org/conda-forge/noarch/rich-15.0.0-pyhcf101f3_0.conda#0242025a3c804966bf71aa04eee82f66
 https://conda.anaconda.org/conda-forge/noarch/urllib3-2.7.0-pyhd8ed1ab_0.conda#cbb88288f74dbe6ada1c6c7d0a97223e
-https://conda.anaconda.org/conda-forge/noarch/uvicorn-0.52.0-pyhc90fa1f_0.conda#29dea28adb4fe29b5d39909246ece255
+https://conda.anaconda.org/conda-forge/noarch/uvicorn-0.52.1-pyhc90fa1f_0.conda#51ea94c7129e9d6ce2b75bcbd97235d9
 https://conda.anaconda.org/conda-forge/noarch/virtualenv-20.39.0-pyhcf101f3_0.conda#e73db224203e56b25e040446fa1584db
 https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py314h0f05182_1.conda#2930a6e1c7b3bc5f66172e324a8f5fc3
 https://conda.anaconda.org/conda-forge/linux-64/dulwich-0.24.10-py314ha5689aa_1.conda#03e145cc6df0840bf11d25c6626bc285
@@ -138,7 +138,7 @@ https://conda.anaconda.org/conda-forge/noarch/keyring-25.7.0-pyha804496_0.conda#
 https://conda.anaconda.org/conda-forge/noarch/pydantic-extra-types-2.11.1-pyhcf101f3_0.conda#96513760035d70917819a2840155d23a
 https://conda.anaconda.org/conda-forge/noarch/pydantic-settings-2.14.2-pyhcf101f3_0.conda#a1c5305893d9956abd2079d377c5113f
 https://conda.anaconda.org/conda-forge/noarch/requests-toolbelt-1.0.0-pyhd8ed1ab_1.conda#66de8645e324fda0ea6ef28c2f99a2ab
-https://conda.anaconda.org/conda-forge/noarch/uvicorn-standard-0.52.0-hc8d08bb_0.conda#33dab2cd3728a431e856a250f00eb8aa
+https://conda.anaconda.org/conda-forge/noarch/uvicorn-standard-0.52.1-h96ffffd_0.conda#de3882bb9be70c512df622e8f9a68ef4
 https://conda.anaconda.org/conda-forge/noarch/cachecontrol-with-filecache-0.14.4-pyhd8ed1ab_0.conda#41a7966424a8733b11410216d9a47227
 https://conda.anaconda.org/conda-forge/noarch/fastapi-cli-0.0.32-pyhcf101f3_0.conda#873835dd2a01dd8844086f1cde2067ce
 https://conda.anaconda.org/conda-forge/noarch/conda-lock-4.0.2-pyha191276_0.conda#f0968c69a409ba1144232b8c8f83b8fc

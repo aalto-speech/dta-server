@@ -165,9 +165,17 @@ gh auth login                      # or use a PAT with read:packages
 gh auth token | podman login ghcr.io -u <github-username> --password-stdin
 ```
 
-Podman stores the login (rootless: `${XDG_RUNTIME_DIR}/containers/auth.json`;
-it survives restarts of the stack). If pulls start failing with `unauthorized`,
-the token expired — re-run the two commands above.
+Podman writes the login to `${XDG_RUNTIME_DIR}/containers/auth.json`, which is
+a tmpfs and **does not survive a reboot**. Persist it once:
+
+```bash
+mkdir -p ~/.config/containers
+cp /run/user/$(id -u)/containers/auth.json ~/.config/containers/auth.json
+chmod 600 ~/.config/containers/auth.json
+```
+
+(podman also reads `~/.config/containers/auth.json`.) If pulls start failing
+with `unauthorized`, the token expired — re-run the login commands above.
 
 ## Cheat sheet
 
