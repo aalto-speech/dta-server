@@ -55,6 +55,9 @@ All authors contributed equally.
 - See [Data guide](/docs/DATA.md) for where the database, audio recordings, and weights live on the servers, and how to download data.
 
 > [!IMPORTANT]
+> **Do not commit server hostnames, floating IPs, or API keys** — this repository is
+> public. Use `<domain>` / `<server-ip>` placeholders in docs and examples.
+>
 > The production GPU is a **Tesla P100 (Pascal)**. torch versions and autocast dtypes in
 > `inference/` are pinned around it — read
 > [the Pascal section of the Workflow guide](/docs/WORKFLOW.md#the-production-gpu-is-pascal)
