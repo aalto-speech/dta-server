@@ -84,10 +84,12 @@ deletion requests in `user_requests`, and audio directories whose GUID is no lon
 the `users` table.
 
 > [!IMPORTANT]
-> **Deleting a user does not delete their recordings.** `DELETE /users` (and an approved
-> deletion request) removes the database rows only; the WAV files stay on disk, and any
-> copy already in your archive stays too. When you action a deletion request, remove
-> `audio/<guid>/` on the server **and** in every archive copy by hand.
+> **Deleting a user deletes their recordings on the server, but not in your archive.**
+> `DELETE /users` erases `audio/<guid>/` along with the database rows (since v1.1.2 —
+> before that it removed rows only, so servers may still hold orphaned audio from older
+> deletions; the export script reports those). Copies you have already downloaded are
+> outside the server's reach: when you action a deletion request, delete that GUID's
+> recordings from **every archive copy** by hand.
 
 **The SQLite database itself** — do **not** just `scp dta.db` while the app is running:
 recent writes may still sit in the `-wal` sidecar and you'd get a stale or torn copy.
