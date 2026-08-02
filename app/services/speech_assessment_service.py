@@ -17,6 +17,7 @@ from app.models.speech_assessment import (
 )
 from app.utils.asa_client import ASAClient, ASAError
 from app.utils.logger import get_logger
+from app.utils.storage import user_audio_dir
 from app.validators import audio, auth
 
 
@@ -27,10 +28,10 @@ _asa = ASAClient(base_url=SETTINGS.asa_url, timeout=SETTINGS.asa_timeout)
 
 
 def _create_audio_path(guid: UUID) -> tuple[UUID, Path]:
-    output_dir = os.path.join(SETTINGS.audio_save_dir, str(guid))
+    output_dir = user_audio_dir(guid)
     os.makedirs(output_dir, mode=0o700, exist_ok=True)
     audio_id = uuid4()
-    audio_path = Path(os.path.join(output_dir, f"{audio_id}.wav"))
+    audio_path = output_dir / f"{audio_id}.wav"
     return audio_id, audio_path
 
 

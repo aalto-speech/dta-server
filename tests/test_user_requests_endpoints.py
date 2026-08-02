@@ -229,7 +229,10 @@ def test_delete_users_handler_calls_delete_user_data(
         "guid": str(request_model.guid),
     }
     assert logged == [
-        ("Admin deleted all data for user: %s", (request_model.guid,)),
+        (
+            "Admin deleted all data for user: %s (%d recording(s) removed)",
+            (request_model.guid, 0),
+        ),
     ]
 
 
@@ -270,7 +273,10 @@ def test_delete_users_endpoint_accepts_valid_payload(
         "guid": payload["guid"],
     }
     assert logged == [
-        ("Admin deleted all data for user: %s", (UUID(payload["guid"]),)),
+        (
+            "Admin deleted all data for user: %s (%d recording(s) removed)",
+            (UUID(payload["guid"]), 0),
+        ),
     ]
 
 

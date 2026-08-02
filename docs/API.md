@@ -18,7 +18,13 @@ These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the a
 - The app is served behind a `/api/v1` root path when using the reverse proxy.
 - Most write endpoints accept form data.
 - `POST /speech/assess` requires multipart form data with a `.wav` file.
-- `DELETE /users` requires header `X-API-Key` and form field `guid`.
+- `DELETE /users` requires header `X-API-Key` and form field `guid`. It erases the
+  user's row (related rows follow by FK cascade) **and** their stored recordings
+  (`AUDIO_SAVE_DIR/<guid>/`). Recordings go first: if they cannot be removed the call
+  fails with `500` and the user row is left in place, so the deletion stays visible and
+  can be retried rather than leaving audio nothing points at. It returns `204` for a
+  GUID that does not exist, and copies already exported off the server are of course
+  unaffected — see [DATA.md](./DATA.md).
 
 ## Speech assessment scores
 
@@ -46,3 +52,24 @@ Response fields and what to do with them:
 - Requests fail with `503 SCORING_UNAVAILABLE` while the scorer is starting
   (~20 s on GPU, ~10 min on CPU staging) or unreachable, and with
   `400 BAD_REQUEST` for a `task_id` with no mapped speaking task (valid ids: 1–5).
+
+### How long a learner waits
+
+Measured end to end on production (Tesla P100, fp16) 2026-08-02 — from HTTPS request to
+response, including upload on the local network, scoring, and the database write:
+
+| Recording length | Response time |
+| ---------------- | ------------- |
+| 5 s              | 1.7 s         |
+| 15 s             | 2.4 s         |
+| 30 s             | 3.6 s         |
+| 60 s             | 6.0 s         |
+| 90 s (the max)   | 8.3 s         |
+
+Roughly **1 s of fixed cost + 1 s per 12 s of audio**. Add the learner's own upload time
+over mobile data (a 60 s recording is ~1.9 MB). The server processes one recording at a
+time — the model holds ~10 GB of VRAM and scoring is serialised — so concurrent requests
+queue rather than slow each other down. The app's `ASA_TIMEOUT` (default 60 s) is the
+ceiling; on CPU staging the same calls take 30–60 s, which is why staging sets it to 300.
+
+Uploads are rejected above **90 s** of audio (`413 FILE_TOO_LARGE`) or 10 MB (Caddy).

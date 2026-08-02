@@ -52,6 +52,14 @@ All authors contributed equally.
 
 - See the [Workflow guide](/docs/WORKFLOW.md) for how changes travel from `dev` to staging to production (start here if you are new to the deployment process).
 - See [Updating guide](/docs/UPDATING.md) for updating the DTA server or configuration files.
+- See [Data guide](/docs/DATA.md) for where the database, audio recordings, and weights live on the servers, and how to download data.
+
+> [!IMPORTANT]
+> The production GPU is a **Tesla P100 (Pascal)**. torch versions and autocast dtypes in
+> `inference/` are pinned around it — read
+> [the Pascal section of the Workflow guide](/docs/WORKFLOW.md#the-production-gpu-is-pascal)
+> before changing them. Servers keep podman storage on a dedicated 500 GB volume
+> (`/srv/dta-storage`) — see [SETUP.md](/docs/SETUP.md#big-storage-volume).
 
 ## Development Quickstart
 
