@@ -31,6 +31,31 @@ class ComparisonRequest(BaseModel):
     guid: UUID
     days: DayWindow = Field(default=DayWindow.ALL_TIME)
 
+    @field_validator("days", mode="before")
+    @classmethod
+    def coerce_days_from_form(cls, value: object) -> object:
+        """Accept the string a form-encoded client actually sends.
+
+        Every endpoint takes form data, and form values arrive as strings. The other
+        enums in the app are StrEnum so they coerce for free; DayWindow's members are
+        ints, and pydantic will not turn "30" into 30 on its own -- which made every
+        `days` value fail validation, leaving all-time the only reachable window.
+        """
+
+        if not isinstance(value, str):
+            return value
+
+        text = value.strip()
+        if text == "" or text.lower() in {"null", "none", "all", "all_time"}:
+            return DayWindow.ALL_TIME
+
+        try:
+            return int(text)
+        except ValueError:
+            # Not a number: hand it back so the enum raises the informative error
+            # listing the valid windows.
+            return value
+
 
 class ComparisonStats(BaseModel):
     """Internal comparison statistics model."""

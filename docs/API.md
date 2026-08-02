@@ -13,6 +13,11 @@ These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the a
 - `POST /onboarding`: create a user from onboarding data.
 - `DELETE /users`: admin user deletion.
 
+> [!TIP]
+> Building a client app? [FRONTEND.md](./FRONTEND.md) documents every field, error and
+> call order in one place. The live contract is served at `/api/v1/docs` (Swagger UI)
+> and `/api/v1/openapi.json`.
+
 ## Request notes
 
 - The app is served behind a `/api/v1` root path when using the reverse proxy.
