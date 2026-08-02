@@ -53,13 +53,41 @@ podman volume inspect -f '{{.Mountpoint}}' dta_database
 
 Run these **from your own computer** (same SSH key you use to log in).
 
-**CSV export of all tables** (users, assessments, feedback, …):
+**Everything at once** — `export_server_data.sh` exports the CSVs **and** the recordings
+into one folder (`audio/` beside the CSVs), so a single `scp -r` gets the complete dataset:
+
+```bash
+ssh -i ~/.ssh/keyname.pem ubuntu@<server-ip> '~/export_server_data.sh --out-dir /tmp/dta_export'
+scp -i ~/.ssh/keyname.pem -r ubuntu@<server-ip>:/tmp/dta_export ./
+```
+
+Useful flags: `--no-audio` (CSVs only), `--prune-audio` (see below), `--table NAME`.
+
+**Moving recordings off the server** (`--prune-audio`) — when your own storage is the
+archive of record and the server should not keep old copies:
 
 ```bash
 ssh -i ~/.ssh/keyname.pem ubuntu@<server-ip> \
-    'bash dta-server/scripts/export_server_data.sh --out-dir /tmp/dta_csv'   # or ~/export_server_data.sh on production
-scp -i ~/.ssh/keyname.pem -r ubuntu@<server-ip>:/tmp/dta_csv ./
+    '~/export_server_data.sh --out-dir /tmp/dta_export --prune-audio'
+scp -i ~/.ssh/keyname.pem -r ubuntu@<server-ip>:/tmp/dta_export ./
+ssh -i ~/.ssh/keyname.pem ubuntu@<server-ip> 'rm -rf /tmp/dta_export'   # after verifying the copy
 ```
+
+Each file is deleted from the server **only after it transferred successfully**
+(`rsync --remove-source-files`), so an interrupted run never loses a recording. The
+database rows stay — `assessments.audio_path` then points at a file that lives only in
+your archive, which is fine for the app (it never reads recordings back after scoring)
+but means **the archive is the only copy: back it up**.
+
+The script also reports two data-protection cross-checks on every run: unhandled
+deletion requests in `user_requests`, and audio directories whose GUID is no longer in
+the `users` table.
+
+> [!IMPORTANT]
+> **Deleting a user does not delete their recordings.** `DELETE /users` (and an approved
+> deletion request) removes the database rows only; the WAV files stay on disk, and any
+> copy already in your archive stays too. When you action a deletion request, remove
+> `audio/<guid>/` on the server **and** in every archive copy by hand.
 
 **The SQLite database itself** — do **not** just `scp dta.db` while the app is running:
 recent writes may still sit in the `-wal` sidecar and you'd get a stale or torn copy.
