@@ -119,8 +119,10 @@ def create_assessment(data: AssessmentCreateInput) -> int | None:
             fluency,
             proficiency,
             pronunciation,
-            range_score
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            range_score,
+            content_relevance,
+            content_confidence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     params = (
@@ -133,7 +135,9 @@ def create_assessment(data: AssessmentCreateInput) -> int | None:
         data.fluency,
         data.proficiency,
         data.pronunciation,
-        data.range_score
+        data.range_score,
+        data.content_relevance,
+        data.content_confidence
     )
 
     with database() as db:
@@ -253,8 +257,10 @@ def create_user(data: CreateUserInput) -> None:
         data.app_version,
         data.gender,
         data.age_group,
-        json.dumps(data.native_languages),
-        json.dumps(data.other_languages),
+        # NULL means "not collected"; json.dumps(None) would store the string 'null',
+        # which is valid JSON but not an array, so it would trip the CHECK.
+        json.dumps(data.native_languages) if data.native_languages is not None else None,
+        json.dumps(data.other_languages) if data.other_languages is not None else None,
         data.moved_to_finland,
         data.finnish_learning_duration,
         data.finnish_self_assessment

@@ -13,12 +13,18 @@ These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the a
 - `POST /onboarding`: create a user from onboarding data.
 - `DELETE /users`: admin user deletion.
 
+> [!TIP]
+> Building a client app? [FRONTEND.md](./FRONTEND.md) documents every field, error and
+> call order in one place. The live contract is served at `/api/v1/docs` (Swagger UI)
+> and `/api/v1/openapi.json`.
+
 ## Request notes
 
 - The app is served behind a `/api/v1` root path when using the reverse proxy.
 - Most write endpoints accept form data.
 - `POST /speech/assess` requires multipart form data with a `.wav` file.
-- `DELETE /users` requires header `X-API-Key` and form field `guid`. It erases the
+- `DELETE /users` requires header `X-Delete-Key` (matching `SERVER_DELETE_KEY`) and
+  form field `guid`. It erases the
   user's row (related rows follow by FK cascade) **and** their stored recordings
   (`AUDIO_SAVE_DIR/<guid>/`). Recordings go first: if they cannot be removed the call
   fails with `500` and the user row is left in place, so the deletion stays visible and
@@ -49,6 +55,18 @@ Response fields and what to do with them:
 - `clipped` — `true` means the prediction hit the calibration boundary, so
   `proficiency` is a floor/ceiling value, not a measurement. Show "B1+ or
   above" (or flag for review) instead of presenting the capped number as real.
+- `content` (since v1.2.0) — whether the answer addressed the task:
+  `{relevance: on_topic|partial|off_topic, confidence, reason, judge}`, from a
+  separate zero-shot check run after scoring. Stored on the row as
+  `content_relevance` / `content_confidence`. **`null` means "not checked", not "off
+  topic"** — it fails open by design, and nothing is withheld in that case.
+  **On `off_topic` the five scores are withheld: zeroed in the response and stored as
+  zeros**, with `cefr_label`/`cefr_label_fine`/`dimension_labels` all `"<A1"` and
+  `clipped: false`. Scoring an answer to a different question is not a measurement of
+  the task that was set. The transcript is kept — it is the evidence for the verdict.
+  For analysis, exclude `WHERE content_relevance = 'off_topic'` rather than reading a
+  0.0 as "below A1"; the model's real output for those rows is not recoverable. See
+  `inference/dta_scorer/relevance.py` for what the judge does and does not catch.
 - Requests fail with `503 SCORING_UNAVAILABLE` while the scorer is starting
   (~20 s on GPU, ~10 min on CPU staging) or unreachable, and with
   `400 BAD_REQUEST` for a `task_id` with no mapped speaking task (valid ids: 1–5).
@@ -66,10 +84,15 @@ response, including upload on the local network, scoring, and the database write
 | 60 s             | 6.0 s         |
 | 90 s (the max)   | 8.3 s         |
 
+v1.2.0 adds ~0.7 s at every length for the `content` relevance check (one extra prefill
+on the Qwen already in VRAM); set `DTA_RELEVANCE_CHECK=0` to buy that back.
+
 Roughly **1 s of fixed cost + 1 s per 12 s of audio**. Add the learner's own upload time
 over mobile data (a 60 s recording is ~1.9 MB). The server processes one recording at a
 time — the model holds ~10 GB of VRAM and scoring is serialised — so concurrent requests
 queue rather than slow each other down. The app's `ASA_TIMEOUT` (default 60 s) is the
 ceiling; on CPU staging the same calls take 30–60 s, which is why staging sets it to 300.
 
-Uploads are rejected above **90 s** of audio (`413 FILE_TOO_LARGE`) or 10 MB (Caddy).
+Uploads are rejected above **90 s** of audio (`413 AUDIO_TOO_LONG` since v1.2.0, with
+the measured `duration_seconds` in `detail`) or 10 MB (`413 FILE_TOO_LARGE`, with
+`size_bytes`; Caddy also enforces 10 MB at the proxy).

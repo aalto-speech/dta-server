@@ -22,6 +22,7 @@ class ErrorType(str, Enum):
     USER_CONSENT_MISSING = "USER_CONSENT_MISSING"
     UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE"
     FILE_TOO_LARGE = "FILE_TOO_LARGE"
+    AUDIO_TOO_LONG = "AUDIO_TOO_LONG"
     SCORING_UNAVAILABLE = "SCORING_UNAVAILABLE"
     NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
     DATABASE_CONSTRAINT_ERROR = "DATABASE_CONSTRAINT_ERROR"
@@ -33,13 +34,22 @@ class ErrorType(str, Enum):
 
 
 class AppError(Exception):
-    """Application exception carrying status code and standardized type."""
+    """Application exception carrying status code and standardized type.
 
-    def __init__(self, status_code: int, error_type: ErrorType, message: str):
+    `extra` keys are merged into the `detail` object of the response so an error can
+    carry machine-readable context (measured sizes, retry reasons) alongside `type`
+    and `message`. `headers` are set on the HTTP response (e.g. `Retry-After`).
+    """
+
+    def __init__(self, status_code: int, error_type: ErrorType, message: str,
+                 extra: dict[str, object] | None = None,
+                 headers: dict[str, str] | None = None):
         super().__init__(message)
         self.status_code = status_code
         self.error_type = error_type
         self.message = message
+        self.extra = extra
+        self.headers = headers
 
 
 def build_error_detail(error_type: ErrorType | str, message: str) -> dict[str, str]:
@@ -101,10 +111,17 @@ async def _app_error_handler(
             app_err,
         )
 
+    detail: dict[str, object] = dict(build_error_detail(
+        app_err.error_type, app_err.message))
+    if app_err.extra:
+        # Extra keys never override the canonical envelope fields.
+        detail.update(
+            {k: v for k, v in app_err.extra.items() if k not in detail})
+
     return JSONResponse(
-        content={"detail": build_error_detail(
-            app_err.error_type, app_err.message)},
+        content={"detail": detail},
         status_code=app_err.status_code,
+        headers=app_err.headers,
     )
 
 

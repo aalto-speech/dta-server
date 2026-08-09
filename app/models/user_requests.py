@@ -31,25 +31,30 @@ class RequestToDeleteUserForm(BaseModel):
 
 
 class DeleteUserRequest(BaseModel):
-    """Admin delete-user request payload.
+    """Maintainer delete-user request payload.
 
     Attributes:
-        api_key: Admin API key.
+        delete_key: The server's SERVER_DELETE_KEY.
         guid: The user's GUID.
     """
 
-    api_key: str
+    delete_key: str
     guid: UUID
 
     @classmethod
     def as_form(
         cls,
-        x_api_key: str = Header(..., alias="X-API-Key"),
+        x_delete_key: str = Header(..., alias="X-Delete-Key"),
         guid: UUID = Form(...),
     ) -> "DeleteUserRequest":
-        """Build the model from form fields and a header."""
+        """Build the model from form fields and a header.
 
-        return cls(guid=guid, api_key=x_api_key)
+        The header was `X-API-Key` before v1.2.0. Renamed together with the variable it
+        is checked against, so there is one name for this credential everywhere; the
+        endpoint is maintainer-operated, so nothing in the app has to be updated.
+        """
+
+        return cls(guid=guid, delete_key=x_delete_key)
 
 
 class CreateUserRequestInput(BaseModel):

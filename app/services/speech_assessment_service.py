@@ -23,6 +23,10 @@ from app.validators import audio, auth
 
 logger = get_logger(__name__)
 
+# The CEFR label for a score of 0 (the pipeline's own band 0, "below A1"), used when an
+# off-topic answer's scores are withheld so labels and numbers cannot disagree.
+WITHHELD_LABEL = "<A1"
+
 # One client for the whole app; the inference service serialises scoring anyway.
 _asa = ASAClient(base_url=SETTINGS.asa_url, timeout=SETTINGS.asa_timeout)
 
@@ -54,11 +58,63 @@ async def _score(content: bytes, data: SpeechAssessmentRequest) -> dict:
             ) from err
 
         logger.error("ASA scoring failed for user %s: %s", data.guid, err)
+
+        # Three different situations hide behind one 503, and the client needs to
+        # word (and pace) its retry differently for each -- see docs/FRONTEND.md.
+        if err.timed_out:
+            reason, retry_after = "busy", 60
+            message = "Speech scoring is busy. Please try again shortly."
+        elif err.status == 503:
+            # The inference container answers but its model is still loading.
+            reason, retry_after = "starting_up", 30
+            message = "Speech scoring is starting up. Please try again in a moment."
+        else:
+            # Connection refused / DNS / a non-503 error: retrying will not help
+            # until someone fixes the scorer, so no Retry-After is promised.
+            reason, retry_after = "unreachable", None
+            message = "Speech scoring is unavailable right now. Please try again later."
+
         raise AppError(
             status_code=503,
             error_type=ErrorType.SCORING_UNAVAILABLE,
-            message="Speech scoring is temporarily unavailable. Please try again shortly.",
+            message=message,
+            extra={"reason": reason},
+            headers={"Retry-After": str(retry_after)} if retry_after else None,
         ) from err
+
+
+def _withhold_scores(result: dict) -> dict:
+    """Zero every score in a scoring result, keeping the transcript.
+
+    Used when the content judge says the answer addressed a different task. Scoring a
+    reply to another question is not a measurement of this one, so the numbers are
+    withheld rather than reported, in the response and in the database alike.
+
+    This is deliberately NOT silent: `content.relevance` travels in the same response and
+    `content_relevance` is written on the same row, so a zero is always attributable --
+    and all five scores going to zero together is a pattern no real assessment produces.
+    Labels are zeroed with them, because a 0.0 displayed next to "A2" would be worse than
+    either alone.
+
+    The transcript survives: it is what the learner actually said, it is the evidence for
+    the verdict, and it is the one part of the result that is still true.
+
+    For analysis: `WHERE content_relevance = 'off_topic'` finds these rows. Exclude them
+    rather than reading 0.0 as "below A1" -- the model's real output for these recordings
+    is not recoverable from the database.
+    """
+
+    return result | {
+        "scores": {dimension: 0.0 for dimension in result["scores"]},
+        "cefr_label": WITHHELD_LABEL,
+        "cefr_label_fine": WITHHELD_LABEL,
+        "dimension_labels": {
+            dimension: {"label": WITHHELD_LABEL, "label_fine": WITHHELD_LABEL}
+            for dimension in result["dimension_labels"]
+        },
+        # A withheld score is not a clipped measurement; it is not a measurement at all.
+        "clipped": False,
+    }
 
 
 async def assess_speech_request(
@@ -88,25 +144,30 @@ async def assess_speech_request(
 
     result = await _score(content, data)
 
-    transcript = result["transcript"]
+    relevance = result.get("content")
+    if relevance:
+        logger.info("Content relevance for user %s: %s (%.2f)",
+                    data.guid, relevance["relevance"], relevance["confidence"])
+        if relevance["relevance"] == "off_topic":
+            logger.info("Withholding scores for user %s: answer judged off-topic",
+                        data.guid)
+            result = _withhold_scores(result)
+
     scores = result["scores"]  # keys match the DB columns, except range -> range_score
-    accuracy = scores["accuracy"]
-    fluency = scores["fluency"]
-    proficiency = scores["proficiency"]
-    pronunciation = scores["pronunciation"]
-    range_score = scores["range"]
 
     assessment_id = create_assessment(AssessmentCreateInput(
         guid=data.guid,
         task_id=data.task_id,
         audio_id=audio_id,
         audio_path=audio_path,
-        transcript=transcript,
-        accuracy=accuracy,
-        fluency=fluency,
-        proficiency=proficiency,
-        pronunciation=pronunciation,
-        range_score=range_score,
+        transcript=result["transcript"],
+        accuracy=scores["accuracy"],
+        fluency=scores["fluency"],
+        proficiency=scores["proficiency"],
+        pronunciation=scores["pronunciation"],
+        range_score=scores["range"],
+        content_relevance=relevance["relevance"] if relevance else None,
+        content_confidence=relevance["confidence"] if relevance else None,
     ))
 
     # ? Enhance error handling?
@@ -119,16 +180,23 @@ async def assess_speech_request(
 
     results = SpeechAssessmentResponse(
         assessment_id=assessment_id,
+        # Echo of the id that was actually scored, so the client can assert it matches
+        # what it sent -- a mis-wired task otherwise produces a plausible wrong score
+        # with no error anywhere.
+        task_id=data.task_id,
         scores=SpeechAssessmentScores(
-            accuracy=accuracy,
-            fluency=fluency,
-            proficiency=proficiency,
-            pronunciation=pronunciation,
-            range=range_score,
+            accuracy=scores["accuracy"],
+            fluency=scores["fluency"],
+            proficiency=scores["proficiency"],
+            pronunciation=scores["pronunciation"],
+            range=scores["range"],
         ),
-        transcript=transcript,
+        # Always the real ASR output, including when the scores are withheld.
+        transcript=result["transcript"],
         cefr_label=result["cefr_label"],
         cefr_label_fine=result["cefr_label_fine"],
+        dimension_labels=result["dimension_labels"],
         clipped=result["clipped"],
+        content=relevance,
     )
     return JSONResponse(content=jsonable_encoder(results), status_code=200)

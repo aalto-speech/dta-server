@@ -47,7 +47,7 @@ Environment overrides:
   Application (saved in env file for compose.yaml):
     APP_ENV=           Application environment (default: development)
     DATABASE=          Absolute path to the application database (default: /data/dta.db)
-    ADMIN_API_KEY=     Admin API key for the application (default: empty, must be set in production environment)
+    SERVER_DELETE_KEY= Key authorising DELETE /users (default: empty, must be set in production environment)
 EOF
 }
 
@@ -150,7 +150,8 @@ UPSTREAM=${UPSTREAM:-dta:8000}
 # Environment variables for the application
 APP_ENV=${APP_ENV:-development}
 DATABASE=${DATABASE:-/data/dta.db}
-ADMIN_API_KEY=${ADMIN_API_KEY:-}
+# Pre-v1.2.0 name ADMIN_API_KEY is still accepted by the app; new installs use this one.
+SERVER_DELETE_KEY=${SERVER_DELETE_KEY:-}
 
 # * Advanced variables (not saved to env file, only used during setup)
 # Environment variables for external services and APIs
@@ -556,7 +557,7 @@ DATABASE=${DATABASE:-}
 AUDIO_SAVE_DIR=${AUDIO_SAVE_DIR:-}
 LOGS_SAVE_DIR=${LOGS_SAVE_DIR:-}
 LOG_LEVEL=${LOG_LEVEL:-}
-ADMIN_API_KEY=${ADMIN_API_KEY:-}
+SERVER_DELETE_KEY=${SERVER_DELETE_KEY:-}
 MIN_COHORT_SIZE=${MIN_COHORT_SIZE:-}
 MIN_USER_ASSESSMENTS=${MIN_USER_ASSESSMENTS:-}
 

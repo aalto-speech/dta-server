@@ -28,7 +28,7 @@ def _valid_feedback_form_data(**overrides):
         "comment": "Very useful feedback flow",
         "guid": str(uuid4()),
         "reaction_value": "5",
-        "feedback_classification": "overall_experience",
+        "feedback_classification": "result_accuracy",
     }
     data.update(overrides)
     return data
@@ -102,6 +102,7 @@ def test_feedback_endpoint_returns_success_payload_and_calls_create_feedback(
 
     form_data = _valid_feedback_form_data(
         feedback_classification="overall_experience")
+    form_data.pop("assessment_id")  # forbidden for app-scoped feedback types
     response = client.post("/feedback", data=form_data)
 
     assert response.status_code == 201
@@ -163,8 +164,8 @@ def test_feedback_routes_experience_types_to_experience_feedback(monkeypatch: py
         called.clear()
         data = _valid_feedback_form_data(
             feedback_classification=classification)
+        data.pop("assessment_id")  # forbidden for app-scoped feedback types
         request_model = FeedbackRequest(
-            assessment_id=int(data["assessment_id"]),
             comment=data["comment"],
             guid=UUID(data["guid"]),
             reaction_value=int(data["reaction_value"]),
@@ -256,3 +257,21 @@ def test_feedback_assessment_requires_assessment_id(client: TestClient):
 
     # Should reject because assessment feedback requires assessment_id
     assert response.status_code == 422
+
+
+def test_feedback_rejects_assessment_id_for_app_scoped_types(client: TestClient):
+    """Test app-scoped feedback with an assessment_id is refused loudly.
+
+    Before this rule a stray assessment_id on comparison_ui either tripped a
+    foreign-key 409 or was silently stored as a link to an unrelated assessment.
+    """
+
+    for classification in ["comparison_ui", "overall_experience"]:
+        form_data = _valid_feedback_form_data(
+            feedback_classification=classification)
+        # fixture includes assessment_id=1 -- forbidden for these types
+
+        response = client.post("/feedback", data=form_data)
+
+        assert response.status_code == 422, classification
+        assert response.json()["detail"]["type"] == "VALIDATION_ERROR"

@@ -36,23 +36,20 @@ def _valid_delete_users_form_data(**overrides):
     return data
 
 
-def test_request_user_handler_delete_calls_create_user_request(
+def test_request_user_handler_delete_deletes_immediately(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Test handler delete path stores request and returns 202."""
+    """Test the delete path erases data on receipt and answers status=deleted."""
 
     called = {}
-    logged = []
 
-    def _fake_create_user_request(data):
-        called["guid"] = str(data.guid)
-        called["type"] = str(data.type)
-
-    monkeypatch.setattr("app.services.user_request_service.create_user_request",
-                        _fake_create_user_request)
     monkeypatch.setattr(
-        "app.services.user_request_service.logger.info",
-        lambda message, *args: logged.append((message, args)),
+        "app.services.user_request_service.delete_user_audio",
+        lambda guid: called.update(audio=str(guid)) or 2,
+    )
+    monkeypatch.setattr(
+        "app.services.user_request_service.delete_user_data",
+        lambda data: called.update(rows=str(data.guid)),
     )
     data = _valid_request_user_form_data()
     request_model = UserDataRequest(
@@ -63,17 +60,82 @@ def test_request_user_handler_delete_calls_create_user_request(
     response = asyncio.run(request_user(request_model))
 
     assert response.status_code == 202
-    assert response.body == (
-        b'{"status":"request_received","message":"Your data deletion request '
-        b'has been received and is awaiting admin approval"}'
+    import json as _json
+    body = _json.loads(response.body)
+    assert body["status"] == "deleted"
+    assert called == {"audio": data["guid"], "rows": data["guid"]}
+
+
+def test_request_user_handler_delete_failure_still_202_with_pending(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Test a failed deletion is logged with the guid, recorded, and still 202.
+
+    Any 2xx means "the request arrived, stop retrying" -- an error here would make
+    the app retry a request the server already holds.
+    """
+
+    recorded = {}
+    errors = []
+
+    def _fail(_guid):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(
+        "app.services.user_request_service.delete_user_audio", _fail)
+    monkeypatch.setattr(
+        "app.services.user_request_service.create_user_request",
+        lambda data: recorded.update(guid=str(data.guid)),
     )
-    assert called == {
-        "guid": data["guid"],
-        "type": "delete",
-    }
-    assert logged == [
-        ("Stored data deletion request for user %s", (UUID(data["guid"]),)),
-    ]
+    monkeypatch.setattr(
+        "app.services.user_request_service.logger.error",
+        lambda message, *args: errors.append((message, args)),
+    )
+    data = _valid_request_user_form_data()
+    request_model = UserDataRequest(
+        guid=UUID(data["guid"]),
+        type=RequestType(data["type"]),
+    )
+
+    response = asyncio.run(request_user(request_model))
+
+    assert response.status_code == 202
+    import json as _json
+    assert _json.loads(response.body)["status"] == "pending"
+    # The failure is recorded for maintainers, with the guid, in log and database.
+    assert recorded == {"guid": data["guid"]}
+    assert errors and str(request_model.guid) in str(errors[0][1])
+
+
+def test_request_user_rejects_wrong_client_key(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Test X-Client-Key is enforced when CLIENT_API_KEY is configured."""
+
+    from dataclasses import replace as _replace
+    from app.config import SETTINGS as _settings
+    import app.validators.auth as _auth
+
+    monkeypatch.setattr(
+        _auth, "SETTINGS", _replace(_settings, client_api_key="shared-key"))
+    data = _valid_request_user_form_data()
+    request_model = UserDataRequest(
+        guid=UUID(data["guid"]),
+        type=RequestType(data["type"]),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(request_user(request_model, x_client_key="wrong"))
+
+    assert exc_info.value.status_code == 403
+
+    # And the right key passes.
+    monkeypatch.setattr(
+        "app.services.user_request_service.delete_user_audio", lambda guid: 0)
+    monkeypatch.setattr(
+        "app.services.user_request_service.delete_user_data", lambda data: None)
+    response = asyncio.run(request_user(request_model, x_client_key="shared-key"))
+    assert response.status_code == 202
 
 
 def test_request_user_handler_export_does_not_store_and_returns_501(
@@ -115,19 +177,21 @@ def test_request_user_endpoint_delete_accepts_valid_payload(
 
     called = {}
 
-    def _fake_create_user_request(data):
-        called["guid"] = str(data.guid)
-        called["type"] = str(data.type)
-
-    monkeypatch.setattr("app.services.user_request_service.create_user_request",
-                        _fake_create_user_request)
+    monkeypatch.setattr(
+        "app.services.user_request_service.delete_user_audio",
+        lambda guid: called.update(audio=str(guid)) or 0,
+    )
+    monkeypatch.setattr(
+        "app.services.user_request_service.delete_user_data",
+        lambda data: called.update(rows=str(data.guid)),
+    )
 
     response = client.post(
         "/request/user", data=_valid_request_user_form_data())
 
     assert response.status_code == 202
-    assert response.json()["status"] == "request_received"
-    assert called["type"] == "delete"
+    assert response.json()["status"] == "deleted"
+    assert "rows" in called and "audio" in called
 
 
 def test_request_user_endpoint_export_returns_not_implemented(
@@ -206,14 +270,14 @@ def test_delete_users_handler_calls_delete_user_data(
     called = {}
     logged = []
 
-    def _fake_validate_admin_access(_):
+    def _fake_validate_delete_access(_):
         return None
 
     def _fake_delete_user_data(data):
         called["guid"] = str(data.guid)
 
-    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
-                        _fake_validate_admin_access)
+    monkeypatch.setattr("app.services.admin_service.auth.validate_delete_access",
+                        _fake_validate_delete_access)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
     monkeypatch.setattr(
@@ -221,7 +285,7 @@ def test_delete_users_handler_calls_delete_user_data(
         lambda message, *args: logged.append((message, args)),
     )
 
-    request_model = DeleteUserRequest(api_key="valid-admin-key", guid=uuid4())
+    request_model = DeleteUserRequest(delete_key="valid-admin-key", guid=uuid4())
     response = asyncio.run(delete_users(request_model))
 
     assert response.status_code == 204
@@ -245,14 +309,14 @@ def test_delete_users_endpoint_accepts_valid_payload(
     called = {}
     logged = []
 
-    def _fake_validate_admin_access(_):
+    def _fake_validate_delete_access(_):
         return None
 
     def _fake_delete_user_data(data):
         called["guid"] = str(data.guid)
 
-    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
-                        _fake_validate_admin_access)
+    monkeypatch.setattr("app.services.admin_service.auth.validate_delete_access",
+                        _fake_validate_delete_access)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
     monkeypatch.setattr(
@@ -264,7 +328,7 @@ def test_delete_users_endpoint_accepts_valid_payload(
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "valid-admin-key"},
+        headers={"X-Delete-Key": "valid-admin-key"},
         data=payload,
     )
 
@@ -286,7 +350,7 @@ def test_delete_users_endpoint_rejects_invalid_api_key(
 ):
     """Test /users returns 403 for invalid API key."""
 
-    def _fake_validate_admin_access(key: str):
+    def _fake_validate_delete_access(key: str):
         if key != "valid-admin-key":
             raise AppError(
                 status_code=403,
@@ -294,13 +358,13 @@ def test_delete_users_endpoint_rejects_invalid_api_key(
                 message="Invalid API key",
             )
 
-    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
-                        _fake_validate_admin_access)
+    monkeypatch.setattr("app.services.admin_service.auth.validate_delete_access",
+                        _fake_validate_delete_access)
 
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "invalid"},
+        headers={"X-Delete-Key": "invalid"},
         data=_valid_delete_users_form_data(),
     )
 
@@ -314,7 +378,7 @@ def test_delete_users_endpoint_rejects_invalid_api_key(
 
 
 def test_delete_users_endpoint_rejects_missing_api_key_header(client: TestClient):
-    """Test /users returns 422 when X-API-Key header is missing."""
+    """Test /users returns 422 when X-Delete-Key header is missing."""
 
     response = client.request(
         "DELETE", "/users", data=_valid_delete_users_form_data())
@@ -329,12 +393,12 @@ def test_delete_users_endpoint_rejects_invalid_guid(
     """Test /users returns 422 for invalid GUID format."""
 
     monkeypatch.setattr(
-        "app.services.admin_service.auth.validate_admin_access", lambda _key: None)
+        "app.services.admin_service.auth.validate_delete_access", lambda _key: None)
 
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "valid-admin-key"},
+        headers={"X-Delete-Key": "valid-admin-key"},
         data=_valid_delete_users_form_data(guid="not-a-guid"),
     )
 
@@ -348,12 +412,12 @@ def test_delete_users_endpoint_rejects_missing_guid(
     """Test /users returns 422 when guid form field is missing."""
 
     monkeypatch.setattr(
-        "app.services.admin_service.auth.validate_admin_access", lambda _key: None)
+        "app.services.admin_service.auth.validate_delete_access", lambda _key: None)
 
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "valid-admin-key"},
+        headers={"X-Delete-Key": "valid-admin-key"},
         data={},
     )
 
@@ -379,14 +443,14 @@ def test_delete_users_auth_failure_short_circuits_before_delete(
         called["delete_user_data"] = True
 
     monkeypatch.setattr(
-        "app.services.admin_service.auth.validate_admin_access", _deny_admin_access)
+        "app.services.admin_service.auth.validate_delete_access", _deny_admin_access)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
 
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "invalid"},
+        headers={"X-Delete-Key": "invalid"},
         data=_valid_delete_users_form_data(),
     )
 

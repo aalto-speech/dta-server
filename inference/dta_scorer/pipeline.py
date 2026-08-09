@@ -15,6 +15,7 @@ Thread safety: scoring is serialised on an internal lock. The forward pass is GP
 concurrent calls would trade throughput for OOM risk without going faster. Scale with more
 processes on more GPUs, not more threads.
 """
+import logging
 import threading
 import time
 
@@ -25,8 +26,12 @@ from .audio import chunk_to_features, load_wave
 from .calibration import IsotonicCalibrator
 from .config import DEVICE, DIM_ORDER, SAMPLE_RATE, load_model_card
 from .prompt import build_llm_input, build_prompt
+from .relevance import ENABLED as RELEVANCE_ENABLED
+from .relevance import RelevanceJudge
 from .scorer import MCasaScorer
 from .tasks import TaskCatalogue
+
+log = logging.getLogger(__name__)
 
 CEFR_LABELS = {0: "<A1", 1: "A1", 2: "A2", 3: "B1", 4: "B2", 5: "C1", 6: "C2"}
 
@@ -59,6 +64,9 @@ class ScoringPipeline:
         self.card = load_model_card()
         self.asr = FinnishASR(device=device)
         self.scorer = MCasaScorer(device=device)
+        # Reuses the scorer's Qwen with the adapter switched off — no second model, no extra
+        # VRAM. Set DTA_RELEVANCE_CHECK=0 to serve scores without the content channel.
+        self.judge = RelevanceJudge(self.scorer, device=device) if RELEVANCE_ENABLED else None
         self._lock = threading.Lock()
 
     def warmup(self) -> None:
@@ -74,6 +82,21 @@ class ScoringPipeline:
         out = self.scorer.score(feats, bounds, task.model_task_id, prompt)
         out["audio"] = info
         return out
+
+    def _judge(self, task, transcript: str) -> dict | None:
+        """Topical-relevance verdict, or None when the check is off or has failed.
+
+        FAIL OPEN, deliberately. The score above this line was computed correctly; a broken
+        side channel must not cost the learner that result. Callers render a missing block
+        as "not checked" — see docs/FRONTEND.md.
+        """
+        if self.judge is None:
+            return None
+        try:
+            return self.judge.judge(task, transcript)
+        except Exception:  # pylint: disable=broad-exception-caught  # never fail the score
+            log.exception("relevance check failed; returning the score without it")
+            return None
 
     def score_file(self, audio_path: str, task_key: str,
                    transcript: str | None = None) -> dict:
@@ -106,7 +129,9 @@ class ScoringPipeline:
                 transcript = self.asr.transcribe(wave)
             t_asr = time.perf_counter()
             raw = self._forward(wave, task, transcript)
-        t_score = time.perf_counter()
+            t_score = time.perf_counter()
+            content = self._judge(task, transcript)
+        t_judge = time.perf_counter()
 
         cefr_raw = raw["cefr_raw"]
         cefr_cal = self.calibrator(cefr_raw)
@@ -133,6 +158,10 @@ class ScoringPipeline:
                     "calibration": None}
                 for d in DIM_ORDER
             },
+            # Topical relevance: does the transcript answer THIS task? A side channel — it
+            # is computed after the scores and cannot change them. None = not checked
+            # (disabled, or the judge failed), which callers must read as "show the score".
+            "content": content,
             # Stated, not hidden: the headline CEFR is calibrated and the dims are not, so the
             # OLS of the shown dims does not equal the shown CEFR (mean gap 0.217 on test).
             # Per-dim calibration was measured and rejected — it worsens 3 of the 4 dims.
@@ -149,6 +178,7 @@ class ScoringPipeline:
                 "audio_load": round((t_load - t0) * 1000, 1),
                 "asr": round((t_asr - t_load) * 1000, 1),
                 "scoring": round((t_score - t_asr) * 1000, 1),
-                "total": round((t_score - t0) * 1000, 1),
+                "relevance": round((t_judge - t_score) * 1000, 1),
+                "total": round((t_judge - t0) * 1000, 1),
             },
         }

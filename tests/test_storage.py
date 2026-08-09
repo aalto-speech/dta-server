@@ -77,14 +77,14 @@ def test_delete_user_deletes_recordings_and_rows(monkeypatch: pytest.MonkeyPatch
     directory = _make_recordings(guid, 2)
     deleted_rows = {}
 
-    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
+    monkeypatch.setattr("app.services.admin_service.auth.validate_delete_access",
                         lambda _: None)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data",
         lambda data: deleted_rows.update(guid=str(data.guid)),
     )
 
-    response = delete_user(DeleteUserRequest(api_key="valid-admin-key", guid=guid))
+    response = delete_user(DeleteUserRequest(delete_key="valid-admin-key", guid=guid))
 
     assert response.status_code == 204
     assert not directory.exists()
@@ -106,7 +106,7 @@ def test_delete_user_keeps_rows_when_recordings_cannot_be_deleted(
     def _fail(_):
         raise OSError("permission denied")
 
-    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
+    monkeypatch.setattr("app.services.admin_service.auth.validate_delete_access",
                         lambda _: None)
     monkeypatch.setattr("app.services.admin_service.delete_user_audio", _fail)
     monkeypatch.setattr(
@@ -115,7 +115,7 @@ def test_delete_user_keeps_rows_when_recordings_cannot_be_deleted(
     )
 
     with pytest.raises(AppError) as excinfo:
-        delete_user(DeleteUserRequest(api_key="key", guid=guid))
+        delete_user(DeleteUserRequest(delete_key="key", guid=guid))
 
     assert excinfo.value.status_code == 500
     assert called["rows"] is False

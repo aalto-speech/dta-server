@@ -308,3 +308,59 @@ def test_normalize_cohort_size_raises_directly() -> None:
 
     with pytest.raises(ValueError):
         ComparisonResponse.normalize_cohort_size(-1)
+
+
+@pytest.mark.parametrize(
+    "sent, expected",
+    [
+        ("14", DayWindow.FORTNIGHT),
+        ("30", DayWindow.MONTH),
+        ("1460", DayWindow.FOUR_YEARS),
+        ("", DayWindow.ALL_TIME),
+        ("all", DayWindow.ALL_TIME),
+    ],
+)
+def test_analytics_comparison_accepts_form_encoded_day_windows(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, sent: str,
+    expected: DayWindow,
+):
+    """Test day windows survive form encoding, where every value arrives as a string."""
+
+    captured = {}
+
+    def _fake_get_cohort_stats(data: GetCohortStatsInput) -> ComparisonStats:
+        captured["days"] = data.days
+        return ComparisonStats(
+            cefr_level=CEFRLevel.B1,
+            cohort_size=SETTINGS.min_cohort_size,
+            percentile=0.5,
+            rank=1,
+        )
+
+    monkeypatch.setattr("app.services.analytics_service.auth.validate_user_access",
+                        lambda guid: None)
+    monkeypatch.setattr(
+        "app.services.analytics_service.get_cohort_stats", _fake_get_cohort_stats)
+
+    form_data = _valid_form_data()
+    form_data["days"] = sent
+    response = client.post("/analytics/comparison", data=form_data)
+
+    assert response.status_code == 200
+    assert captured["days"] == expected
+
+
+def test_analytics_comparison_rejects_an_unknown_day_window(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Test a window that is not on the allowed list still fails validation."""
+
+    monkeypatch.setattr("app.services.analytics_service.auth.validate_user_access",
+                        lambda guid: None)
+
+    form_data = _valid_form_data()
+    form_data["days"] = "7"
+    response = client.post("/analytics/comparison", data=form_data)
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["type"] == "VALIDATION_ERROR"

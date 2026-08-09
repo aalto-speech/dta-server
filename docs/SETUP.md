@@ -52,7 +52,7 @@ chmod +x ./setup.sh
              -e ACME_EMAIL=john.smith@example.com \
              -e DOMAIN=example.com \
              -e APP_ENV=production \
-             -e ADMIN_API_KEY=your-secret-admin-api-key
+             -e SERVER_DELETE_KEY=your-secret-delete-key
   set -o history
   ```
 
@@ -70,7 +70,7 @@ of `:latest`, and typically has no GPU. Differences from the production install:
              -e ACME_EMAIL=<your-email> \
              -e DOMAIN=<staging-domain> \
              -e APP_ENV=staging \
-             -e ADMIN_API_KEY=$(openssl rand -hex 32)
+             -e SERVER_DELETE_KEY=$(openssl rand -hex 32)
   ```
 
 - After setup, append the staging overrides to `~/.config/dta/env`:
@@ -263,13 +263,16 @@ when the line is left empty.
 | `AUDIO_SAVE_DIR`       | `/data/audio`     | Directory for saving audio files.                                    |
 | `LOGS_SAVE_DIR`        | `/data/logs`      | Directory for saving log files.                                      |
 | `LOG_LEVEL`            | `INFO`            | Logging level (compose default; the app alone defaults to WARNING).  |
-| `ADMIN_API_KEY`        | empty             | Admin API key for the application.                                   |
+| `SERVER_DELETE_KEY`    | empty             | Authorises `DELETE /users` — the only thing it opens. Required in production. Renamed from `ADMIN_API_KEY` in v1.2.0; the old name is still read, with a startup warning. |
 | `MIN_COHORT_SIZE`      | `100`             | Minimum cohort size for analytics or assessments.                    |
 | `MIN_USER_ASSESSMENTS` | `3`               | Minimum number of user assessments required.                         |
 | `DTA_TAG`              | `latest`          | Image tag both containers run (`staging` on staging servers).        |
 | `DTA_DEVICE`           | `cuda`            | Device for the speech scorer (`cpu` on staging without GPU).         |
 | `DTA_AUTOCAST_DTYPE`   | `bfloat16`        | Scorer autocast dtype. Production sets `float16`: its P100 (Pascal) has no bf16, and fp32 halves throughput. |
 | `ASA_TIMEOUT`          | `60`              | App-side timeout (s) for one scoring call (`300` on CPU staging).    |
+| `CLIENT_API_KEY`       | empty             | Shared key the mobile app sends as `X-Client-Key` on `/request/user`. Empty = header ignored. Ships inside the APK, so it deters casual scripting only — keep it distinct from `SERVER_DELETE_KEY`. |
+| `DTA_RELEVANCE_CHECK`  | `1`               | Topical-relevance judge (`content` block). `0` serves scores without it; costs ~0.7 s/request on the P100. |
+| `DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE` | `0.6` | Below this probability an `off_topic` verdict is returned as `partial`. Raise to be more cautious. |
 
 ### Advanced variables (only used during setup)
 

@@ -12,6 +12,10 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       DATABASE: ${DATABASE:-/data/dta.db}
+      # Authorises DELETE /users, nothing else. ADMIN_API_KEY is the pre-v1.2.0 name,
+      # still read by the app so a stale env file cannot block a GDPR deletion; drop it
+      # from here once both servers set SERVER_DELETE_KEY.
+      SERVER_DELETE_KEY: ${SERVER_DELETE_KEY:-}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Internal address of the inference service (compose network, never published).
@@ -43,6 +47,15 @@ services:
       DTA_AUTOCAST_DTYPE: ${DTA_AUTOCAST_DTYPE:-bfloat16}
       DTA_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DTA_WARMUP: "1"
+      # Topical-relevance judge (the `content` block on /speech/assess). Reuses the Qwen
+      # already loaded for scoring with its LoRA disabled, so it costs no extra VRAM --
+      # but it does cost ~0.7 s per request on the P100. Set to 0 to serve scores without
+      # it; the app and the client both treat a missing block as "not checked".
+      DTA_RELEVANCE_CHECK: ${DTA_RELEVANCE_CHECK:-1}
+      # An off_topic verdict below this probability is returned as `partial` instead,
+      # because the app withholds a score on off_topic. Chosen from measurements in
+      # inference/dta_scorer/relevance.py; do not lower it without labelled data.
+      DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE: ${DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE:-0.6}
     # Uncomment on GPU hosts (production). Left commented because podman-compose on a
     # GPU-less host handles nvidia device reservations unreliably.
     # deploy:

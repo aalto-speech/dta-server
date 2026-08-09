@@ -106,6 +106,35 @@ def main() -> int:
     check("transcript produced by ASR", out["transcript_source"].startswith("asr:"),
           f"{len(out['transcript'])} chars from 8 s of noise")
 
+    # ---- content relevance -------------------------------------------------------------
+    # Skipped, not failed, when DTA_RELEVANCE_CHECK=0: serving without the content channel
+    # is a supported configuration.
+    if pipe.judge is None:
+        print("skip  relevance judge (DTA_RELEVANCE_CHECK=0)")
+    else:
+        check("relevance block present on every result",
+              isinstance(out["content"], dict)
+              and out["content"]["relevance"] in ("on_topic", "partial", "off_topic"),
+              f"{out['content']} on 8 s of noise")
+
+        # Supplied transcripts, so this tests the judge and not the ASR. The task asks what
+        # the candidate normally does at home; the second answer is about a nuclear reactor,
+        # which is the research repo's own attack shape.
+        home = cat.get("04_h")
+        t2 = time.perf_counter()
+        on = pipe.judge.judge(home, "Kotona minä teen ruokaa ja siivoan melkein joka päivä. "
+                                    "Illalla katson televisiota ja luen kirjaa.")
+        off = pipe.judge.judge(home, "Ydinreaktori tuottaa sähköä ja siinä käytetään "
+                                     "uraania polttoaineena. Reaktorin jäähdytys on "
+                                     "tärkeää turvallisuuden takia.")
+        judge_ms = (time.perf_counter() - t2) * 500  # two calls
+        check("judge separates on-topic from off-topic",
+              on["relevance"] == "on_topic" and off["relevance"] == "off_topic",
+              f"on={on['relevance']} {on['confidence']:.2f} / "
+              f"off={off['relevance']} {off['confidence']:.2f}, ~{judge_ms:.0f} ms each")
+        check("silence is not sent to the judge",
+              pipe.judge.judge(home, "  ...  ")["relevance"] == "off_topic")
+
     print(f"\n{'PASS' if not fails else 'FAIL: ' + ', '.join(fails)}")
     if not fails:
         print("Deployment is functional. Numerical agreement with the research run is a "

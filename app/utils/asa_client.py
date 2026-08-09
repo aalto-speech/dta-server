@@ -15,7 +15,7 @@ Nothing else in this package needs to exist on the application side.
 The returned `scores` keys are dta-server's column names, so they drop straight into
 AssessmentCreateInput. See INTEGRATION.md for the full patch.
 
-TWO THINGS THE CALLER MUST HANDLE, both of which are silent if ignored:
+THREE THINGS THE CALLER MUST HANDLE, all of which are silent if ignored:
 
 1. SCALE. These are CEFR values on a 0-6 scale (0=<A1, 1=A1, 2=A2, 3=B1, ...), not a rating
    out of 5. dta-server's `Score` bound and DB CHECKs were widened to 0-6 accordingly --
@@ -26,6 +26,9 @@ TWO THINGS THE CALLER MUST HANDLE, both of which are silent if ignored:
    the CEFR scale but are not algebraically consistent with the holistic score (mean gap 0.22
    on the held-out test set). Per-dimension calibration was measured and rejected because it
    made 3 of the 4 dimensions worse.
+
+3. `content` MAY BE ABSENT. The topical-relevance judge fails open, so a missing block means
+   "not checked", not "off topic". Never withhold a score because the block is absent.
 """
 from __future__ import annotations
 
@@ -38,12 +41,19 @@ DEFAULT_TIMEOUT = 60.0
 
 
 class ASAError(RuntimeError):
-    """Inference service failed. `.status` is the HTTP code, or None if unreachable."""
+    """Inference service failed. `.status` is the HTTP code, or None if unreachable.
 
-    def __init__(self, message: str, status: int | None = None, detail: str | None = None):
+    `.timed_out` separates "the request ran out of time" (scorer alive but busy --
+    worth retrying later) from "the connection failed" (scorer down -- retrying is
+    pointless). Both arrive with status=None, so the flag is the only way to tell.
+    """
+
+    def __init__(self, message: str, status: int | None = None, detail: str | None = None,
+                 timed_out: bool = False):
         super().__init__(message)
         self.status = status
         self.detail = detail
+        self.timed_out = timed_out
 
 
 class ASAClient:
@@ -81,6 +91,10 @@ class ASAClient:
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as c:
                 r = await c.post(f"{self.base_url}/score", files=files, data=data)
+        except httpx.TimeoutException as e:
+            raise ASAError(
+                f"inference service timed out after {self.timeout}s (busy or wedged): {e}",
+                timed_out=True) from e
         except httpx.RequestError as e:
             raise ASAError(f"inference service unreachable at {self.base_url}: {e}") from e
 
@@ -113,10 +127,22 @@ def to_server_shape(payload: dict) -> dict:
         },
         "cefr_label": cefr["label"],              # coarse, floored: 2.9 -> "A2"
         "cefr_label_fine": cefr["label_fine"],    # half-steps: 2.5 -> "A2+"
+        # Same banding applied to each raw dimension, so a client showing five labelled
+        # rows derives none of them locally. NB fine labels ROUND to the nearest half
+        # step (2.3 -> "A2+"); they are not floor-based intervals.
+        "dimension_labels": {
+            d: {"label": dims[d]["label"], "label_fine": dims[d]["label_fine"]}
+            for d in ("fluency", "pronunciation", "range", "accuracy")
+        },
         # True when the raw prediction fell outside the calibrator's fitted range, so the
         # score is a boundary value rather than a measurement. The model cannot resolve
         # above B1+ (3.5) at all -- surface this rather than presenting a capped score as real.
         "clipped": cefr["clipped_to_calibration_range"],
+        # Topical relevance of the transcript to the task: {relevance, confidence, reason,
+        # judge} or None when the service did not check (older image, judge disabled, or the
+        # judge failed and fell open). None must render as "show the score unannotated" --
+        # it is never a licence to withhold one.
+        "content": payload.get("content"),
         "reportable_range": cefr["reportable_range"],
         "proficiency_uncalibrated": cefr["score_uncalibrated"],
         "task": payload["task"],

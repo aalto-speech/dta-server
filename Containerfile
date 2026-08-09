@@ -26,6 +26,12 @@ RUN apt-get update \
 COPY --from=builder /opt/conda/envs/app /opt/conda/envs/app
 COPY . .
 
+# Release version baked in by the CD workflow (--build-arg SERVER_VERSION=...):
+# the release tag on releases, staging-<sha> on dev pushes. Served by /status and
+# as OpenAPI info.version so clients can feature-detect (docs/FRONTEND.md).
+ARG SERVER_VERSION=0.0.0-dev
+ENV DTA_SERVER_VERSION=${SERVER_VERSION}
+
 # Prevent Python from writing .pyc files and buffering stdout
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
