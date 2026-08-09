@@ -411,8 +411,12 @@ The user exercising their data rights from inside the app.
 
 Optional header: `X-Client-Key` — validated only when the server configures
 `CLIENT_API_KEY` (403 `INVALID_API_KEY` on mismatch). It is a guardrail against
-scripted abuse, not a security boundary, and it is a different secret from the admin
-key by construction (the server refuses to start if they are equal).
+scripted abuse, not a security boundary: it ships inside the app binary.
+
+It is a **different credential from the delete key** and opens far less. `X-Client-Key`
+lets a caller *ask* for the deletion of a guid they already hold; erasing data outright
+needs `X-Delete-Key` on `DELETE /users`, which never leaves the server. Do not set them
+to the same value — the app key is recoverable from a decompiled build.
 
 **`delete` deletes immediately (since v1.2.0)** — recordings first, then database rows
 — and always answers **202** with the outcome in the body:
