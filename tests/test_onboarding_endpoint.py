@@ -107,15 +107,61 @@ def test_onboarding_endpoint_rejects_invalid_guid(client: TestClient):
     assert response.status_code == 422
 
 
-def test_onboarding_endpoint_rejects_missing_fields(client: TestClient):
-    """Test /onboarding returns 422 when required fields are missing."""
+def test_onboarding_endpoint_rejects_missing_required_tier_fields(client: TestClient):
+    """Test /onboarding returns 422 only when a REQUIRED-tier field is missing."""
+
+    for required in ("guid", "consent_accepted", "consent_timestamp",
+                     "finnish_self_assessment"):
+        data = _valid_onboarding_form_data()
+        data.pop(required)
+
+        response = client.post("/onboarding", data=data)
+
+        assert response.status_code == 422, required
+
+
+def test_onboarding_endpoint_accepts_missing_metadata_fields(client: TestClient):
+    """Test dropped research-metadata questions never block account creation.
+
+    The background form changes over the life of the study (moved_to_finland and
+    finnish_learning_duration were dropped in 2026-08); a missing or empty metadata
+    field must store null, not 422.
+    """
 
     data = _valid_onboarding_form_data()
-    data.pop("age_group")
+    for metadata in ("age_group", "gender", "moved_to_finland",
+                     "finnish_learning_duration", "native_languages",
+                     "other_languages", "background_form_completed",
+                     "background_form_timestamp"):
+        data.pop(metadata, None)
 
     response = client.post("/onboarding", data=data)
 
-    assert response.status_code == 422
+    assert response.status_code == 201
+
+
+def test_onboarding_endpoint_treats_empty_metadata_as_null(client: TestClient):
+    """Test empty form values (field sent, no answer) are accepted as null."""
+
+    data = _valid_onboarding_form_data()
+    data.update(age_group="", gender="", moved_to_finland="",
+                finnish_learning_duration="", native_languages="",
+                other_languages="")
+
+    response = client.post("/onboarding", data=data)
+
+    assert response.status_code == 201
+
+
+def test_onboarding_endpoint_ignores_unknown_fields(client: TestClient):
+    """Test a newer app sending an undeployed question is a no-op, not a 422."""
+
+    data = _valid_onboarding_form_data()
+    data["a_question_from_the_future"] = "some answer"
+
+    response = client.post("/onboarding", data=data)
+
+    assert response.status_code == 201
 
 
 def test_onboarding_endpoint_accepts_moved_to_finland_under_2015(client: TestClient):

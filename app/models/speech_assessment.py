@@ -73,28 +73,45 @@ class SpeechAssessmentScores(BaseModel):
     range: Score
 
 
+class DimensionLabel(BaseModel):
+    """CEFR labels for one analytic dimension, same banding as the holistic score."""
+
+    label: str
+    label_fine: str
+
+
 class SpeechAssessmentResponse(BaseModel):
     """Speech assessment response payload.
 
     Attributes:
         assessment_id (int): The created assessment ID.
+        task_id (int): Echo of the task id that was scored. Clients should assert
+            it equals the id they sent: a mismatch means the score was computed
+            against the wrong task, which is otherwise silent.
         scores (SpeechAssessmentScores): The individual scores. Only `proficiency`
             is calibrated; the four dimensions are raw model outputs on the same
             CEFR scale.
         transcript (str): The transcribed text.
-        cefr_label (str): Coarse CEFR label for `proficiency` (2.9 -> "A2").
-            Prefer showing labels in the UI: "2.1" reads as a mark out of 5.
-        cefr_label_fine (str): Half-step CEFR label (2.5 -> "A2+").
+        cefr_label (str): Coarse CEFR label for `proficiency`, FLOORED to the band
+            (2.9 -> "A2"). Prefer showing labels in the UI: "2.1" reads as a mark
+            out of 5.
+        cefr_label_fine (str): Half-step CEFR label, ROUNDED to the nearest half
+            step (2.3 -> "A2+", 2.75 -> "B1"). Not a floor-based interval.
+        dimension_labels (dict[str, DimensionLabel]): The same labels for each of
+            fluency, pronunciation, range, accuracy, so a client rendering five
+            labelled rows derives none of them locally.
         clipped (bool): True when the raw prediction fell outside the calibrator's
             range, so `proficiency` is a boundary value (the model cannot resolve
             above B1+ / 3.5) rather than a measurement.
     """
 
     assessment_id: int
+    task_id: int
     scores: SpeechAssessmentScores
     transcript: str
     cefr_label: str
     cefr_label_fine: str
+    dimension_labels: dict[str, DimensionLabel]
     clipped: bool = False
 
 
