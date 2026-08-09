@@ -53,6 +53,12 @@ def _fake_asa_result() -> dict:
         },
         "cefr_label": "A2",
         "cefr_label_fine": "A2",
+        "dimension_labels": {
+            "fluency": {"label": "A2", "label_fine": "A2"},
+            "pronunciation": {"label": "A2", "label_fine": "A2+"},
+            "range": {"label": "A1", "label_fine": "A2"},
+            "accuracy": {"label": "C1", "label_fine": "C1+"},
+        },
         "clipped": False,
         "reportable_range": [1.14, 3.5],
         "proficiency_uncalibrated": 1.98,
@@ -131,6 +137,10 @@ def test_assess_speech_success_returns_scores_and_transcript(
     assert payload["transcript"] == "Hei maailma"
     assert payload["cefr_label"] == "A2"
     assert payload["cefr_label_fine"] == "A2"
+    # Echo of the scored task id, so a mis-wired client fails loudly (item 9).
+    assert payload["task_id"] == 1
+    assert payload["dimension_labels"]["accuracy"] == {
+        "label": "C1", "label_fine": "C1+"}
     assert payload["clipped"] is False
     assert captured["assess_args"]["task_id"] == 1
     assert captured["assess_args"]["filename"] == "sample.wav"

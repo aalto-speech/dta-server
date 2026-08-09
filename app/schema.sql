@@ -1,14 +1,24 @@
+-- Two tiers of user fields (see docs/FRONTEND.md "Onboarding"):
+--   Required:  guid, consent_accepted, consent_timestamp, cefr_level. Without these
+--              there is no user, no lawful basis, or no cohort for analytics.
+--   Metadata:  everything else. Research questions come and go over the life of the
+--              study, so a dropped question must never block account creation --
+--              these columns are nullable and NULL simply means "not collected".
+--              (moved_to_finland and finnish_learning_duration were dropped from the
+--              app's background form in 2026-08; historical rows keep their values.)
 CREATE TABLE
   IF NOT EXISTS users (
     guid TEXT PRIMARY KEY, -- pseudonymous user ID (GUID)
     consent_accepted INTEGER NOT NULL CHECK (consent_accepted IN (0, 1)),
     consent_timestamp TEXT NOT NULL, -- ISO 8601 timestamp
     app_version TEXT, -- app version shown during consent
-    gender TEXT NOT NULL CHECK (
-      gender IN ('woman', 'man', 'other', 'prefer_not_to_answer')
+    gender TEXT CHECK (
+      gender IS NULL
+      OR gender IN ('woman', 'man', 'other', 'prefer_not_to_answer')
     ),
-    age_group TEXT NOT NULL CHECK (
-      age_group IN (
+    age_group TEXT CHECK (
+      age_group IS NULL
+      OR age_group IN (
         'age_18_28',
         'age_29_39',
         'age_40_50',
@@ -17,17 +27,24 @@ CREATE TABLE
       )
     ),
     -- Store multi-select fields as JSON text arrays, e.g. '["Vietnamese","English"]'
-    native_languages TEXT NOT NULL CHECK (
-      json_valid (native_languages)
-      AND json_type (native_languages) = 'array'
-      AND json_array_length (native_languages) > 0
+    native_languages TEXT CHECK (
+      native_languages IS NULL
+      OR (
+        json_valid (native_languages)
+        AND json_type (native_languages) = 'array'
+        AND json_array_length (native_languages) > 0
+      )
     ),
-    other_languages TEXT NOT NULL CHECK (
-      json_valid (other_languages)
-      AND json_type (other_languages) = 'array'
+    other_languages TEXT CHECK (
+      other_languages IS NULL
+      OR (
+        json_valid (other_languages)
+        AND json_type (other_languages) = 'array'
+      )
     ),
-    moved_to_finland TEXT NOT NULL CHECK (
-      moved_to_finland = 'before_2015'
+    moved_to_finland TEXT CHECK (
+      moved_to_finland IS NULL
+      OR moved_to_finland = 'before_2015'
       OR (
         length (moved_to_finland) = 4
         AND moved_to_finland GLOB '[0-9][0-9][0-9][0-9]'
@@ -35,8 +52,9 @@ CREATE TABLE
         AND CAST(moved_to_finland AS INTEGER) <= 2100 -- * make sure it's a reasonable year
       )
     ), -- e.g. '2025', '2024', ... '2015', 'before_2015'
-    finnish_learning_duration TEXT NOT NULL CHECK (
-      finnish_learning_duration IN (
+    finnish_learning_duration TEXT CHECK (
+      finnish_learning_duration IS NULL
+      OR finnish_learning_duration IN (
         'months_0_3',
         'months_3_6',
         'months_6_9',
