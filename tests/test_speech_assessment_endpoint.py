@@ -428,9 +428,8 @@ def test_assess_speech_returns_and_stores_content_relevance(
         "reason": "The answer does not address the task that was asked.",
         "judge": "dta-relevance-v1",
     }
-    # The verdict must never move a score -- these are the unchanged model outputs.
-    assert payload["scores"]["proficiency"] == 2.1
-    assert stored == {"content_relevance": "off_topic", "content_confidence": 0.93}
+    assert stored["content_relevance"] == "off_topic"
+    assert stored["content_confidence"] == 0.93
     os.unlink(captured["temp_path"])
 
 
@@ -463,4 +462,99 @@ def test_assess_speech_omits_content_when_not_checked(
     assert response.json()["content"] is None
     assert response.json()["scores"]["proficiency"] == 2.1
     assert stored == {"content_relevance": None, "content_confidence": None}
+    os.unlink(captured["temp_path"])
+
+
+def _patch_with_relevance(monkeypatch: pytest.MonkeyPatch, captured: dict,
+                          stored: dict, relevance: str):
+    """Happy path where the scorer returns a given relevance verdict."""
+
+    _patch_happy_path(monkeypatch, captured)
+
+    async def _fake_assess(content, task_id, filename="audio.wav", transcript=None):
+        captured["assess_args"] = {"content": content, "task_id": task_id,
+                                   "filename": filename, "transcript": transcript}
+        result = _fake_asa_result()
+        result["content"] = {"relevance": relevance, "confidence": 0.93,
+                             "reason": None, "judge": "dta-relevance-v1"}
+        return result
+
+    def _record(data):
+        stored.update(
+            accuracy=data.accuracy, fluency=data.fluency, proficiency=data.proficiency,
+            pronunciation=data.pronunciation, range_score=data.range_score,
+            transcript=data.transcript, content_relevance=data.content_relevance)
+        return 11
+
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service._asa.assess", _fake_assess)
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.create_assessment", _record)
+
+
+def test_off_topic_answer_has_all_scores_withheld_as_zero(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """An answer to a different task is not a measurement, so every score is zeroed.
+
+    The response and the stored row must agree, and the labels must agree with the
+    numbers -- a 0.0 shown next to "A2" would be worse than either alone.
+    """
+
+    captured, stored = {}, {}
+    _patch_with_relevance(monkeypatch, captured, stored, "off_topic")
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scores"] == {
+        "accuracy": 0.0, "fluency": 0.0, "proficiency": 0.0,
+        "pronunciation": 0.0, "range": 0.0,
+    }
+    assert payload["cefr_label"] == "<A1"
+    assert payload["cefr_label_fine"] == "<A1"
+    assert all(label == {"label": "<A1", "label_fine": "<A1"}
+               for label in payload["dimension_labels"].values())
+    # A withheld score is not a clipped measurement.
+    assert payload["clipped"] is False
+    # The transcript is what the learner actually said and is the evidence for the
+    # verdict, so it survives the zeroing.
+    assert payload["transcript"] == "Hei maailma"
+    assert stored == {
+        "accuracy": 0.0, "fluency": 0.0, "proficiency": 0.0, "pronunciation": 0.0,
+        "range_score": 0.0, "transcript": "Hei maailma",
+        "content_relevance": "off_topic",
+    }
+    os.unlink(captured["temp_path"])
+
+
+@pytest.mark.parametrize("relevance", ["on_topic", "partial"])
+def test_on_topic_and_partial_answers_keep_their_scores(
+    relevance: str,
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """Only off_topic withholds. `partial` annotates; it must not touch the numbers."""
+
+    captured, stored = {}, {}
+    _patch_with_relevance(monkeypatch, captured, stored, relevance)
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scores"]["proficiency"] == 2.1
+    assert payload["cefr_label"] == "A2"
+    assert payload["content"]["relevance"] == relevance
+    assert stored["proficiency"] == 2.1
     os.unlink(captured["temp_path"])
