@@ -12,6 +12,10 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       DATABASE: ${DATABASE:-/data/dta.db}
+      # Authorises DELETE /users, nothing else. ADMIN_API_KEY is the pre-v1.2.0 name,
+      # still read by the app so a stale env file cannot block a GDPR deletion; drop it
+      # from here once both servers set SERVER_DELETE_KEY.
+      SERVER_DELETE_KEY: ${SERVER_DELETE_KEY:-}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Internal address of the inference service (compose network, never published).

@@ -4,20 +4,20 @@ import pytest
 
 from app.config import SETTINGS
 from app.error_handlers import AppError, ErrorType
-from app.validators.auth import validate_admin_access, validate_user_access
+from app.validators.auth import validate_delete_access, validate_user_access
 
 
-def test_validate_admin_access_accepts_matching_api_key() -> None:
+def test_validate_delete_access_accepts_matching_key() -> None:
     """Admin access should pass when the provided API key matches settings."""
 
-    validate_admin_access(api_key=SETTINGS.admin_api_key)
+    validate_delete_access(delete_key=SETTINGS.server_delete_key)
 
 
-def test_validate_admin_access_rejects_invalid_api_key() -> None:
+def test_validate_delete_access_rejects_invalid_key() -> None:
     """Admin access should raise a typed error for an invalid API key."""
 
     with pytest.raises(AppError) as err:
-        validate_admin_access(api_key=f"{SETTINGS.admin_api_key}-invalid")
+        validate_delete_access(delete_key=f"{SETTINGS.server_delete_key}-invalid")
 
     assert err.value.status_code == 403
     assert err.value.error_type == ErrorType.INVALID_API_KEY

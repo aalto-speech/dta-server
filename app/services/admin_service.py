@@ -25,7 +25,7 @@ def delete_user(data: DeleteUserRequest) -> Response:
             place so the deletion stays visibly outstanding and can be retried.
     """
 
-    auth.validate_admin_access(data.api_key)
+    auth.validate_delete_access(data.delete_key)
 
     # Recordings go first, deliberately. Deleting the row first and then failing on
     # the files would leave audio nothing in the database points at any more --

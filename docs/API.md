@@ -23,7 +23,8 @@ These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the a
 - The app is served behind a `/api/v1` root path when using the reverse proxy.
 - Most write endpoints accept form data.
 - `POST /speech/assess` requires multipart form data with a `.wav` file.
-- `DELETE /users` requires header `X-API-Key` and form field `guid`. It erases the
+- `DELETE /users` requires header `X-Delete-Key` (matching `SERVER_DELETE_KEY`) and
+  form field `guid`. It erases the
   user's row (related rows follow by FK cascade) **and** their stored recordings
   (`AUDIO_SAVE_DIR/<guid>/`). Recordings go first: if they cannot be removed the call
   fails with `500` and the user row is left in place, so the deletion stays visible and

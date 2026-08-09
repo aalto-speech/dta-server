@@ -79,7 +79,7 @@ fastapi run app/main.py --host 0.0.0.0 --port 8000
 - `APP_ENV`: `development`, `test`, `staging`, or `production`.
 - `DATABASE`: SQLite file path for non-local environments.
 - `AUDIO_SAVE_DIR`: upload storage directory for non-local environments.
-- `ADMIN_API_KEY`: required for `production`.
+- `SERVER_DELETE_KEY`: required for `production` (pre-v1.2.0 name: `ADMIN_API_KEY`, still accepted).
 - `MIN_COHORT_SIZE`: minimum cohort size for comparison analytics.
 - `MIN_USER_ASSESSMENTS`: minimum scored assessments for user comparison.
 

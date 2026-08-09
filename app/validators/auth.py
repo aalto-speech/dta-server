@@ -8,10 +8,10 @@ from app.error_handlers import AppError, ErrorType
 from app.models.user_requests import GetUserConsentInput, GetUserInput
 
 
-def validate_admin_access(api_key: str = Header(...)) -> None:
-    """Validate the admin API key for protected endpoints."""
+def validate_delete_access(delete_key: str = Header(...)) -> None:
+    """Validate the server delete key that authorises erasing a user's data."""
 
-    if api_key != SETTINGS.admin_api_key:
+    if delete_key != SETTINGS.server_delete_key:
         raise AppError(
             status_code=403,
             error_type=ErrorType.INVALID_API_KEY,

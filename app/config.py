@@ -37,7 +37,7 @@ class Settings:  # pylint: disable=too-many-instance-attributes
         audio_save_dir: Directory where uploaded audio files will be stored.
         logs_save_dir: Directory where log files will be stored.
         log_level: Logging level used by the application logger.
-        admin_api_key: API key for admin operations, required in production.
+        server_delete_key: Key that authorises DELETE /users, required in production.
         min_cohort_size: Minimum number of users required in a cohort for analytics to be returned.
         min_user_assessments: Minimum number of assessments a user must have for comparison analytics.
     """
@@ -47,7 +47,7 @@ class Settings:  # pylint: disable=too-many-instance-attributes
     audio_save_dir: str
     logs_save_dir: str
     log_level: str
-    admin_api_key: str
+    server_delete_key: str
     client_api_key: str
     min_cohort_size: int
     min_user_assessments: int
@@ -157,12 +157,21 @@ def _build_settings() -> Settings:
     _create_directory(logs_save_dir)
     log_level = os.getenv("LOG_LEVEL", "WARNING").strip().upper()
 
-    admin_api_key = os.getenv("ADMIN_API_KEY", "")
+    # Renamed from ADMIN_API_KEY in v1.2.0: it authorises exactly one endpoint,
+    # DELETE /users, and calling it "admin" invited it being confused with the app's
+    # own key. The old name is still honoured so a server deployed from a stale env
+    # file can still erase data -- refusing a GDPR deletion over a variable name would
+    # be the worse failure. Drop the fallback once both servers are on the new name.
+    server_delete_key = os.getenv("SERVER_DELETE_KEY", "")
+    legacy_delete_key = os.getenv("ADMIN_API_KEY", "")
+    if not server_delete_key and legacy_delete_key:
+        server_delete_key = legacy_delete_key
+        logging.getLogger(__name__).warning(
+            "ADMIN_API_KEY is deprecated; rename it to SERVER_DELETE_KEY in the env file")
+
     # Optional shared key the mobile app sends as X-Client-Key on /request/user.
     # Empty (the default) disables the check. NOT a security boundary -- it ships
-    # inside the APK -- and it must never equal ADMIN_API_KEY: this key can only
-    # lodge a deletion request for a guid the caller already knows, while the admin
-    # key can delete anyone.
+    # inside the APK, so it only raises the bar against casual scripted abuse.
     client_api_key = os.getenv("CLIENT_API_KEY", "")
     min_cohort_size = _parse_int_env(
         "MIN_COHORT_SIZE", default=100, minimum=2)
@@ -173,14 +182,8 @@ def _build_settings() -> Settings:
     # GPU scoring takes ~2-8 s; CPU staging takes 30-60 s and sets ASA_TIMEOUT=300.
     asa_timeout = _parse_float_env("ASA_TIMEOUT", default=60.0, minimum=1.0)
 
-    if env == AppEnv.PRODUCTION and not admin_api_key:
-        raise RuntimeError("ADMIN_API_KEY must be set in production")
-
-    if client_api_key and client_api_key == admin_api_key:
-        # The client key ships inside the APK and is extractable from any decompiled
-        # build. If it also opened DELETE /users, shipping it would be shipping the
-        # admin key.
-        raise RuntimeError("CLIENT_API_KEY must differ from ADMIN_API_KEY")
+    if env == AppEnv.PRODUCTION and not server_delete_key:
+        raise RuntimeError("SERVER_DELETE_KEY must be set in production")
 
     # Baked into the image at build time by the CD workflow (release tag on releases,
     # staging-<sha> on dev pushes). The default marks a build outside CI.
@@ -192,7 +195,7 @@ def _build_settings() -> Settings:
         audio_save_dir=audio_save_dir,
         logs_save_dir=logs_save_dir,
         log_level=log_level,
-        admin_api_key=admin_api_key,
+        server_delete_key=server_delete_key,
         client_api_key=client_api_key,
         min_cohort_size=min_cohort_size,
         min_user_assessments=min_user_assessments,
