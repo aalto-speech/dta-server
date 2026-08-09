@@ -37,6 +37,14 @@ hardcoding them.
 Each assessment row in the database stores the `audio_path` of its recording, so
 `assessments.csv` + the `audio/` tree together are the full dataset.
 
+> [!IMPORTANT]
+> `assessments.csv` gained two columns in v1.2.0: `content_relevance`
+> (`on_topic` / `partial` / `off_topic`) and `content_confidence`. They record whether the
+> answer addressed the task it was given, which is what separates a low score from a
+> recording that should be excluded from analysis. **`NULL` means the check did not run**
+> (rows imported from the old study, the judge disabled, or the judge failing open) — it
+> does **not** mean the answer was on topic, so filter on the value, never on falsiness.
+
 The portable way to find any volume's host path (works on every server, staging or
 production, migrated or not):
 

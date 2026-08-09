@@ -114,6 +114,14 @@ async def assess_speech_request(
     pronunciation = scores["pronunciation"]
     range_score = scores["range"]
 
+    # Side channel, never a gate: the score above is returned whatever this says, and an
+    # older inference image simply omits it. Stored alongside the scores so the study can
+    # filter answers that did not address the task.
+    content = result.get("content")
+    if content:
+        logger.info("Content relevance for user %s: %s (%.2f)",
+                    data.guid, content["relevance"], content["confidence"])
+
     assessment_id = create_assessment(AssessmentCreateInput(
         guid=data.guid,
         task_id=data.task_id,
@@ -125,6 +133,8 @@ async def assess_speech_request(
         proficiency=proficiency,
         pronunciation=pronunciation,
         range_score=range_score,
+        content_relevance=content["relevance"] if content else None,
+        content_confidence=content["confidence"] if content else None,
     ))
 
     # ? Enhance error handling?
@@ -153,5 +163,6 @@ async def assess_speech_request(
         cefr_label_fine=result["cefr_label_fine"],
         dimension_labels=result["dimension_labels"],
         clipped=result["clipped"],
+        content=content,
     )
     return JSONResponse(content=jsonable_encoder(results), status_code=200)

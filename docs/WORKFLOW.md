@@ -67,6 +67,7 @@ the production P100 (one-shot `selftest.py` against the candidate image, see bel
 | `inference/requirements.txt` | the torch line stays a floor (`>=2.4`), never a hard pin — a pin re-upgrades torch from PyPI over the CUDA-matched install |
 | `inference/dta_scorer/config.py` | `DTA_AUTOCAST_DTYPE` keeps supporting `float16` — production sets it (Pascal has no bf16; fp32 halves throughput) |
 | `compose.yaml` | the inference service keeps the `DTA_AUTOCAST_DTYPE` pass-through |
+| `inference/dta_scorer/relevance.py` | the judge keeps running under `disable_adapter()` and `logits_to_keep=1` — it shares the scorer's GPU, so a second model load or a full-sequence logits tensor is an OOM on a 16 GB card, and a live adapter turns the verdict into noise |
 
 The verified numbers to compare against (P100, fp16, 2026-08-02): selftest PASS, model
 load ~25 s, 8 s recording scored in ~1.7 s, calibrated CEFR identical to the CPU
