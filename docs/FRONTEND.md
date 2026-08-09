@@ -189,7 +189,13 @@ ID travels with the recording through your UI code. IDs outside 1–5 are reject
     "range":         {"label": "A1", "label_fine": "A1+"},
     "accuracy":      {"label": "A1", "label_fine": "A2"}
   },
-  "clipped": false
+  "clipped": false,
+  "content": {
+    "relevance": "on_topic",
+    "confidence": 0.97,
+    "reason": null,
+    "judge": "dta-relevance-v1"
+  }
 }
 ```
 
@@ -233,6 +239,54 @@ Three facts that affect how you use them:
   clipped-high result is exactly 3.5, i.e. `"B1+"`. Anything above is unreachable until
   the model itself improves. `dimension_labels` are computed from the **raw** scores, so
   they can span the whole scale — cap them in the UI the same way you cap proficiency.
+- **Do not present A1+ or B1+ as distinctions to the learner.** They are reachable
+  values, so your code must accept them, but the model owner's position is that the
+  current model is not reliable at that resolution near the ends of its range: A1+ comes
+  from a narrow band of calibration knots, and B1+ is simply the clipped ceiling. Fold
+  **A1+ → A1** and **B1+ → B1** for display. The four tiers worth showing today are
+  **A1, A2, A2+, B1**; a later model may earn the finer scale.
+
+### `content` — did the answer address the task? (added v1.2.0)
+
+The scorer rates **how** someone speaks, not **what** they said, so a fluent answer to
+the wrong question scores well. `content` is a separate check that reads the task prompt
+and the transcript and returns one of three verdicts.
+
+| `relevance` | Meaning | Suggested UI |
+| --- | --- | --- |
+| `on_topic` | The answer addresses the task. | Show the result normally. |
+| `partial` | On the topic but incomplete, or it drifts. | Show the result, with a note that it only partly addressed the task. |
+| `off_topic` | The answer does not address the task at all. | Withhold the score and offer the task again. |
+
+`confidence` is the judge's probability for the verdict it gave (0–1). `reason` is a
+short English string, fixed per verdict rather than generated — **localise from
+`relevance`, not from `reason`**. `judge` identifies the prompt version behind the
+verdict.
+
+Four rules, all load-bearing:
+
+1. **`content` may be `null` or absent — that means "not checked", never "off topic".**
+   The check fails open (older server, judge disabled, judge errored). Show the score.
+2. **It never changes the scores.** The numbers are identical with and without it. If
+   you withhold a result on `off_topic`, you are choosing not to show a score that was
+   computed normally — so keep `assessment_id` and still let feedback reference it.
+3. **`off_topic` already clears a confidence bar server-side.** A verdict the judge was
+   unsure of is downgraded to `partial`, because withholding a real learner's score is
+   worse than missing an off-topic answer. Do not add a second threshold on
+   `confidence`; branch on `relevance`.
+4. **Prefer "try again" over "you failed".** An empty or silent recording also returns
+   `off_topic` (with `reason` naming the no-speech case), and that is the most common
+   way a learner will meet this.
+
+What it does **not** do: separate two tasks in the same everyday domain. A shopping
+answer given to the "what do you do at home" task is measured to pass as on-topic. It
+reliably catches a different subject, silence, and answers spoken in another language
+(ASR is pinned to Finnish, so English comes through as word salad).
+
+The judge has been smoke-tested, not validated against labelled Finnish data. Treat
+`off_topic` as good enough to prompt a retry, not as a verdict to argue with a learner
+about; the plan is to label a sample of real `content_relevance` values and measure
+before it is trusted further.
 
 ### How long it takes
 
@@ -248,6 +302,10 @@ Measured on the production GPU, end to end including upload on a fast network:
 
 About 1 s fixed plus 1 s per 12 s of audio, plus the user's own upload time on mobile
 data. Show a progress indicator; do not block the UI.
+
+**Add ~0.7 s from v1.2.0** for the `content` check above, at every length — measured on
+the production GPU. It runs after scoring, so the numbers were already computed when it
+is spent.
 
 **The shared timeout number, owned by both sides: the server gives up on the scorer at
 60 s** (`ASA_TIMEOUT`, production default) and returns a retryable 503. The client must

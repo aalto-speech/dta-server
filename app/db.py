@@ -119,8 +119,10 @@ def create_assessment(data: AssessmentCreateInput) -> int | None:
             fluency,
             proficiency,
             pronunciation,
-            range_score
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            range_score,
+            content_relevance,
+            content_confidence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     params = (
@@ -133,7 +135,9 @@ def create_assessment(data: AssessmentCreateInput) -> int | None:
         data.fluency,
         data.proficiency,
         data.pronunciation,
-        data.range_score
+        data.range_score,
+        data.content_relevance,
+        data.content_confidence
     )
 
     with database() as db:

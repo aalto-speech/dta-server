@@ -77,6 +77,9 @@ def health():
         "checkpoint": pipe.card["checkpoint"],
         "n_tasks": len(pipe.tasks),
         "calibration": pipe.calibrator.meta.get("method"),
+        # Whether /score carries a `content` block. An operator flipping
+        # DTA_RELEVANCE_CHECK=0 is otherwise indistinguishable from the judge failing open.
+        "relevance_check": pipe.judge is not None,
         "reportable_cefr_range": [round(v, 2) for v in pipe.calibrator.output_range],
     }
 

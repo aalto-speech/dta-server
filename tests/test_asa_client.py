@@ -83,3 +83,30 @@ def test_to_server_shape_requires_complete_payload():
 
     with pytest.raises(KeyError):
         to_server_shape({"transcript": "x"})
+
+
+def test_to_server_shape_passes_content_relevance_through():
+    """The relevance verdict must reach the app tier unchanged."""
+
+    payload = _recorded_payload()
+    payload["content"] = {"relevance": "off_topic", "confidence": 0.94,
+                          "reason": "The answer does not address the task that was asked.",
+                          "judge": "dta-relevance-v1"}
+
+    result = to_server_shape(payload)
+
+    assert result["content"]["relevance"] == "off_topic"
+    assert result["content"]["confidence"] == 0.94
+
+
+def test_to_server_shape_tolerates_missing_content_block():
+    """An inference image without the judge (or one that failed open) omits `content`.
+
+    Absence must map to None rather than raising: the score is still valid, and the
+    contract is that a missing block means "not checked".
+    """
+
+    payload = _recorded_payload()
+    assert "content" not in payload
+
+    assert to_server_shape(payload)["content"] is None
