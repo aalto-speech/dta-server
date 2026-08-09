@@ -52,10 +52,13 @@ async def validate_file_size(file: UploadFile) -> bytes:
             break
         total_size += len(chunk)
         if total_size > MAX_FILE_SIZE:
+            # Measured values let the client see HOW far over it was: a short recording
+            # that is too large points at a wrong sample rate or bit depth client-side.
             raise AppError(
                 status_code=413,
                 error_type=ErrorType.FILE_TOO_LARGE,
                 message="File exceeds the 10 MB size limit.",
+                extra={"size_bytes": total_size, "max_size_bytes": MAX_FILE_SIZE},
             )
         chunks.append(chunk)
 
@@ -121,8 +124,15 @@ def validate_audio_duration(path: Path) -> None:
 
     duration = frames / sample_rate
     if duration > MAX_AUDIO_DURATION:
+        # Distinct from FILE_TOO_LARGE on purpose: the client caps duration before
+        # upload, so this arriving at all means the two sides disagree about the
+        # recording's length -- a client bug to surface, not a user error to soften.
         raise AppError(
             status_code=413,
-            error_type=ErrorType.FILE_TOO_LARGE,
+            error_type=ErrorType.AUDIO_TOO_LONG,
             message=f"Audio exceeds the {MAX_AUDIO_DURATION}s duration limit.",
+            extra={
+                "duration_seconds": round(duration, 2),
+                "max_duration_seconds": MAX_AUDIO_DURATION,
+            },
         )

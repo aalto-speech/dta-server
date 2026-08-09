@@ -48,10 +48,12 @@ class Settings:  # pylint: disable=too-many-instance-attributes
     logs_save_dir: str
     log_level: str
     admin_api_key: str
+    client_api_key: str
     min_cohort_size: int
     min_user_assessments: int
     asa_url: str
     asa_timeout: float
+    server_version: str
 
 
 def _parse_app_env() -> AppEnv:
@@ -156,6 +158,12 @@ def _build_settings() -> Settings:
     log_level = os.getenv("LOG_LEVEL", "WARNING").strip().upper()
 
     admin_api_key = os.getenv("ADMIN_API_KEY", "")
+    # Optional shared key the mobile app sends as X-Client-Key on /request/user.
+    # Empty (the default) disables the check. NOT a security boundary -- it ships
+    # inside the APK -- and it must never equal ADMIN_API_KEY: this key can only
+    # lodge a deletion request for a guid the caller already knows, while the admin
+    # key can delete anyone.
+    client_api_key = os.getenv("CLIENT_API_KEY", "")
     min_cohort_size = _parse_int_env(
         "MIN_COHORT_SIZE", default=100, minimum=2)
     min_user_assessments = _parse_int_env(
@@ -168,6 +176,16 @@ def _build_settings() -> Settings:
     if env == AppEnv.PRODUCTION and not admin_api_key:
         raise RuntimeError("ADMIN_API_KEY must be set in production")
 
+    if client_api_key and client_api_key == admin_api_key:
+        # The client key ships inside the APK and is extractable from any decompiled
+        # build. If it also opened DELETE /users, shipping it would be shipping the
+        # admin key.
+        raise RuntimeError("CLIENT_API_KEY must differ from ADMIN_API_KEY")
+
+    # Baked into the image at build time by the CD workflow (release tag on releases,
+    # staging-<sha> on dev pushes). The default marks a build outside CI.
+    server_version = os.getenv("DTA_SERVER_VERSION", "0.0.0-dev").strip() or "0.0.0-dev"
+
     return Settings(
         env=env,
         database=database,
@@ -175,10 +193,12 @@ def _build_settings() -> Settings:
         logs_save_dir=logs_save_dir,
         log_level=log_level,
         admin_api_key=admin_api_key,
+        client_api_key=client_api_key,
         min_cohort_size=min_cohort_size,
         min_user_assessments=min_user_assessments,
         asa_url=asa_url,
         asa_timeout=asa_timeout,
+        server_version=server_version,
     )
 
 

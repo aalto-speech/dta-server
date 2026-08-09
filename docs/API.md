@@ -77,4 +77,6 @@ time — the model holds ~10 GB of VRAM and scoring is serialised — so concurr
 queue rather than slow each other down. The app's `ASA_TIMEOUT` (default 60 s) is the
 ceiling; on CPU staging the same calls take 30–60 s, which is why staging sets it to 300.
 
-Uploads are rejected above **90 s** of audio (`413 FILE_TOO_LARGE`) or 10 MB (Caddy).
+Uploads are rejected above **90 s** of audio (`413 AUDIO_TOO_LONG` since v1.2.0, with
+the measured `duration_seconds` in `detail`) or 10 MB (`413 FILE_TOO_LARGE`, with
+`size_bytes`; Caddy also enforces 10 MB at the proxy).

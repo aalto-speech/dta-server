@@ -1,7 +1,10 @@
 # Frontend integration guide
 
 Everything a client app needs to talk to the DTA server: every endpoint, every field,
-every error it can return, and the order the calls happen in. Written against v1.1.2.
+every error it can return, and the order the calls happen in. Written against **v1.2.0**.
+Servers report their version in `GET /status` (`version`) and in OpenAPI `info.version` --
+feature-detect against that instead of guessing (both were added in v1.2.0; on older
+servers the `version` key is simply absent).
 
 **The live contract is also machine-readable.** FastAPI publishes it and the server
 serves it:
@@ -37,9 +40,15 @@ Every error returns the same envelope with an HTTP status:
 
 Branch on `detail.type`, never on the message text. Types you can receive:
 `BAD_REQUEST`, `INVALID_API_KEY`, `USER_NOT_FOUND`, `USER_CONSENT_MISSING`,
-`UNSUPPORTED_MEDIA_TYPE`, `FILE_TOO_LARGE`, `SCORING_UNAVAILABLE`, `NOT_IMPLEMENTED`,
-`DATABASE_CONSTRAINT_ERROR`, `DATABASE_UNAVAILABLE`, `DATABASE_ERROR`,
-`INTERNAL_SERVER_ERROR`, `HTTP_ERROR`, `VALIDATION_ERROR`.
+`UNSUPPORTED_MEDIA_TYPE`, `FILE_TOO_LARGE`, `AUDIO_TOO_LONG`, `SCORING_UNAVAILABLE`,
+`NOT_IMPLEMENTED`, `DATABASE_CONSTRAINT_ERROR`, `DATABASE_UNAVAILABLE`,
+`DATABASE_ERROR`, `INTERNAL_SERVER_ERROR`, `HTTP_ERROR`, `VALIDATION_ERROR`.
+
+Since v1.2.0 this envelope is **published in the OpenAPI schema** (`ErrorEnvelope`,
+referenced from every endpoint's error responses), so generated clients can parse it.
+Some errors carry extra machine-readable keys inside `detail` next to `type`/`message`
+-- they are listed with their endpoints below. The commitment on shapes: **422 is the
+same object plus an `errors` array; every other status is the plain object.**
 
 FastAPI's own request validation (a missing field, a malformed UUID) returns **422**
 with `type: VALIDATION_ERROR` plus an extra `detail.errors` array naming the offending
@@ -72,31 +81,47 @@ user asks to be forgotten ──► POST /request/user (type=delete)
 ## `GET /ping` and `GET /status`
 
 Health checks, no parameters. `/ping` returns `{"message": "Pong!"}`. `/status` returns
-`{"status": "ok", "env": "production", "uptime_seconds": 1234.5}`. Use `/ping` for a
-reachability check at launch; neither requires a user.
+`{"status": "ok", "env": "production", "version": "1.2.0", "uptime_seconds": 1234.5}` --
+`version` is the release the server runs (absent before v1.2.0) and equals OpenAPI
+`info.version`. Use `/ping` for a reachability check at launch and `version` for feature
+detection; neither requires a user.
 
 ## `POST /onboarding`
 
 Creates the user. Call once, after the user accepts consent. **Every later endpoint
 returns 404 `USER_NOT_FOUND` until this succeeds.**
 
-Form fields (all required unless marked optional):
+Since v1.2.0 the fields are in **two tiers**, so the background form can change over the
+life of the study without breaking account creation:
+
+**Required — missing any of these is a 422:**
 
 | Field | Type | Values |
 | --- | --- | --- |
 | `guid` | UUID | Generated and stored by your app |
-| `consent_accepted` | bool | Must be `true`; the user cannot proceed otherwise |
+| `consent_accepted` | bool | Must be `true`; without consent there is no user |
 | `consent_timestamp` | ISO 8601 datetime | e.g. `2026-08-02T10:15:00Z` |
-| `background_form_completed` | bool | |
-| `background_form_timestamp` | ISO 8601 datetime | |
+| `finnish_self_assessment` | enum | `A1`, `A2`, `B1`, `B2`, `C1_plus` — defines the cohort `/analytics/comparison` ranks against, which is why it is required. Dropping or renaming it needs a coordinated release. |
+
+**Research metadata — optional. Omitted or sent empty stores null; never a 422:**
+
+| Field | Type | Values |
+| --- | --- | --- |
 | `gender` | enum | `woman`, `man`, `other`, `prefer_not_to_answer` |
 | `age_group` | enum | `age_18_28`, `age_29_39`, `age_40_50`, `age_51_61`, `age_62_plus` |
-| `native_languages` | string or repeated field | At least one; free text (e.g. `Vietnamese`) |
-| `other_languages` | string or repeated field | May be empty |
-| `moved_to_finland` | string | A 4-digit year ≥ 2015 (e.g. `"2020"`), or the literal `before_2015` |
-| `finnish_learning_duration` | enum | `months_0_3`, `months_3_6`, `months_6_9`, `months_9_12`, `years_1_1.5`, `years_1.5_2`, `years_2_2.5`, `years_2.5_3`, `years_3_5`, `years_5_7`, `years_7_10`, `years_10_plus` |
-| `finnish_self_assessment` | enum | `A1`, `A2`, `B1`, `B2`, `C1_plus` |
-| `app_version` | string, optional | Recorded for analytics; send it |
+| `native_languages` | string or repeated field | Free text (e.g. `Vietnamese`); newline-separated also accepted |
+| `other_languages` | string or repeated field | Free text; may be empty |
+| `moved_to_finland` | string | A 4-digit year ≥ 2015, or `before_2015`. No longer collected by the app since 2.0.0; historical rows keep their values |
+| `finnish_learning_duration` | enum | `months_0_3` … `years_10_plus`. No longer collected since app 2.0.0 |
+| `background_form_completed` | bool | |
+| `background_form_timestamp` | ISO 8601 datetime | |
+| `app_version` | string | Recorded for analytics; please send it |
+
+**Unknown fields are ignored, not rejected** — a newer app can start sending a question
+before the server knows it. (They are not stored yet; promoting them to columns is a
+server release.) Values that ARE provided are still validated: a wrong enum value is
+still a 422 — the tiering forgives absence, not garbage. There is deliberately no
+server-side defaulting (a fabricated `A1` would corrupt the cohort for everyone else).
 
 `native_languages` and `other_languages` accept either one value or the field repeated
 once per language (verified against the running server).
@@ -104,6 +129,9 @@ once per language (verified against the running server).
 Returns **201** with no body. Sending the same `guid` twice returns **409**
 `DATABASE_CONSTRAINT_ERROR` — onboard once and persist a local flag. If you do hit 409,
 treat it as "already onboarded" and carry on rather than blocking the user.
+
+On servers **older than v1.2.0** all metadata fields are required — an app that has
+stopped collecting them cannot onboard new users there. Feature-detect via `/status`.
 
 ## `POST /speech/assess`
 
@@ -144,6 +172,7 @@ ID travels with the recording through your UI code. IDs outside 1–5 are reject
 ```json
 {
   "assessment_id": 42,
+  "task_id": 4,
   "scores": {
     "proficiency": 2.41,
     "fluency": 2.26,
@@ -154,11 +183,21 @@ ID travels with the recording through your UI code. IDs outside 1–5 are reject
   "transcript": "minä asun helsingissä ja opiskelen suomea",
   "cefr_label": "A2",
   "cefr_label_fine": "A2+",
+  "dimension_labels": {
+    "fluency":       {"label": "A2", "label_fine": "A2+"},
+    "pronunciation": {"label": "A2", "label_fine": "A2+"},
+    "range":         {"label": "A1", "label_fine": "A1+"},
+    "accuracy":      {"label": "A1", "label_fine": "A2"}
+  },
   "clipped": false
 }
 ```
 
 Keep `assessment_id` — feedback references it.
+
+**`task_id` (added v1.2.0) is the id that was actually scored — assert it equals what
+you sent** and fail loudly on a mismatch. A mis-wired task otherwise produces a
+plausible wrong score that no one can detect later, in the app or in the database.
 
 ### Working with the scores
 
@@ -178,8 +217,22 @@ Three facts that affect how you use them:
    `accuracy` are raw model outputs on the same scale: indicative, not mutually
    consistent, and they do not average to `proficiency`.
 3. `cefr_label` (`"A2"`) and `cefr_label_fine` (`"A2+"`) are precomputed from
-   `proficiency` if you want a label rather than a number — no need to derive them
-   client-side, and they stay correct if the scale ever changes.
+   `proficiency`; since v1.2.0 `dimension_labels` carries the same two labels for each
+   analytic dimension, so a five-row results screen derives nothing locally.
+
+### Exactly how the labels are derived (agree with this or your stars will contradict them)
+
+- `label` (coarse) **FLOORS** to the band: 2.9 → `"A2"`, not B1.
+- `label_fine` **ROUNDS to the nearest half step**: 2.3 → 2.5 → `"A2+"`; 2.75 → 3.0 →
+  `"B1"`. It is **not** a floor-based interval — a client that renders `[2.5, 3.0)` as
+  its "A2+" tier will disagree with the server's label on scores in `[2.25, 2.5)` and
+  `[2.75, 3.0)`. If you compute star tiers from the number, use the same
+  round-to-nearest-half rule, or compute the tier from `label_fine` itself.
+- With the current model, calibrated `proficiency` lives in **[1.14, 3.5]**, so
+  `cefr_label_fine` can only be one of **A1, A1+, A2, A2+, B1, B1+** — and a
+  clipped-high result is exactly 3.5, i.e. `"B1+"`. Anything above is unreachable until
+  the model itself improves. `dimension_labels` are computed from the **raw** scores, so
+  they can span the whole scale — cap them in the UI the same way you cap proficiency.
 
 ### How long it takes
 
@@ -194,8 +247,12 @@ Measured on the production GPU, end to end including upload on a fast network:
 | 90 s | 8.3 s |
 
 About 1 s fixed plus 1 s per 12 s of audio, plus the user's own upload time on mobile
-data. Show a progress indicator; do not block the UI. Set the client timeout to at
-least **60 s** — the server gives up on the scorer at 60 s and returns 503.
+data. Show a progress indicator; do not block the UI.
+
+**The shared timeout number, owned by both sides: the server gives up on the scorer at
+60 s** (`ASA_TIMEOUT`, production default) and returns a retryable 503. The client must
+wait longer than that — 90 s is right — or the user sees a transport error instead of
+the 503 they could act on. If this number ever changes it changes here first.
 
 ### Errors
 
@@ -205,11 +262,20 @@ least **60 s** — the server gives up on the scorer at 60 s and returns 503.
 | 403 | `USER_CONSENT_MISSING` | Consent was not accepted |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Wrong `Content-Type` on the file part |
 | 400 | `BAD_REQUEST` | Not a `.wav` filename, corrupt WAV, or unmapped `task_id` |
-| 413 | `FILE_TOO_LARGE` | Over 10 MB or over 90 s |
-| 503 | `SCORING_UNAVAILABLE` | Scorer starting up or unreachable — **retryable**, tell the user to try again shortly rather than showing a hard failure |
+| 413 | `FILE_TOO_LARGE` | Over 10 MB. `detail` carries `size_bytes` and `max_size_bytes` — a short recording landing here means the client wrote the WAV at the wrong rate or depth |
+| 413 | `AUDIO_TOO_LONG` | Over 90 s (v1.2.0; was `FILE_TOO_LARGE` before). `detail` carries `duration_seconds` and `max_duration_seconds` — arriving here at all means client and server disagree about the recording's length |
+| 503 | `SCORING_UNAVAILABLE` | See below — `detail.reason` says which case you are in |
 
-`503` is the one to design for: it happens for ~30 s after a server restart. A single
-automatic retry after a few seconds, then a friendly message, is the right behaviour.
+**503 carries a `reason` since v1.2.0**, plus a `Retry-After` header when a retry makes
+sense:
+
+| `detail.reason` | Means | `Retry-After` | Client behaviour |
+| --- | --- | --- | --- |
+| `starting_up` | Scorer answering but its model is still loading (~30 s after a restart) | 30 | Auto-retry once after a few seconds |
+| `busy` | Scoring call timed out — scorer alive but overloaded | 60 | Retry with a longer wait |
+| `unreachable` | Scorer down; retrying will not help | absent | Friendly failure, no auto-retry |
+
+On older servers `reason` is absent — treat that as `starting_up` (the old advice).
 
 ## `POST /feedback`
 
@@ -217,12 +283,22 @@ automatic retry after a few seconds, then a friendly message, is the right behav
 | --- | --- | --- |
 | `guid` | UUID | |
 | `feedback_classification` | enum | `self_assessment`, `result_accuracy`, `result_understanding`, `comparison_ui`, `overall_experience` |
-| `reaction_value` | int | **1–5** |
-| `assessment_id` | int | **Required** for `self_assessment`, `result_accuracy`, `result_understanding`; omit for the other two |
+| `reaction_value` | int | **1–5** (emoji sentiment — do not confuse with the 0–6 CEFR scale) |
+| `assessment_id` | int | **Required** for `self_assessment`, `result_accuracy`, `result_understanding`; **must be genuinely absent** — not 0, not null — for `comparison_ui` and `overall_experience` |
 | `comment` | string, optional | ≤ 500 characters |
 
-Returns **201**. Sending `assessment_id` for a non-assessment type, or omitting it for
-an assessment type, returns 422.
+Returns **201**. The pairing rule is deliberate, stable, and **enforced in both
+directions since v1.2.0**: omitting the id for an assessment type, or sending it for an
+app-scoped type, both return 422 with a message naming the rule. (Before v1.2.0 the
+second direction was unenforced: a stray id either tripped a 409 foreign-key error or
+was silently stored as a link to an unrelated assessment.) Rows for `comparison_ui` /
+`overall_experience` carry the `guid`, so they are attributable and queryable per user
+without an assessment link.
+
+**Naming note for anyone analysing the data:** `self_assessment` does NOT mean the user
+assessing their own CEFR level. The question shown under that classification is *"How
+did you find this task?"* on a five-emoji scale — a task reaction. The wire value is
+kept for compatibility with shipped clients; treat the name as historical.
 
 ## `POST /analytics/comparison`
 
@@ -234,10 +310,10 @@ Where the user stands against others at the same self-reported CEFR level.
 | `days` | int, optional | Window: `14`, `30`, `90`, `180`, `365`, `730`, `1460`. Omit (or send empty) for all-time |
 
 > [!NOTE]
-> `days` requires **v1.1.3 or newer**. On v1.1.2 and earlier every value was rejected
+> `days` requires **v1.2.0 or newer**. On v1.1.2 and earlier every value was rejected
 > with 422 — form fields arrive as strings and the window enum did not coerce them — so
-> all-time (omitting the field) was the only reachable option. If you must support an
-> older server, omit `days`.
+> all-time (omitting the field) was the only reachable option. On an older server, omit
+> `days`; feature-detect via `/status` `version`.
 
 Success (**200**):
 
@@ -260,6 +336,12 @@ presence of a `status` field:
 Each carries a human-readable `message`. Show your own copy rather than the raw
 message, but the shape tells you which case you are in.
 
+**The commitment (v1.2.0, and true of every earlier release): `status` is ALWAYS
+present on the unavailable shapes and NEVER present on a successful comparison.**
+Branch on that — not on sentinel values like a negative `percentile`, which would break
+silently if a field were renamed. All four response models are published in the OpenAPI
+schema since v1.2.0.
+
 ## `POST /request/user`
 
 The user exercising their data rights from inside the app.
@@ -269,18 +351,40 @@ The user exercising their data rights from inside the app.
 | `guid` | UUID | |
 | `type` | enum | `delete` or `export` |
 
-- `delete` → **202 Accepted**: the request is *recorded* for an administrator to action.
-  It does not delete anything by itself. Tell the user their request was received and
-  will be processed — do not tell them their data is already gone.
+Optional header: `X-Client-Key` — validated only when the server configures
+`CLIENT_API_KEY` (403 `INVALID_API_KEY` on mismatch). It is a guardrail against
+scripted abuse, not a security boundary, and it is a different secret from the admin
+key by construction (the server refuses to start if they are equal).
+
+**`delete` deletes immediately (since v1.2.0)** — recordings first, then database rows
+— and always answers **202** with the outcome in the body:
+
+| Body | Meaning | What to tell the user |
+| --- | --- | --- |
+| `{"status": "deleted", ...}` | Data is gone from the server | "Your data has been deleted." |
+| `{"status": "pending", ...}` | The deletion failed; it is logged with the guid for a maintainer | "Removal from our servers is underway." |
+| no `status` key | Server older than v1.2.0: request was parked for an admin | cautious wording; do not claim deletion happened |
+
+Same 202 either way — retry logic keys off the HTTP status alone, and any 2xx means
+"the request arrived, stop retrying". Every attempt (success or failure) is logged
+server-side with the guid, timestamp and cause, so failed deletions are auditable even
+after the app has discarded the guid.
+
+- Deletion erases **both** the database rows and the stored audio recordings.
+- **A deleted guid can be re-onboarded** — the guid is not burned. Generating a fresh
+  guid and re-onboarding is equally fine (that person then appears twice in the data
+  over time, which the study accepts). A "start over" flow on 404 `USER_NOT_FOUND`
+  needs no server support.
 - `export` → **501 Not Implemented** (`NOT_IMPLEMENTED`). Not built yet; either hide the
   option or show that it is coming.
 
-## User deletion
+## User deletion (admin)
 
 `DELETE /users` requires the admin API key and **must not ship in the app** — the key
-would be extractable from the binary and lets anyone delete any user. The app's route is
-`POST /request/user` above; an administrator performs the deletion server-side, which
-erases the database rows and the stored recordings.
+would be extractable from the binary and lets anyone delete any user. It erases the
+rows and the recordings, recordings first (a failure leaves the user row in place so
+the deletion stays visible and retryable). The app's route is `POST /request/user`
+above, which performs the same deletion with the same guarantees.
 
 ## Practical notes for Unity / C#
 

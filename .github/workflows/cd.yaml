@@ -68,13 +68,19 @@ jobs:
       - name: Build and tag container image
         run: |
           set -euo pipefail
+          # Bake the version into the app image so /status and the OpenAPI schema
+          # report it (clients feature-detect against this -- docs/FRONTEND.md).
           if [[ "${{ github.event_name }}" == "release" ]]; then
+            SERVER_VERSION="${RELEASE_TAG#v}"
             podman build --pull \
+              --build-arg "SERVER_VERSION=$SERVER_VERSION" \
               --tag "$IMAGE_NAME:$TAG_NAME" \
               --tag "$IMAGE_NAME:$RELEASE_TAG" \
               .
           else
+            SERVER_VERSION="staging-$(git rev-parse --short HEAD)"
             podman build --pull \
+              --build-arg "SERVER_VERSION=$SERVER_VERSION" \
               --tag "$IMAGE_NAME:$TAG_NAME" \
               .
           fi
