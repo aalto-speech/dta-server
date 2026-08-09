@@ -135,12 +135,19 @@ def test_assess_speech_success_returns_scores_and_transcript(
         "range": 1.9,
     }
     assert payload["transcript"] == "Hei maailma"
+    # Labels are re-derived from the numbers under the production banding; whatever the
+    # inference service labelled them is discarded. proficiency 2.1 is A2 -- NOT A2+,
+    # which is what the model package's round-to-nearest-half rule would have said.
     assert payload["cefr_label"] == "A2"
     assert payload["cefr_label_fine"] == "A2"
     # Echo of the scored task id, so a mis-wired client fails loudly (item 9).
     assert payload["task_id"] == 1
+    # The fake scorer labelled accuracy (5.6) "C1"/"C1+". Production caps at B1, and the
+    # discarded label proves the app is not passing the model's banding through.
     assert payload["dimension_labels"]["accuracy"] == {
-        "label": "C1", "label_fine": "C1+"}
+        "label": "B1", "label_fine": "B1"}
+    assert payload["dimension_labels"]["range"] == {
+        "label": "A1", "label_fine": "A1"}          # 1.9 -> A1, not A2
     assert payload["clipped"] is False
     assert captured["assess_args"]["task_id"] == 1
     assert captured["assess_args"]["filename"] == "sample.wav"
@@ -517,9 +524,11 @@ def test_off_topic_answer_has_all_scores_withheld_as_zero(
         "accuracy": 0.0, "fluency": 0.0, "proficiency": 0.0,
         "pronunciation": 0.0, "range": 0.0,
     }
-    assert payload["cefr_label"] == "<A1"
-    assert payload["cefr_label_fine"] == "<A1"
-    assert all(label == {"label": "<A1", "label_fine": "<A1"}
+    # 0.0 labels as A1: production has no band below it. The client must not render this
+    # -- content.relevance == "off_topic" is what governs the screen.
+    assert payload["cefr_label"] == "A1"
+    assert payload["cefr_label_fine"] == "A1"
+    assert all(label == {"label": "A1", "label_fine": "A1"}
                for label in payload["dimension_labels"].values())
     # A withheld score is not a clipped measurement.
     assert payload["clipped"] is False

@@ -15,6 +15,7 @@ from app.models.speech_assessment import (
     SpeechAssessmentResponse,
     SpeechAssessmentScores,
 )
+from app.utils import cefr
 from app.utils.asa_client import ASAClient, ASAError
 from app.utils.logger import get_logger
 from app.utils.storage import user_audio_dir
@@ -22,10 +23,6 @@ from app.validators import audio, auth
 
 
 logger = get_logger(__name__)
-
-# The CEFR label for a score of 0 (the pipeline's own band 0, "below A1"), used when an
-# off-topic answer's scores are withheld so labels and numbers cannot disagree.
-WITHHELD_LABEL = "<A1"
 
 # One client for the whole app; the inference service serialises scoring anyway.
 _asa = ASAClient(base_url=SETTINGS.asa_url, timeout=SETTINGS.asa_timeout)
@@ -100,20 +97,41 @@ def _withhold_scores(result: dict) -> dict:
     the verdict, and it is the one part of the result that is still true.
 
     For analysis: `WHERE content_relevance = 'off_topic'` finds these rows. Exclude them
-    rather than reading 0.0 as "below A1" -- the model's real output for these recordings
+    rather than reading 0.0 as a low score -- the model's real output for these recordings
     is not recoverable from the database.
+
+    Labels are not set here. They are derived from the scores afterwards like any other
+    result, so a withheld score labels as A1 (production has no band below it). That label
+    must never be shown: `content.relevance == "off_topic"` is what governs the screen.
     """
 
     return result | {
         "scores": {dimension: 0.0 for dimension in result["scores"]},
-        "cefr_label": WITHHELD_LABEL,
-        "cefr_label_fine": WITHHELD_LABEL,
-        "dimension_labels": {
-            dimension: {"label": WITHHELD_LABEL, "label_fine": WITHHELD_LABEL}
-            for dimension in result["dimension_labels"]
-        },
         # A withheld score is not a clipped measurement; it is not a measurement at all.
         "clipped": False,
+    }
+
+
+def _apply_production_labels(result: dict) -> dict:
+    """Re-derive every label from the numeric scores using the production banding.
+
+    The inference container labels its own output with the research convention (floor for
+    coarse, round to the nearest half step for fine, over the whole <A1..C2 scale). Those
+    labels are discarded here. Production reports four bands and only four -- see
+    app/utils/cefr.py for the rule and why it is tied to this model version.
+
+    The numbers are not touched; only the strings alongside them.
+    """
+
+    proficiency = result["scores"]["proficiency"]
+    return result | {
+        "cefr_label": cefr.label(proficiency),
+        "cefr_label_fine": cefr.label_fine(proficiency),
+        "dimension_labels": {
+            dimension: cefr.labels(score)
+            for dimension, score in result["scores"].items()
+            if dimension != "proficiency"
+        },
     }
 
 
@@ -152,6 +170,10 @@ async def assess_speech_request(
             logger.info("Withholding scores for user %s: answer judged off-topic",
                         data.guid)
             result = _withhold_scores(result)
+
+    # Always last, and after any withholding, so the labels can never disagree with the
+    # numbers they sit next to.
+    result = _apply_production_labels(result)
 
     scores = result["scores"]  # keys match the DB columns, except range -> range_score
 
