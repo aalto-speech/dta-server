@@ -378,3 +378,89 @@ def test_speech_assessment_scores_enforce_range():
         SpeechAssessmentScores(
             accuracy=6.5, fluency=1.0, proficiency=1.0, pronunciation=1.0, range=1.0
         )
+
+
+def test_assess_speech_returns_and_stores_content_relevance(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """The relevance verdict is returned to the client and persisted with the row."""
+
+    captured = {}
+    stored = {}
+
+    _patch_happy_path(monkeypatch, captured)
+
+    async def _fake_assess_with_content(content, task_id, filename="audio.wav",
+                                        transcript=None):
+        captured["assess_args"] = {"content": content, "task_id": task_id,
+                                   "filename": filename, "transcript": transcript}
+        result = _fake_asa_result()
+        result["content"] = {
+            "relevance": "off_topic",
+            "confidence": 0.93,
+            "reason": "The answer does not address the task that was asked.",
+            "judge": "dta-relevance-v1",
+        }
+        return result
+
+    def _record(data):
+        stored["content_relevance"] = data.content_relevance
+        stored["content_confidence"] = data.content_confidence
+        return 7
+
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service._asa.assess", _fake_assess_with_content)
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.create_assessment", _record)
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["content"] == {
+        "relevance": "off_topic",
+        "confidence": 0.93,
+        "reason": "The answer does not address the task that was asked.",
+        "judge": "dta-relevance-v1",
+    }
+    # The verdict must never move a score -- these are the unchanged model outputs.
+    assert payload["scores"]["proficiency"] == 2.1
+    assert stored == {"content_relevance": "off_topic", "content_confidence": 0.93}
+    os.unlink(captured["temp_path"])
+
+
+def test_assess_speech_omits_content_when_not_checked(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """Fail-open: no `content` from the scorer means null, and the score still ships."""
+
+    captured = {}
+    stored = {}
+
+    _patch_happy_path(monkeypatch, captured)
+
+    def _record(data):
+        stored["content_relevance"] = data.content_relevance
+        stored["content_confidence"] = data.content_confidence
+        return 8
+
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.create_assessment", _record)
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content"] is None
+    assert response.json()["scores"]["proficiency"] == 2.1
+    assert stored == {"content_relevance": None, "content_confidence": None}
+    os.unlink(captured["temp_path"])

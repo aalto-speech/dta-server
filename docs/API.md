@@ -54,6 +54,13 @@ Response fields and what to do with them:
 - `clipped` — `true` means the prediction hit the calibration boundary, so
   `proficiency` is a floor/ceiling value, not a measurement. Show "B1+ or
   above" (or flag for review) instead of presenting the capped number as real.
+- `content` (since v1.2.0) — whether the answer addressed the task:
+  `{relevance: on_topic|partial|off_topic, confidence, reason, judge}`. A separate
+  zero-shot check, computed after scoring and incapable of changing it. **`null`
+  means "not checked", not "off topic"** — it fails open by design. Also stored on
+  the row as `content_relevance` / `content_confidence`. See `docs/FRONTEND.md` for
+  the UI contract and `inference/dta_scorer/relevance.py` for what it does and does
+  not catch.
 - Requests fail with `503 SCORING_UNAVAILABLE` while the scorer is starting
   (~20 s on GPU, ~10 min on CPU staging) or unreachable, and with
   `400 BAD_REQUEST` for a `task_id` with no mapped speaking task (valid ids: 1–5).
@@ -70,6 +77,9 @@ response, including upload on the local network, scoring, and the database write
 | 30 s             | 3.6 s         |
 | 60 s             | 6.0 s         |
 | 90 s (the max)   | 8.3 s         |
+
+v1.2.0 adds ~0.7 s at every length for the `content` relevance check (one extra prefill
+on the Qwen already in VRAM); set `DTA_RELEVANCE_CHECK=0` to buy that back.
 
 Roughly **1 s of fixed cost + 1 s per 12 s of audio**. Add the learner's own upload time
 over mobile data (a 60 s recording is ~1.9 MB). The server processes one recording at a

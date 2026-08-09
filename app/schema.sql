@@ -102,6 +102,19 @@ CREATE TABLE
       range_score IS NULL
       OR (range_score BETWEEN 0 AND 6)
     ),
+    -- Topical relevance of the transcript to the task, from the inference container's
+    -- content judge. NULL means the check did not run (scored before it existed, disabled,
+    -- or it failed open) -- analysis must read NULL as unknown, NOT as on_topic.
+    content_relevance TEXT CHECK (
+      content_relevance IS NULL
+      OR (
+        content_relevance IN ('on_topic', 'partial', 'off_topic')
+      )
+    ),
+    content_confidence REAL CHECK (
+      content_confidence IS NULL
+      OR (content_confidence BETWEEN 0 AND 1)
+    ),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );

@@ -80,6 +80,31 @@ class DimensionLabel(BaseModel):
     label_fine: str
 
 
+class ContentRelevance(BaseModel):
+    """Does the transcript answer the task that was set?
+
+    A side channel: it is computed after scoring and never changes a score. Absent from the
+    response when the check did not run (disabled, older inference image, or the judge
+    failed) -- absence means "not checked", never "off topic".
+
+    Attributes:
+        relevance (str): "on_topic" | "partial" | "off_topic".
+        confidence (float): The judge's probability for the verdict it returned,
+            renormalised over the three labels. An `off_topic` verdict below the server's
+            threshold is returned as `partial` instead, so a hesitant judge annotates rather
+            than withholds.
+        reason (str | None): Short English explanation, fixed per verdict rather than
+            generated -- null when on topic. Localise from `relevance`, not from this text.
+        judge (str): Prompt/version identifier for the judgement, so stored verdicts stay
+            interpretable after the prompt changes.
+    """
+
+    relevance: str
+    confidence: float
+    reason: str | None = None
+    judge: str | None = None
+
+
 class SpeechAssessmentResponse(BaseModel):
     """Speech assessment response payload.
 
@@ -103,6 +128,8 @@ class SpeechAssessmentResponse(BaseModel):
         clipped (bool): True when the raw prediction fell outside the calibrator's
             range, so `proficiency` is a boundary value (the model cannot resolve
             above B1+ / 3.5) rather than a measurement.
+        content (ContentRelevance | None): Topical relevance of the answer to the
+            task. Null when the check did not run; treat null as "show the score".
     """
 
     assessment_id: int
@@ -113,10 +140,17 @@ class SpeechAssessmentResponse(BaseModel):
     cefr_label_fine: str
     dimension_labels: dict[str, DimensionLabel]
     clipped: bool = False
+    content: ContentRelevance | None = None
 
 
 class AssessmentCreateInput(BaseModel):
-    """Internal DB input for creating a speech assessment record."""
+    """Internal DB input for creating a speech assessment record.
+
+    `content_relevance` / `content_confidence` are stored so the study can separate answers
+    that addressed the task from ones that did not. Null for every row scored before the
+    check existed, and for any row where it failed open -- so analysis must treat null as
+    "unknown", not as "on topic".
+    """
 
     guid: UUID
     task_id: int
@@ -128,3 +162,5 @@ class AssessmentCreateInput(BaseModel):
     proficiency: Score
     pronunciation: Score
     range_score: Score
+    content_relevance: str | None = None
+    content_confidence: float | None = None
