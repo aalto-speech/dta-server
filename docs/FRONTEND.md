@@ -26,7 +26,7 @@ scores — and those are where integrations actually go wrong.
 - There is no login and no session. Every request identifies the user by a `guid` your
   app generates once (a UUID v4) and stores locally. Treat it as the user's identity:
   if it is lost, their history is unreachable.
-- No authentication on user endpoints. `DELETE /users` is admin-only (`X-API-Key`) and
+- No authentication on user endpoints. `DELETE /users` is maintainer-only (`X-Delete-Key`) and
   is not for the app to call — see [User deletion](#user-deletion).
 - Request body limit is 10 MB (enforced by the proxy and again by the app).
 
@@ -436,10 +436,13 @@ after the app has discarded the guid.
 - `export` → **501 Not Implemented** (`NOT_IMPLEMENTED`). Not built yet; either hide the
   option or show that it is coming.
 
-## User deletion (admin)
+## User deletion (maintainer)
 
-`DELETE /users` requires the admin API key and **must not ship in the app** — the key
-would be extractable from the binary and lets anyone delete any user. It erases the
+`DELETE /users` requires the server's delete key (header `X-Delete-Key`, matching
+`SERVER_DELETE_KEY`; both were called "admin" before v1.2.0) and **must not ship in the
+app** — the key would be extractable from the binary and lets anyone delete any user.
+Note this is a different credential from `X-Client-Key`, which the app may send on
+`POST /request/user` and which can only ask for a deletion, never perform one. It erases the
 rows and the recordings, recordings first (a failure leaves the user row in place so
 the deletion stays visible and retryable). The app's route is `POST /request/user`
 above, which performs the same deletion with the same guarantees.

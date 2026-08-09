@@ -270,14 +270,14 @@ def test_delete_users_handler_calls_delete_user_data(
     called = {}
     logged = []
 
-    def _fake_validate_admin_access(_):
+    def _fake_validate_delete_access(_):
         return None
 
     def _fake_delete_user_data(data):
         called["guid"] = str(data.guid)
 
-    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
-                        _fake_validate_admin_access)
+    monkeypatch.setattr("app.services.admin_service.auth.validate_delete_access",
+                        _fake_validate_delete_access)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
     monkeypatch.setattr(
@@ -285,7 +285,7 @@ def test_delete_users_handler_calls_delete_user_data(
         lambda message, *args: logged.append((message, args)),
     )
 
-    request_model = DeleteUserRequest(api_key="valid-admin-key", guid=uuid4())
+    request_model = DeleteUserRequest(delete_key="valid-admin-key", guid=uuid4())
     response = asyncio.run(delete_users(request_model))
 
     assert response.status_code == 204
@@ -309,14 +309,14 @@ def test_delete_users_endpoint_accepts_valid_payload(
     called = {}
     logged = []
 
-    def _fake_validate_admin_access(_):
+    def _fake_validate_delete_access(_):
         return None
 
     def _fake_delete_user_data(data):
         called["guid"] = str(data.guid)
 
-    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
-                        _fake_validate_admin_access)
+    monkeypatch.setattr("app.services.admin_service.auth.validate_delete_access",
+                        _fake_validate_delete_access)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
     monkeypatch.setattr(
@@ -328,7 +328,7 @@ def test_delete_users_endpoint_accepts_valid_payload(
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "valid-admin-key"},
+        headers={"X-Delete-Key": "valid-admin-key"},
         data=payload,
     )
 
@@ -350,7 +350,7 @@ def test_delete_users_endpoint_rejects_invalid_api_key(
 ):
     """Test /users returns 403 for invalid API key."""
 
-    def _fake_validate_admin_access(key: str):
+    def _fake_validate_delete_access(key: str):
         if key != "valid-admin-key":
             raise AppError(
                 status_code=403,
@@ -358,13 +358,13 @@ def test_delete_users_endpoint_rejects_invalid_api_key(
                 message="Invalid API key",
             )
 
-    monkeypatch.setattr("app.services.admin_service.auth.validate_admin_access",
-                        _fake_validate_admin_access)
+    monkeypatch.setattr("app.services.admin_service.auth.validate_delete_access",
+                        _fake_validate_delete_access)
 
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "invalid"},
+        headers={"X-Delete-Key": "invalid"},
         data=_valid_delete_users_form_data(),
     )
 
@@ -378,7 +378,7 @@ def test_delete_users_endpoint_rejects_invalid_api_key(
 
 
 def test_delete_users_endpoint_rejects_missing_api_key_header(client: TestClient):
-    """Test /users returns 422 when X-API-Key header is missing."""
+    """Test /users returns 422 when X-Delete-Key header is missing."""
 
     response = client.request(
         "DELETE", "/users", data=_valid_delete_users_form_data())
@@ -393,12 +393,12 @@ def test_delete_users_endpoint_rejects_invalid_guid(
     """Test /users returns 422 for invalid GUID format."""
 
     monkeypatch.setattr(
-        "app.services.admin_service.auth.validate_admin_access", lambda _key: None)
+        "app.services.admin_service.auth.validate_delete_access", lambda _key: None)
 
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "valid-admin-key"},
+        headers={"X-Delete-Key": "valid-admin-key"},
         data=_valid_delete_users_form_data(guid="not-a-guid"),
     )
 
@@ -412,12 +412,12 @@ def test_delete_users_endpoint_rejects_missing_guid(
     """Test /users returns 422 when guid form field is missing."""
 
     monkeypatch.setattr(
-        "app.services.admin_service.auth.validate_admin_access", lambda _key: None)
+        "app.services.admin_service.auth.validate_delete_access", lambda _key: None)
 
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "valid-admin-key"},
+        headers={"X-Delete-Key": "valid-admin-key"},
         data={},
     )
 
@@ -443,14 +443,14 @@ def test_delete_users_auth_failure_short_circuits_before_delete(
         called["delete_user_data"] = True
 
     monkeypatch.setattr(
-        "app.services.admin_service.auth.validate_admin_access", _deny_admin_access)
+        "app.services.admin_service.auth.validate_delete_access", _deny_admin_access)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
 
     response = client.request(
         "DELETE",
         "/users",
-        headers={"X-API-Key": "invalid"},
+        headers={"X-Delete-Key": "invalid"},
         data=_valid_delete_users_form_data(),
     )
 
