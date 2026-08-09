@@ -34,10 +34,18 @@ def test_new_name_wins_when_both_are_set(monkeypatch: pytest.MonkeyPatch):
     assert _build_settings().server_delete_key == "new-name-key"
 
 
-def test_production_requires_a_delete_key(monkeypatch: pytest.MonkeyPatch):
-    """Production without a delete key means user data cannot be erased on request."""
+def test_production_requires_a_delete_key(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    """Production without a delete key means user data cannot be erased on request.
+
+    The production branch resolves its paths under /data and creates them, so point all
+    three at tmp_path: otherwise this asserts on a PermissionError from mkdir instead of
+    on the missing key, and passes or fails depending on whether the test runner is root.
+    """
 
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DATABASE", str(tmp_path / "db" / "production.db"))
+    monkeypatch.setenv("AUDIO_SAVE_DIR", str(tmp_path / "audio"))
+    monkeypatch.setenv("LOGS_SAVE_DIR", str(tmp_path / "logs"))
     monkeypatch.delenv("SERVER_DELETE_KEY", raising=False)
     monkeypatch.delenv("ADMIN_API_KEY", raising=False)
 
