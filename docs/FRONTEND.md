@@ -126,6 +126,13 @@ server-side defaulting (a fabricated `A1` would corrupt the cohort for everyone 
 `native_languages` and `other_languages` accept either one value or the field repeated
 once per language (verified against the running server).
 
+**Both are stored as a JSON array of strings, and free text is fine.** One value
+(`"English and a little Swedish"`) is stored as a one-element array; a newline-separated
+value is split into several; empty or omitted stores **null**, not `[]`. So a client that
+switches these fields from checkboxes to a free-text box needs no server change — the
+column simply starts holding sentences instead of enum-ish words. Nothing on the server
+parses their contents; whoever analyses the column later should expect free text.
+
 Returns **201** with no body. Sending the same `guid` twice returns **409**
 `DATABASE_CONSTRAINT_ERROR` — onboard once and persist a local flag. If you do hit 409,
 treat it as "already onboarded" and carry on rather than blocking the user.
@@ -213,7 +220,7 @@ Scores are numbers on a **CEFR 0–6 scale** — not marks out of 5:
 | --- | --- | --- | --- | --- | --- | --- |
 | below A1 | A1 | A2 | B1 | B2 | C1 | C2 |
 
-Three facts that affect how you use them:
+Four facts that affect how you use them:
 
 1. **`clipped: true` means the number is a boundary, not a measurement.** The model
    cannot resolve above **B1+ (3.5)** or below about **1.14**; when the raw prediction
@@ -225,6 +232,9 @@ Three facts that affect how you use them:
 3. `cefr_label` (`"A2"`) and `cefr_label_fine` (`"A2+"`) are precomputed from
    `proficiency`; since v1.2.0 `dimension_labels` carries the same two labels for each
    analytic dimension, so a five-row results screen derives nothing locally.
+4. **All five scores can be `0.0` because the answer was withheld, not measured.** That
+   happens only when `content.relevance` is `"off_topic"` — see below. Check that before
+   rendering any score, or you will show a learner a zero they did not earn.
 
 ### Exactly how the labels are derived (agree with this or your stars will contradict them)
 
@@ -252,31 +262,63 @@ The scorer rates **how** someone speaks, not **what** they said, so a fluent ans
 the wrong question scores well. `content` is a separate check that reads the task prompt
 and the transcript and returns one of three verdicts.
 
-| `relevance` | Meaning | Suggested UI |
+| `relevance` | Scores you receive | What to show |
 | --- | --- | --- |
-| `on_topic` | The answer addresses the task. | Show the result normally. |
-| `partial` | On the topic but incomplete, or it drifts. | Show the result, with a note that it only partly addressed the task. |
-| `off_topic` | The answer does not address the task at all. | Withhold the score and offer the task again. |
+| `on_topic` | the real scores | The result, normally. |
+| `partial` | the real scores | The result, **plus a short prompt** to answer the question asked next time. |
+| `off_topic` | **all five are `0.0`** | **No grading.** Say the answer did not match the task and offer it again. |
 
 `confidence` is the judge's probability for the verdict it gave (0–1). `reason` is a
 short English string, fixed per verdict rather than generated — **localise from
 `relevance`, not from `reason`**. `judge` identifies the prompt version behind the
 verdict.
 
-Four rules, all load-bearing:
+**On `off_topic` the server withholds the scores itself** (since v1.2.0). You receive:
+
+```json
+{
+  "scores": {"proficiency": 0.0, "fluency": 0.0, "pronunciation": 0.0,
+             "range": 0.0, "accuracy": 0.0},
+  "transcript": "yma tasan yma desi yma tasan yma desi",
+  "cefr_label": "<A1", "cefr_label_fine": "<A1",
+  "dimension_labels": {"fluency": {"label": "<A1", "label_fine": "<A1"}, "…": "…"},
+  "clipped": false,
+  "content": {"relevance": "off_topic", "confidence": 0.64,
+              "reason": "The answer does not address the task that was asked.",
+              "judge": "dta-relevance-v1"}
+}
+```
+
+The same zeros are written to the database. Scoring an answer to a different question
+was never a measurement of the task that was set, so it is not reported as one.
+
+Five rules, all load-bearing:
 
 1. **`content` may be `null` or absent — that means "not checked", never "off topic".**
-   The check fails open (older server, judge disabled, judge errored). Show the score.
-2. **It never changes the scores.** The numbers are identical with and without it. If
-   you withhold a result on `off_topic`, you are choosing not to show a score that was
-   computed normally — so keep `assessment_id` and still let feedback reference it.
-3. **`off_topic` already clears a confidence bar server-side.** A verdict the judge was
-   unsure of is downgraded to `partial`, because withholding a real learner's score is
-   worse than missing an off-topic answer. Do not add a second threshold on
-   `confidence`; branch on `relevance`.
-4. **Prefer "try again" over "you failed".** An empty or silent recording also returns
-   `off_topic` (with `reason` naming the no-speech case), and that is the most common
-   way a learner will meet this.
+   The check fails open (older server, judge disabled, judge errored). **Nothing is
+   zeroed in that case** — you get the real scores. Show them.
+2. **Never render `0.0` as a grade of zero.** Branch on `relevance == "off_topic"` and
+   show no score at all. A learner shown "0" for a recording of their own voice reads it
+   as a judgement of their Finnish — the exact misleading outcome this feature exists to
+   prevent.
+3. **The `transcript` is real even when the scores are zeroed**, and so is
+   `assessment_id`. The transcript is the evidence for the verdict: showing it ("we
+   heard: …") is the clearest way to explain why a task was not graded, and feedback can
+   still reference the attempt.
+4. **`off_topic` already clears a confidence bar server-side.** A verdict the judge was
+   unsure of is returned as `partial` instead, because withholding a real learner's score
+   is worse than missing an off-topic answer. Do not add a second threshold on
+   `confidence`; branch on `relevance` alone.
+5. **Word both non-`on_topic` cases as guidance, not failure.** An empty or silent
+   recording also returns `off_topic` (with `reason` naming the no-speech case), and that
+   is the most common way a learner will meet this.
+
+On `partial` specifically: a short, plain prompt — *"Remember to answer the question in
+the task"* — is the right register. Measured on the production GPU, an A1-level answer
+that is halting and barely grammatical but genuinely on topic comes back `partial`
+rather than `on_topic`, so the weakest learners will see this message most often. It
+must read as a tip for next time, never as a verdict on their Finnish. (Their scores are
+untouched in that case — `partial` never zeroes anything.)
 
 What it does **not** do: separate two tasks in the same everyday domain. A shopping
 answer given to the "what do you do at home" task is measured to pass as on-topic. It
@@ -286,7 +328,8 @@ reliably catches a different subject, silence, and answers spoken in another lan
 The judge has been smoke-tested, not validated against labelled Finnish data. Treat
 `off_topic` as good enough to prompt a retry, not as a verdict to argue with a learner
 about; the plan is to label a sample of real `content_relevance` values and measure
-before it is trusted further.
+before it is trusted further. If real users hit it on valid answers, the threshold and
+the whole check are environment flips on the server — no release needed.
 
 ### How long it takes
 
