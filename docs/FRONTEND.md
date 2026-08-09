@@ -468,15 +468,6 @@ The user exercising their data rights from inside the app.
 | `guid` | UUID | |
 | `type` | enum | `delete` or `export` |
 
-Optional header: `X-Client-Key` — validated only when the server configures
-`CLIENT_API_KEY` (403 `INVALID_API_KEY` on mismatch). It is a guardrail against
-scripted abuse, not a security boundary: it ships inside the app binary.
-
-It is a **different credential from the delete key** and opens far less. `X-Client-Key`
-lets a caller *ask* for the deletion of a guid they already hold; erasing data outright
-needs `X-Delete-Key` on `DELETE /users`, which never leaves the server. Do not set them
-to the same value — the app key is recoverable from a decompiled build.
-
 **`delete` deletes immediately (since v1.2.0)** — recordings first, then database rows
 — and always answers **202** with the outcome in the body:
 
@@ -504,8 +495,7 @@ after the app has discarded the guid.
 `DELETE /users` requires the server's delete key (header `X-Delete-Key`, matching
 `SERVER_DELETE_KEY`; both were called "admin" before v1.2.0) and **must not ship in the
 app** — the key would be extractable from the binary and lets anyone delete any user.
-Note this is a different credential from `X-Client-Key`, which the app may send on
-`POST /request/user` and which can only ask for a deletion, never perform one. It erases the
+It erases the
 rows and the recordings, recordings first (a failure leaves the user row in place so
 the deletion stays visible and retryable). The app's route is `POST /request/user`
 above, which performs the same deletion with the same guarantees.

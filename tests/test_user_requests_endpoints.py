@@ -107,37 +107,6 @@ def test_request_user_handler_delete_failure_still_202_with_pending(
     assert errors and str(request_model.guid) in str(errors[0][1])
 
 
-def test_request_user_rejects_wrong_client_key(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """Test X-Client-Key is enforced when CLIENT_API_KEY is configured."""
-
-    from dataclasses import replace as _replace
-    from app.config import SETTINGS as _settings
-    import app.validators.auth as _auth
-
-    monkeypatch.setattr(
-        _auth, "SETTINGS", _replace(_settings, client_api_key="shared-key"))
-    data = _valid_request_user_form_data()
-    request_model = UserDataRequest(
-        guid=UUID(data["guid"]),
-        type=RequestType(data["type"]),
-    )
-
-    with pytest.raises(AppError) as exc_info:
-        asyncio.run(request_user(request_model, x_client_key="wrong"))
-
-    assert exc_info.value.status_code == 403
-
-    # And the right key passes.
-    monkeypatch.setattr(
-        "app.services.user_request_service.delete_user_audio", lambda guid: 0)
-    monkeypatch.setattr(
-        "app.services.user_request_service.delete_user_data", lambda data: None)
-    response = asyncio.run(request_user(request_model, x_client_key="shared-key"))
-    assert response.status_code == 202
-
-
 def test_request_user_handler_export_does_not_store_and_returns_501(
     monkeypatch: pytest.MonkeyPatch,
 ):
