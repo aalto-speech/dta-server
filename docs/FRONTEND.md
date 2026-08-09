@@ -189,12 +189,12 @@ ID travels with the recording through your UI code. IDs outside 1–5 are reject
   },
   "transcript": "minä asun helsingissä ja opiskelen suomea",
   "cefr_label": "A2",
-  "cefr_label_fine": "A2+",
+  "cefr_label_fine": "A2",
   "dimension_labels": {
-    "fluency":       {"label": "A2", "label_fine": "A2+"},
-    "pronunciation": {"label": "A2", "label_fine": "A2+"},
-    "range":         {"label": "A1", "label_fine": "A1+"},
-    "accuracy":      {"label": "A1", "label_fine": "A2"}
+    "fluency":       {"label": "A2", "label_fine": "A2"},
+    "pronunciation": {"label": "A2", "label_fine": "A2"},
+    "range":         {"label": "A1", "label_fine": "A1"},
+    "accuracy":      {"label": "A1", "label_fine": "A1"}
   },
   "clipped": false,
   "content": {
@@ -223,9 +223,11 @@ Scores are numbers on a **CEFR 0–6 scale** — not marks out of 5:
 Four facts that affect how you use them:
 
 1. **`clipped: true` means the number is a boundary, not a measurement.** The model
-   cannot resolve above **B1+ (3.5)** or below about **1.14**; when the raw prediction
-   falls outside that range `proficiency` is pinned to the edge. Handle this case
-   explicitly — a strong speaker scored 3.5 every time has not been measured at 3.5.
+   cannot resolve above **3.5** or below about **1.14**; when the raw prediction falls
+   outside that range `proficiency` is pinned to the edge. Handle this case explicitly —
+   a strong speaker scored 3.5 every time has not been measured at 3.5. Both edges land
+   inside the label set (3.5 is `B1`, 1.14 is `A1`), so the label alone will not tell you
+   this happened.
 2. **Only `proficiency` is calibrated.** `fluency`, `pronunciation`, `range` and
    `accuracy` are raw model outputs on the same scale: indicative, not mutually
    consistent, and they do not average to `proficiency`.
@@ -236,25 +238,39 @@ Four facts that affect how you use them:
    happens only when `content.relevance` is `"off_topic"` — see below. Check that before
    rendering any score, or you will show a learner a zero they did not earn.
 
-### Exactly how the labels are derived (agree with this or your stars will contradict them)
+### Exactly how the labels are derived
 
-- `label` (coarse) **FLOORS** to the band: 2.9 → `"A2"`, not B1.
-- `label_fine` **ROUNDS to the nearest half step**: 2.3 → 2.5 → `"A2+"`; 2.75 → 3.0 →
-  `"B1"`. It is **not** a floor-based interval — a client that renders `[2.5, 3.0)` as
-  its "A2+" tier will disagree with the server's label on scores in `[2.25, 2.5)` and
-  `[2.75, 3.0)`. If you compute star tiers from the number, use the same
-  round-to-nearest-half rule, or compute the tier from `label_fine` itself.
-- With the current model, calibrated `proficiency` lives in **[1.14, 3.5]**, so
-  `cefr_label_fine` can only be one of **A1, A1+, A2, A2+, B1, B1+** — and a
-  clipped-high result is exactly 3.5, i.e. `"B1+"`. Anything above is unreachable until
-  the model itself improves. `dimension_labels` are computed from the **raw** scores, so
-  they can span the whole scale — cap them in the UI the same way you cap proficiency.
-- **Do not present A1+ or B1+ as distinctions to the learner.** They are reachable
-  values, so your code must accept them, but the model owner's position is that the
-  current model is not reliable at that resolution near the ends of its range: A1+ comes
-  from a narrow band of calibration knots, and B1+ is simply the clipped ceiling. Fold
-  **A1+ → A1** and **B1+ → B1** for display. The four tiers worth showing today are
-  **A1, A2, A2+, B1**; a later model may earn the finer scale.
+**There are four labels. That is the entire set:**
+
+| Label | Score range |
+| --- | --- |
+| `A1` | `[0, 2)` |
+| `A2` | `[2, 2.5)` |
+| `A2+` | `[2.5, 3)` |
+| `B1` | `[3, …)` |
+
+`cefr_label` is the same rule without the plus level: `A1` `[0,2)`, `A2` `[2,3)`,
+`B1` `[3,…)`. `dimension_labels` uses the identical banding on each raw dimension score.
+
+Three consequences, all of them things a client has got wrong before:
+
+- **The rule floors into a band. It does not round to the nearest one.** `2.41` is `"A2"`,
+  not `"A2+"`. Compute star tiers with these exact boundaries and they cannot contradict
+  the label.
+- **`<A1`, `A1+`, `B1+` and anything above `B1` are never sent.** You do not need to fold
+  or cap anything — a raw dimension score of 5.0 already arrives as `"B1"`, and a
+  proficiency of 0.0 arrives as `"A1"`.
+- **Boundaries are inclusive at the bottom**: 2.0 is A2, 2.5 is A2+, 3.0 is B1.
+
+The scores themselves are unchanged calibrated model output on the 0–6 scale; only the
+labels are banded this way.
+
+> [!NOTE]
+> **This banding belongs to this model version, not to CEFR.** The model does not resolve
+> A1+ or B1+ reliably, and the app does not report anything below A1, so production shows
+> four bands. When a future model earns the finer scale, this table changes and the client
+> changes with it in the same release — so read the labels from the server rather than
+> hard-coding these four anywhere you cannot easily update.
 
 ### `content` — did the answer address the task? (added v1.2.0)
 
@@ -280,8 +296,8 @@ verdict.
   "scores": {"proficiency": 0.0, "fluency": 0.0, "pronunciation": 0.0,
              "range": 0.0, "accuracy": 0.0},
   "transcript": "yma tasan yma desi yma tasan yma desi",
-  "cefr_label": "<A1", "cefr_label_fine": "<A1",
-  "dimension_labels": {"fluency": {"label": "<A1", "label_fine": "<A1"}, "…": "…"},
+  "cefr_label": "A1", "cefr_label_fine": "A1",
+  "dimension_labels": {"fluency": {"label": "A1", "label_fine": "A1"}, "…": "…"},
   "clipped": false,
   "content": {"relevance": "off_topic", "confidence": 0.64,
               "reason": "The answer does not address the task that was asked.",

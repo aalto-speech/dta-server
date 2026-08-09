@@ -50,8 +50,14 @@ Response fields and what to do with them:
 - `scores.fluency` / `pronunciation` / `range` / `accuracy` — raw model
   outputs on the same scale, **not calibrated** and not algebraically consistent
   with `proficiency`. Treat as indicative.
-- `cefr_label` (e.g. `"A2"`) and `cefr_label_fine` (e.g. `"A2+"`) — display
-  these in the UI rather than the bare number ("2.1" reads as a mark out of 5).
+- `cefr_label` and `cefr_label_fine` — display these rather than the bare number
+  ("2.1" reads as a mark out of 5). **Production emits exactly four labels**:
+  `A1` `[0,2)`, `A2` `[2,2.5)`, `A2+` `[2.5,3)`, `B1` `[3,…)`, floored into the band
+  rather than rounded to the nearest one. `<A1`, `A1+` and `B1+` are never sent, and
+  dimension labels are capped at `B1` the same way. The app tier re-derives all of them
+  from the scores in `app/utils/cefr.py` and discards the inference container's own
+  labels, which use the research convention over the full scale. The banding belongs to
+  this model version and changes when a model earns the finer scale.
 - `clipped` — `true` means the prediction hit the calibration boundary, so
   `proficiency` is a floor/ceiling value, not a measurement. Show "B1+ or
   above" (or flag for review) instead of presenting the capped number as real.
