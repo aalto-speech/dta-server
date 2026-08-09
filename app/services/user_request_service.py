@@ -10,7 +10,6 @@ from app.models.user_requests import (
 )
 from app.utils.logger import get_logger
 from app.utils.storage import delete_user_audio
-from app.validators import auth
 
 logger = get_logger(__name__)
 
@@ -65,12 +64,11 @@ def _delete_user_now(data: UserDataRequest) -> str:
         return "pending"
 
 
-def handle_user_request(data: UserDataRequest, client_key: str | None = None) -> JSONResponse:
+def handle_user_request(data: UserDataRequest) -> JSONResponse:
     """Handle user delete and export requests.
 
     Args:
         data: User request payload with GUID and request type.
-        client_key: Optional X-Client-Key header value; validated when configured.
 
     Returns:
         JSONResponse: 202 for delete requests (with the outcome in the body),
@@ -78,8 +76,6 @@ def handle_user_request(data: UserDataRequest, client_key: str | None = None) ->
     """
 
     if data.type == RequestType.DELETE:
-        auth.validate_client_access(client_key)
-
         # Deletion happens now, not "awaiting admin approval": the user was told
         # their data is being removed, so it is. Always 202 -- the outcome rides in
         # the body ("deleted" or "pending") and never changes the client's retry

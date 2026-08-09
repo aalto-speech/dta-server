@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from time import monotonic
 
-from fastapi import Depends, FastAPI, Form, Header
+from fastapi import Depends, FastAPI, Form
 from fastapi.responses import JSONResponse, Response
 
 from app.config import SETTINGS
@@ -127,10 +127,7 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
     status_code=202,
     responses={403: ERROR_RESPONSE, 501: ERROR_RESPONSE},
 )
-async def request_user(
-    data: UserDataRequest = Form(),
-    x_client_key: str | None = Header(default=None, alias="X-Client-Key"),
-) -> JSONResponse:
+async def request_user(data: UserDataRequest = Form()) -> JSONResponse:
     """Submit a user data request (delete or export).
 
     Deletion happens immediately. The 202 body carries the outcome:
@@ -138,17 +135,14 @@ async def request_user(
     the deletion failed and is logged for a maintainer. Both are 202 on purpose --
     the client stops retrying on any 2xx.
 
-    X-Client-Key is validated only when the server configures CLIENT_API_KEY.
-
     Args:
         data: User request payload with GUID and request type.
-        x_client_key: Optional shared client key.
 
     Returns:
         JSONResponse: 202 for delete requests, 501 for export requests.
     """
 
-    return handle_user_request(data, client_key=x_client_key)
+    return handle_user_request(data)
 
 
 @app.post(

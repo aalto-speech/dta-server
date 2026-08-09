@@ -270,7 +270,6 @@ when the line is left empty.
 | `DTA_DEVICE`           | `cuda`            | Device for the speech scorer (`cpu` on staging without GPU).         |
 | `DTA_AUTOCAST_DTYPE`   | `bfloat16`        | Scorer autocast dtype. Production sets `float16`: its P100 (Pascal) has no bf16, and fp32 halves throughput. |
 | `ASA_TIMEOUT`          | `60`              | App-side timeout (s) for one scoring call (`300` on CPU staging).    |
-| `CLIENT_API_KEY`       | empty             | Shared key the mobile app sends as `X-Client-Key` on `/request/user`. Empty = header ignored. Ships inside the APK, so it deters casual scripting only — keep it distinct from `SERVER_DELETE_KEY`. |
 | `DTA_RELEVANCE_CHECK`  | `1`               | Topical-relevance judge (`content` block). `0` serves scores without it; costs ~0.7 s/request on the P100. |
 | `DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE` | `0.6` | Below this probability an `off_topic` verdict is returned as `partial`. Raise to be more cautious. |
 
