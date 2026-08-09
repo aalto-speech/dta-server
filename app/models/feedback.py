@@ -53,8 +53,15 @@ class FeedbackRequest(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_assessment_id_required_for_assessment_feedback(self):
-        """Require assessment_id for assessment-related feedback types."""
+    def validate_assessment_id_pairing(self):
+        """Enforce the assessment_id pairing rule in both directions.
+
+        Assessment-scoped feedback must reference the assessment it rates;
+        app-scoped feedback must not reference one. The second direction matters
+        as much as the first: before it was enforced, a stray assessment_id on
+        `comparison_ui` would either trip a foreign-key 409 (unlucky) or be
+        silently stored as a link to an unrelated assessment (worse).
+        """
 
         assessment_feedback_types = {
             FeedbackClassification.SELF_ASSESSMENT,
@@ -67,6 +74,12 @@ class FeedbackRequest(BaseModel):
                 raise ValueError(
                     f"assessment_id is required for feedback type '{self.feedback_classification}'."
                 )
+        elif self.assessment_id is not None:
+            raise ValueError(
+                "assessment_id must be omitted for feedback type "
+                f"'{self.feedback_classification}' -- this feedback is about the app, "
+                "not a specific assessment."
+            )
 
         return self
 

@@ -1,16 +1,26 @@
 from contextlib import asynccontextmanager
 from time import monotonic
 
-from fastapi import Depends, FastAPI, Form
+from fastapi import Depends, FastAPI, Form, Header
 from fastapi.responses import JSONResponse, Response
 
 from app.config import SETTINGS
 from app.db import initialize_database
 from app.error_handlers import register_error_handlers
-from app.models.analytics import ComparisonRequest
+from app.models.analytics import (
+    AssessmentUnavailable,
+    CohortSizeTooLow,
+    ComparisonRequest,
+    ComparisonResponse,
+    NoRankAvailable,
+)
+from app.models.errors import ErrorEnvelope, ValidationErrorEnvelope
 from app.models.feedback import FeedbackRequest
 from app.models.onboarding import OnboardingRequest
-from app.models.speech_assessment import SpeechAssessmentRequest
+from app.models.speech_assessment import (
+    SpeechAssessmentRequest,
+    SpeechAssessmentResponse,
+)
 from app.models.user_requests import DeleteUserRequest, UserDataRequest
 from app.services.admin_service import delete_user
 from app.services.analytics_service import get_comparison
@@ -38,8 +48,21 @@ async def lifespan(_: FastAPI):
     yield
 
 
+# Every error except 422 uses this envelope; 422 adds an `errors` array. Declared
+# once here and referenced per endpoint so generated clients can parse failures.
+ERROR_RESPONSE = {"model": ErrorEnvelope}
+VALIDATION_RESPONSE = {"model": ValidationErrorEnvelope}
+
 # Set root_path to /api/v1 to ensure correct routing when behind a reverse proxy with a base path.
-app = FastAPI(lifespan=lifespan, root_path="/api/v1",)
+app = FastAPI(
+    lifespan=lifespan,
+    root_path="/api/v1",
+    title="DTA Server",
+    # The release version, baked into the image by CI. Clients feature-detect
+    # against /status's `version`, which serves the same value.
+    version=SETTINGS.server_version,
+    responses={422: VALIDATION_RESPONSE},
+)
 register_error_handlers(app, logger)
 
 
@@ -67,15 +90,27 @@ async def status() -> JSONResponse:
         content={
             "status": "ok",
             "env": SETTINGS.env,
+            # The release (e.g. "1.2.0"), for client feature detection -- the
+            # same value as OpenAPI info.version. "0.0.0-dev" outside CI builds.
+            "version": SETTINGS.server_version,
             "uptime_seconds": uptime_seconds,
         },
         status_code=200,
     )
 
 
-@app.post("/analytics/comparison")
+@app.post(
+    "/analytics/comparison",
+    response_model=(ComparisonResponse | AssessmentUnavailable
+                    | CohortSizeTooLow | NoRankAvailable),
+    responses={403: ERROR_RESPONSE, 404: ERROR_RESPONSE},
+)
 async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse:
     """Return cohort comparison stats for the requesting user.
+
+    The three "not available yet" shapes are also HTTP 200. The contract clients
+    rely on: `status` is ALWAYS present on the unavailable shapes and NEVER present
+    on a successful comparison -- branch on that, not on sentinel values.
 
     Args:
         data: Comparison request payload including user GUID and window options.
@@ -87,23 +122,47 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
     return get_comparison(data)
 
 
-@app.post("/request/user")
-async def request_user(data: UserDataRequest = Form()) -> JSONResponse:
+@app.post(
+    "/request/user",
+    status_code=202,
+    responses={403: ERROR_RESPONSE, 501: ERROR_RESPONSE},
+)
+async def request_user(
+    data: UserDataRequest = Form(),
+    x_client_key: str | None = Header(default=None, alias="X-Client-Key"),
+) -> JSONResponse:
     """Submit a user data request (delete or export).
+
+    Deletion happens immediately. The 202 body carries the outcome:
+    `{"status": "deleted"}` when the data is gone, `{"status": "pending"}` when
+    the deletion failed and is logged for a maintainer. Both are 202 on purpose --
+    the client stops retrying on any 2xx.
+
+    X-Client-Key is validated only when the server configures CLIENT_API_KEY.
 
     Args:
         data: User request payload with GUID and request type.
+        x_client_key: Optional shared client key.
 
     Returns:
         JSONResponse: 202 for delete requests, 501 for export requests.
     """
 
-    return handle_user_request(data)
+    return handle_user_request(data, client_key=x_client_key)
 
 
-@app.post("/feedback")
+@app.post(
+    "/feedback",
+    status_code=201,
+    responses={403: ERROR_RESPONSE, 404: ERROR_RESPONSE, 409: ERROR_RESPONSE},
+)
 async def feedback(data: FeedbackRequest = Form()) -> JSONResponse:
     """Submit assessment or experience feedback.
+
+    `assessment_id` is REQUIRED for the assessment-scoped types (`self_assessment`,
+    `result_accuracy`, `result_understanding`) and MUST BE OMITTED -- genuinely
+    absent, not 0 or null -- for the app-scoped types (`comparison_ui`,
+    `overall_experience`). Violations return 422.
 
     Args:
         data: Feedback payload including classification, score, and optional comment.
@@ -115,7 +174,14 @@ async def feedback(data: FeedbackRequest = Form()) -> JSONResponse:
     return record_feedback(data)
 
 
-@app.post("/speech/assess")
+@app.post(
+    "/speech/assess",
+    response_model=SpeechAssessmentResponse,
+    responses={
+        400: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE,
+        413: ERROR_RESPONSE, 415: ERROR_RESPONSE, 503: ERROR_RESPONSE,
+    },
+)
 async def assess_speech(
     data: SpeechAssessmentRequest = Depends(SpeechAssessmentRequest.as_form)
 ) -> JSONResponse:
@@ -131,9 +197,19 @@ async def assess_speech(
     return await assess_speech_request(data)
 
 
-@app.post("/onboarding")
+@app.post(
+    "/onboarding",
+    status_code=201,
+    responses={409: ERROR_RESPONSE},
+)
 async def onboarding(data: OnboardingRequest = Form()) -> Response:
     """Create a new user from onboarding form data.
+
+    Only `guid`, `consent_accepted`, `consent_timestamp` and
+    `finnish_self_assessment` are required. Everything else is research metadata:
+    omitted or empty fields store null and never block account creation. Unknown
+    form fields are ignored, so a newer app can send questions this server does
+    not know yet.
 
     Args:
         data: Onboarding payload containing profile and language background fields.
@@ -145,7 +221,11 @@ async def onboarding(data: OnboardingRequest = Form()) -> Response:
     return create_onboarding_user(data)
 
 
-@app.delete("/users")
+@app.delete(
+    "/users",
+    status_code=204,
+    responses={403: ERROR_RESPONSE, 500: ERROR_RESPONSE},
+)
 async def delete_users(
     data: DeleteUserRequest = Depends(
         DeleteUserRequest.as_form)

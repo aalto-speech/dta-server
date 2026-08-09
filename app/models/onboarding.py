@@ -74,50 +74,82 @@ class OnboardingRequest(BaseModel):
         guid: The user's GUID.
     """
 
-    app_version: str | None = None
-    age_group: AgeGroup
-    finnish_learning_duration: LearningDuration
-    finnish_self_assessment: CEFRLevel
-    gender: Gender
-    moved_to_finland: MovedToFinland
-    native_languages: str | list[str]
-    other_languages: str | list[str] | None = None
-    background_form_completed: bool
-    background_form_timestamp: datetime
+    # Two tiers (docs/FRONTEND.md "Onboarding"). Required: guid, consent and the CEFR
+    # self-assessment -- without them there is no user, no lawful basis, or no cohort
+    # for /analytics/comparison. Everything else is research metadata: the background
+    # form changes over the life of the study, and a dropped demographic question must
+    # never be able to stop an account from being created. Missing metadata stores NULL.
+    guid: UUID
     consent_accepted: bool
     consent_timestamp: datetime
-    guid: UUID
+    finnish_self_assessment: CEFRLevel
+
+    app_version: str | None = None
+    age_group: AgeGroup | None = None
+    finnish_learning_duration: LearningDuration | None = None
+    gender: Gender | None = None
+    moved_to_finland: MovedToFinland | None = None
+    native_languages: str | list[str] | None = None
+    other_languages: str | list[str] | None = None
+    background_form_completed: bool | None = None
+    background_form_timestamp: datetime | None = None
+
+    @field_validator("age_group", "finnish_learning_duration", "gender",
+                     "moved_to_finland", "background_form_completed",
+                     "background_form_timestamp", mode="before")
+    @classmethod
+    def empty_form_field_is_null(cls, value: object) -> object:
+        """Treat an empty form value as 'not collected'.
+
+        Form encodings cannot express null: a client that renders a question but gets
+        no answer sends `field=`. Without this, that empty string fails the enum and
+        the whole onboarding 422s -- exactly the failure tiering exists to prevent.
+        """
+
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
     @field_validator("native_languages", "other_languages")
     @classmethod
-    def validate_languages(cls, value: str | list[str] | None) -> str | list[str] | None:
-        """Convert newline-separated language strings into lists."""
+    def validate_languages(cls, value: str | list[str] | None) -> list[str] | None:
+        """Convert newline-separated language strings into lists; empty means null."""
 
         if isinstance(value, str):
-            return [lang.strip() for lang in value.split("\n")]
+            languages = [lang.strip()
+                         for lang in value.split("\n") if lang.strip()]
+            return languages or None
+
+        if isinstance(value, list):
+            languages = [lang.strip() for lang in value if lang.strip()]
+            return languages or None
 
         return value
 
 
 class CreateUserInput(BaseModel):
-    """Internal DB input for creating a user row."""
+    """Internal DB input for creating a user row. Metadata fields may be None."""
 
-    app_version: str | None = None
-    age_group: AgeGroup
-    finnish_learning_duration: LearningDuration
-    finnish_self_assessment: CEFRLevel
-    gender: Gender
-    moved_to_finland: MovedToFinland
-    native_languages: str | list[str]
-    other_languages: str | list[str] | None = None
+    guid: UUID
     consent_accepted: bool
     consent_timestamp: datetime
-    guid: UUID
+    finnish_self_assessment: CEFRLevel
+
+    app_version: str | None = None
+    age_group: AgeGroup | None = None
+    finnish_learning_duration: LearningDuration | None = None
+    gender: Gender | None = None
+    moved_to_finland: MovedToFinland | None = None
+    native_languages: str | list[str] | None = None
+    other_languages: str | list[str] | None = None
 
     @field_validator("moved_to_finland")
     @classmethod
-    def validate_moved_to_finland(cls, value: MovedToFinland) -> MovedToFinland:
+    def validate_moved_to_finland(cls, value: MovedToFinland | None) -> MovedToFinland | None:
         """Normalize moved_to_finland into a stored value."""
+
+        if value is None:
+            return None
 
         if isinstance(value, str) and value == "before_2015":
             return value

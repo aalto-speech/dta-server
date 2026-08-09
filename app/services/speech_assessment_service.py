@@ -54,10 +54,28 @@ async def _score(content: bytes, data: SpeechAssessmentRequest) -> dict:
             ) from err
 
         logger.error("ASA scoring failed for user %s: %s", data.guid, err)
+
+        # Three different situations hide behind one 503, and the client needs to
+        # word (and pace) its retry differently for each -- see docs/FRONTEND.md.
+        if err.timed_out:
+            reason, retry_after = "busy", 60
+            message = "Speech scoring is busy. Please try again shortly."
+        elif err.status == 503:
+            # The inference container answers but its model is still loading.
+            reason, retry_after = "starting_up", 30
+            message = "Speech scoring is starting up. Please try again in a moment."
+        else:
+            # Connection refused / DNS / a non-503 error: retrying will not help
+            # until someone fixes the scorer, so no Retry-After is promised.
+            reason, retry_after = "unreachable", None
+            message = "Speech scoring is unavailable right now. Please try again later."
+
         raise AppError(
             status_code=503,
             error_type=ErrorType.SCORING_UNAVAILABLE,
-            message="Speech scoring is temporarily unavailable. Please try again shortly.",
+            message=message,
+            extra={"reason": reason},
+            headers={"Retry-After": str(retry_after)} if retry_after else None,
         ) from err
 
 
@@ -119,6 +137,10 @@ async def assess_speech_request(
 
     results = SpeechAssessmentResponse(
         assessment_id=assessment_id,
+        # Echo of the id that was actually scored, so the client can assert it matches
+        # what it sent -- a mis-wired task otherwise produces a plausible wrong score
+        # with no error anywhere.
+        task_id=data.task_id,
         scores=SpeechAssessmentScores(
             accuracy=accuracy,
             fluency=fluency,
@@ -129,6 +151,7 @@ async def assess_speech_request(
         transcript=transcript,
         cefr_label=result["cefr_label"],
         cefr_label_fine=result["cefr_label_fine"],
+        dimension_labels=result["dimension_labels"],
         clipped=result["clipped"],
     )
     return JSONResponse(content=jsonable_encoder(results), status_code=200)
