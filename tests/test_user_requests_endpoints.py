@@ -7,8 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.error_handlers import AppError, ErrorType
-from app.main import app, delete_users, request_user
-from app.models.user_requests import DeleteUserRequest, RequestType, UserDataRequest
+from app.main import app, delete_users
+from app.models.user_requests import DeleteUserRequest
 
 
 @pytest.fixture
@@ -19,15 +19,6 @@ def client():
         yield test_client
 
 
-def _valid_request_user_form_data(**overrides):
-    data = {
-        "guid": str(uuid4()),
-        "type": "delete",
-    }
-    data.update(overrides)
-    return data
-
-
 def _valid_delete_users_form_data(**overrides):
     data = {
         "guid": str(uuid4()),
@@ -36,199 +27,19 @@ def _valid_delete_users_form_data(**overrides):
     return data
 
 
-def test_request_user_handler_delete_deletes_immediately(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """Test the delete path erases data on receipt and answers status=deleted."""
+def test_request_user_route_is_gone(client: TestClient):
+    """POST /request/user was removed in v1.3.0; deletion is DELETE /users.
 
-    called = {}
-
-    monkeypatch.setattr(
-        "app.services.user_request_service.delete_user_audio",
-        lambda guid: called.update(audio=str(guid)) or 2,
-    )
-    monkeypatch.setattr(
-        "app.services.user_request_service.delete_user_data",
-        lambda data: called.update(rows=str(data.guid)),
-    )
-    data = _valid_request_user_form_data()
-    request_model = UserDataRequest(
-        guid=UUID(data["guid"]),
-        type=RequestType(data["type"]),
-    )
-
-    response = asyncio.run(request_user(request_model))
-
-    assert response.status_code == 202
-    import json as _json
-    body = _json.loads(response.body)
-    assert body["status"] == "deleted"
-    assert called == {"audio": data["guid"], "rows": data["guid"]}
-
-
-def test_request_user_handler_delete_failure_still_202_with_pending(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """Test a failed deletion is logged with the guid, recorded, and still 202.
-
-    Any 2xx means "the request arrived, stop retrying" -- an error here would make
-    the app retry a request the server already holds.
+    Asserted rather than assumed: the route carried an `export` type this app must never
+    grow, so a reappearance is a regression worth failing the build over.
     """
 
-    recorded = {}
-    errors = []
-
-    def _fail(_guid):
-        raise OSError("disk on fire")
-
-    monkeypatch.setattr(
-        "app.services.user_request_service.delete_user_audio", _fail)
-    monkeypatch.setattr(
-        "app.services.user_request_service.create_user_request",
-        lambda data: recorded.update(guid=str(data.guid)),
-    )
-    monkeypatch.setattr(
-        "app.services.user_request_service.logger.error",
-        lambda message, *args: errors.append((message, args)),
-    )
-    data = _valid_request_user_form_data()
-    request_model = UserDataRequest(
-        guid=UUID(data["guid"]),
-        type=RequestType(data["type"]),
-    )
-
-    response = asyncio.run(request_user(request_model))
-
-    assert response.status_code == 202
-    import json as _json
-    assert _json.loads(response.body)["status"] == "pending"
-    # The failure is recorded for maintainers, with the guid, in log and database.
-    assert recorded == {"guid": data["guid"]}
-    assert errors and str(request_model.guid) in str(errors[0][1])
-
-
-def test_request_user_handler_export_does_not_store_and_returns_501(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """Test handler export path raises AppError and does not store request."""
-
-    called = {"create_user_request": False}
-    logged = []
-
-    def _fake_create_user_request(_):
-        called["create_user_request"] = True
-
-    monkeypatch.setattr("app.services.user_request_service.create_user_request",
-                        _fake_create_user_request)
-    monkeypatch.setattr(
-        "app.services.user_request_service.logger.warning",
-        lambda message, *args: logged.append((message, args)),
-    )
-    request_model = UserDataRequest(guid=uuid4(), type=RequestType.EXPORT)
-
-    with pytest.raises(AppError) as exc_info:
-        asyncio.run(request_user(request_model))
-
-    assert exc_info.value.status_code == 501
-    assert exc_info.value.error_type == ErrorType.NOT_IMPLEMENTED
-    assert exc_info.value.message == "Data export requests are not implemented yet."
-    assert called["create_user_request"] is False
-    assert logged == [
-        ("Rejected unsupported data export request for user %s", (request_model.guid,)),
-    ]
-
-
-def test_request_user_endpoint_delete_accepts_valid_payload(
-    client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """Test /request/user returns 202 for valid delete request form data."""
-
-    called = {}
-
-    monkeypatch.setattr(
-        "app.services.user_request_service.delete_user_audio",
-        lambda guid: called.update(audio=str(guid)) or 0,
-    )
-    monkeypatch.setattr(
-        "app.services.user_request_service.delete_user_data",
-        lambda data: called.update(rows=str(data.guid)),
-    )
-
     response = client.post(
-        "/request/user", data=_valid_request_user_form_data())
+        "/request/user", data={"guid": str(uuid4()), "type": "delete"})
 
-    assert response.status_code == 202
-    assert response.json()["status"] == "deleted"
-    assert "rows" in called and "audio" in called
-
-
-def test_request_user_endpoint_export_returns_not_implemented(
-    monkeypatch: pytest.MonkeyPatch,
-    client: TestClient,
-):
-    """Test /request/user returns 501 and does not persist for export request."""
-
-    called = {"create_user_request": False}
-
-    def _fake_create_user_request(_):
-        called["create_user_request"] = True
-
-    monkeypatch.setattr("app.services.user_request_service.create_user_request",
-                        _fake_create_user_request)
-
-    response = client.post(
-        "/request/user",
-        data=_valid_request_user_form_data(type="export"),
-    )
-
-    assert response.status_code == 501
-    assert response.json() == {
-        "detail": {
-            "type": "NOT_IMPLEMENTED",
-            "message": "Data export requests are not implemented yet.",
-        },
-    }
-    assert called["create_user_request"] is False
-
-
-def test_request_user_endpoint_rejects_invalid_guid(client: TestClient):
-    """Test /request/user returns 422 for invalid GUID format."""
-
-    response = client.post(
-        "/request/user",
-        data=_valid_request_user_form_data(guid="not-a-guid"),
-    )
-
-    assert response.status_code == 422
-    assert response.json()["detail"]["type"] == "VALIDATION_ERROR"
-    assert response.json()["detail"]["message"] == "Invalid request payload"
-    assert isinstance(response.json()["detail"]["errors"], list)
-
-
-def test_request_user_endpoint_rejects_missing_required_fields(client: TestClient):
-    """Test /request/user returns 422 when required fields are missing."""
-
-    data = _valid_request_user_form_data()
-    data.pop("type")
-
-    response = client.post("/request/user", data=data)
-
-    assert response.status_code == 422
-    assert response.json()["detail"]["type"] == "VALIDATION_ERROR"
-    assert response.json()["detail"]["message"] == "Invalid request payload"
-    assert isinstance(response.json()["detail"]["errors"], list)
-
-
-def test_request_user_endpoint_rejects_invalid_type(client: TestClient):
-    """Test /request/user returns 422 when type is outside enum values."""
-
-    response = client.post(
-        "/request/user",
-        data=_valid_request_user_form_data(type="archive"),
-    )
-
-    assert response.status_code == 422
+    assert response.status_code == 404
+    assert not any(getattr(route, "path", None) == "/request/user"
+                   for route in app.routes)
 
 
 def test_delete_users_handler_calls_delete_user_data(
@@ -430,4 +241,48 @@ def test_delete_users_auth_failure_short_circuits_before_delete(
             "message": "Invalid API key",
         }
     }
+    assert called["delete_user_data"] is False
+
+
+def test_failed_recording_delete_is_recorded_and_leaves_the_user_row(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """A failed erase is visible in the database, not only in the log.
+
+    This audit trail used to live in POST /request/user. That route is gone, so it moved
+    here -- a deletion that fails leaves data the user believes was erased, and the guid
+    that could find it again has just been wiped from their device.
+    """
+
+    recorded = {}
+    called = {"delete_user_data": False}
+
+    def _fail(_guid):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(
+        "app.services.admin_service.auth.validate_delete_access", lambda _key: None)
+    monkeypatch.setattr("app.services.admin_service.delete_user_audio", _fail)
+    monkeypatch.setattr(
+        "app.services.admin_service.create_user_request",
+        lambda data: recorded.update(guid=str(data.guid), type=str(data.type)),
+    )
+    monkeypatch.setattr(
+        "app.services.admin_service.delete_user_data",
+        lambda _data: called.update(delete_user_data=True),
+    )
+
+    payload = _valid_delete_users_form_data()
+    response = client.request(
+        "DELETE",
+        "/users",
+        headers={"X-Delete-Key": "valid-admin-key"},
+        data=payload,
+    )
+
+    assert response.status_code == 500
+    assert recorded == {"guid": payload["guid"], "type": "delete"}
+    # Recordings are deleted before rows, so the user row survives a failure and the
+    # outstanding deletion stays discoverable.
     assert called["delete_user_data"] is False

@@ -1,6 +1,7 @@
 # pylint: disable=redefined-outer-name
 
 import asyncio
+import sqlite3
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -302,3 +303,28 @@ def test_onboarding_endpoint_other_languages_string_conversion(
 
     assert response.status_code == 201
     assert captured["other_languages"] == ["English", "Swedish"]
+
+
+def test_duplicate_guid_gets_its_own_error_type(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """409 on /onboarding means the guid is taken, and says so in detail.type.
+
+    The client mints a fresh guid and retries up to three times on 409, so the advice has
+    to be actionable: a generic DATABASE_CONSTRAINT_ERROR would send it round three times
+    for causes regenerating cannot fix.
+    """
+
+    def _collide(_data):
+        raise sqlite3.IntegrityError("UNIQUE constraint failed: users.guid")
+
+    monkeypatch.setattr("app.services.onboarding_service.create_user", _collide)
+
+    response = client.post("/onboarding", data=_valid_onboarding_form_data())
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "type": "GUID_ALREADY_REGISTERED",
+        "message": "This guid is already registered.",
+    }

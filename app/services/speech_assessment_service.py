@@ -80,36 +80,23 @@ async def _score(content: bytes, data: SpeechAssessmentRequest) -> dict:
         ) from err
 
 
-def _withhold_scores(result: dict) -> dict:
-    """Zero every score in a scoring result, keeping the transcript.
-
-    Used when the content judge says the answer addressed a different task. Scoring a
-    reply to another question is not a measurement of this one, so the numbers are
-    withheld rather than reported, in the response and in the database alike.
-
-    This is deliberately NOT silent: `content.relevance` travels in the same response and
-    `content_relevance` is written on the same row, so a zero is always attributable --
-    and all five scores going to zero together is a pattern no real assessment produces.
-    Labels are zeroed with them, because a 0.0 displayed next to "A2" would be worse than
-    either alone.
-
-    The transcript survives: it is what the learner actually said, it is the evidence for
-    the verdict, and it is the one part of the result that is still true.
-
-    For analysis: `WHERE content_relevance = 'off_topic'` finds these rows. Exclude them
-    rather than reading 0.0 as a low score -- the model's real output for these recordings
-    is not recoverable from the database.
-
-    Labels are not set here. They are derived from the scores afterwards like any other
-    result, so a withheld score labels as A1 (production has no band below it). That label
-    must never be shown: `content.relevance == "off_topic"` is what governs the screen.
-    """
-
-    return result | {
-        "scores": {dimension: 0.0 for dimension in result["scores"]},
-        # A withheld score is not a clipped measurement; it is not a measurement at all.
-        "clipped": False,
-    }
+# WHY NOTHING IS WITHHELD ON off_topic ANY MORE (changed in v1.3.0)
+#
+# v1.2.0 zeroed all five scores when the judge said `off_topic`, in the response and on the
+# row. That is reverted: the measured scores are now returned and stored for every verdict,
+# and `content.relevance` is the only thing that changes. The client already drives its
+# warning off the verdict, so the screen is unaffected.
+#
+# The reason is measured, not theoretical. On the production P100 the judge's verdict tracks
+# ANSWER LENGTH and ASR QUALITY rather than topic: the same on-topic content scores
+# p(bad)=0.59 at three words and 0.02 at twenty, and a real production answer about lending
+# money for food was called off_topic at 0.75 only because the ASR mangled "sata euroa" into
+# "sata ilva". Both are proxies for proficiency, so the zeroing landed hardest on the A1
+# learners the app exists for -- and it destroyed the evidence needed to catch the mistake,
+# since the model's real numbers for those recordings were not recoverable afterwards.
+#
+# With the scores kept, a wrongly flagged recording can be found later by comparing the
+# score against the flag, and a false positive costs a warning instead of a grade.
 
 
 def _apply_production_labels(result: dict) -> dict:
@@ -164,15 +151,12 @@ async def assess_speech_request(
 
     relevance = result.get("content")
     if relevance:
+        # Recorded, never acted on: the verdict annotates the result, it does not change
+        # it. See the note above _apply_production_labels for why the zeroing was removed.
         logger.info("Content relevance for user %s: %s (%.2f)",
                     data.guid, relevance["relevance"], relevance["confidence"])
-        if relevance["relevance"] == "off_topic":
-            logger.info("Withholding scores for user %s: answer judged off-topic",
-                        data.guid)
-            result = _withhold_scores(result)
 
-    # Always last, and after any withholding, so the labels can never disagree with the
-    # numbers they sit next to.
+    # Always last, so the labels can never disagree with the numbers they sit next to.
     result = _apply_production_labels(result)
 
     scores = result["scores"]  # keys match the DB columns, except range -> range_score

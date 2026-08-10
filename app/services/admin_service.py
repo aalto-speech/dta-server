@@ -1,9 +1,14 @@
 
 from fastapi.responses import Response
 
-from app.db import delete_user_data
+from app.db import create_user_request, delete_user_data
 from app.error_handlers import AppError, ErrorType
-from app.models.user_requests import DeleteUserDataInput, DeleteUserRequest
+from app.models.user_requests import (
+    CreateUserRequestInput,
+    DeleteUserDataInput,
+    DeleteUserRequest,
+    RequestType,
+)
 from app.utils.logger import get_logger
 from app.utils.storage import delete_user_audio
 from app.validators import auth
@@ -35,6 +40,20 @@ def delete_user(data: DeleteUserRequest) -> Response:
         removed = delete_user_audio(data.guid)
     except (OSError, ValueError) as err:
         logger.error("Failed to delete recordings for user %s: %s", data.guid, err)
+        # Also visible in the database, not only in the log. The user row still exists
+        # (recordings are deleted first), so an outstanding deletion stays discoverable by
+        # a maintainer even if nobody is reading logs that day. Inherited from the removed
+        # POST /request/user path, which is where this audit trail used to live.
+        try:
+            create_user_request(CreateUserRequestInput(
+                guid=data.guid, type=RequestType.DELETE))
+        except Exception as record_err:  # pylint: disable=broad-exception-caught
+            logger.error(
+                "Could not record the failed deletion for guid=%s: %s -- the log line "
+                "above is the only trace",
+                data.guid,
+                record_err,
+            )
         raise AppError(
             status_code=500,
             error_type=ErrorType.INTERNAL_SERVER_ERROR,

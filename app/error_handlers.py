@@ -25,6 +25,12 @@ class ErrorType(str, Enum):
     AUDIO_TOO_LONG = "AUDIO_TOO_LONG"
     SCORING_UNAVAILABLE = "SCORING_UNAVAILABLE"
     NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
+    # 409 on /onboarding, narrowed from DATABASE_CONSTRAINT_ERROR so the client can branch
+    # on the cause instead of the status. It means exactly one thing: this guid is taken,
+    # mint a new one and retry. The generic type stays for everything else -- retrying with
+    # a fresh guid cannot fix a constraint that has nothing to do with the guid, and the
+    # client would have burned three attempts finding that out.
+    GUID_ALREADY_REGISTERED = "GUID_ALREADY_REGISTERED"
     DATABASE_CONSTRAINT_ERROR = "DATABASE_CONSTRAINT_ERROR"
     DATABASE_UNAVAILABLE = "DATABASE_UNAVAILABLE"
     DATABASE_ERROR = "DATABASE_ERROR"

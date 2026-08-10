@@ -23,6 +23,7 @@ from app.models.user_requests import (
     GetUserConsentInput,
     GetUserInput,
 )
+from app.models.users import SetUserCEFRLevelInput
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -45,10 +46,17 @@ def _window_filter_sql(days: DayWindow | None) -> tuple[str, tuple[str, ...]]:
 
 
 def _get_user_cefr_level(db: sqlite3.Connection, guid: str) -> str:
-    """Look up the user's CEFR level or raise when the user is missing."""
+    """Look up the level the user is CURRENTLY working at, or raise when they are missing.
+
+    COALESCE, not a plain read: `current_cefr_level` is NULL until the learner moves
+    themselves with PATCH /users/level, and NULL means "never moved", so it falls back to
+    the onboarding self-assessment. Every read of "what level is this user" goes through
+    here so the two columns can never drift apart in one caller and not another.
+    """
 
     row = db.execute(
-        "SELECT cefr_level FROM users WHERE guid = ? LIMIT 1", (guid,)
+        "SELECT COALESCE(current_cefr_level, cefr_level) FROM users WHERE guid = ? LIMIT 1",
+        (guid,),
     ).fetchone()
 
     if not row:
@@ -180,7 +188,11 @@ def get_cohort_stats(
             SELECT a.guid, AVG(a.proficiency) AS avg_score
             FROM assessments a
             WHERE guid IN (
-                SELECT guid FROM users WHERE cefr_level = ?
+                -- The cohort follows the level the learner is working at, not the one they
+                -- guessed at sign-up, so Advance/Revert actually moves who they are ranked
+                -- against. Same COALESCE as _get_user_cefr_level, for the same reason.
+                SELECT guid FROM users
+                WHERE COALESCE(current_cefr_level, cefr_level) = ?
             )
             AND proficiency IS NOT NULL
             GROUP BY a.guid
@@ -268,6 +280,43 @@ def create_user(data: CreateUserInput) -> None:
 
     with database() as db:
         db.execute(query, params)
+        # Seed the trail with where the learner started, in the same transaction as the
+        # user row. Without this the history begins at the first Advance/Revert and there
+        # is nothing to say what it moved away from.
+        db.execute(
+            "INSERT INTO user_cefr_history (guid, cefr_level, source) VALUES (?, ?, ?)",
+            (str(data.guid), data.finnish_self_assessment, "self_report"),
+        )
+
+
+def set_user_cefr_level(data: SetUserCEFRLevelInput) -> bool:
+    """Move the level a user is working at. Returns False when the user does not exist.
+
+    Writes `users.current_cefr_level` and appends to `user_cefr_history` in one
+    transaction. `users.cefr_level` -- the onboarding self-assessment -- is never touched:
+    see the column comment in schema.sql for why that matters.
+
+    Idempotent by construction, because the client sends a target level rather than a
+    direction: replaying the same request lands the user in the same place instead of
+    moving them twice. A repeat still appends a history row, which is the honest record --
+    the learner did press the button again.
+    """
+
+    with database() as db:
+        updated = db.execute(
+            "UPDATE users SET current_cefr_level = ? WHERE guid = ?",
+            (data.cefr_level, str(data.guid)),
+        ).rowcount
+
+        if not updated:
+            return False
+
+        db.execute(
+            "INSERT INTO user_cefr_history (guid, cefr_level, source) VALUES (?, ?, ?)",
+            (str(data.guid), data.cefr_level, "self_report"),
+        )
+
+    return True
 
 
 def create_user_request(data: CreateUserRequestInput) -> None:
@@ -301,7 +350,22 @@ def delete_user_data(data: DeleteUserDataInput) -> None:
 
 
 def create_feedback(data: CreateFeedbackInput) -> None:
-    """Insert feedback."""
+    """Insert feedback, or update the learner's existing answer to the same question.
+
+    One learner answering one question about one recording is one row. The 2.0.0 client
+    sends each answer the moment it is given rather than on a submit button, so a learner
+    who taps an emoji, types a comment and then changes the emoji posts three times -- and
+    all three are the same answer at different moments, not three opinions.
+
+    The conflict target is the unique index in schema.sql. It covers only rows with an
+    assessment_id, because SQLite treats NULLs as distinct: `comparison_ui` and
+    `overall_experience` fall through to a plain insert, which is correct -- they are sent
+    once, on a button, and carry no assessment to be scoped to.
+
+    `comment` is overwritten unconditionally, including back to NULL. The client sends the
+    whole answer every time, so an absent comment means the learner cleared it, not that
+    they left it alone.
+    """
 
     query = """
         INSERT INTO feedback (
@@ -311,6 +375,10 @@ def create_feedback(data: CreateFeedbackInput) -> None:
             reaction_value,
             comment
         ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT (guid, assessment_id, type) DO UPDATE SET
+            reaction_value = excluded.reaction_value,
+            comment = excluded.comment,
+            updated_at = CURRENT_TIMESTAMP
         """
 
     params = (

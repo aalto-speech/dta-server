@@ -499,14 +499,16 @@ def _patch_with_relevance(monkeypatch: pytest.MonkeyPatch, captured: dict,
         "app.services.speech_assessment_service.create_assessment", _record)
 
 
-def test_off_topic_answer_has_all_scores_withheld_as_zero(
+def test_off_topic_answer_keeps_its_measured_scores(
     monkeypatch: pytest.MonkeyPatch,
     client: TestClient,
 ):
-    """An answer to a different task is not a measurement, so every score is zeroed.
+    """off_topic annotates the result; it does not alter it. Changed in v1.3.0.
 
-    The response and the stored row must agree, and the labels must agree with the
-    numbers -- a 0.0 shown next to "A2" would be worse than either alone.
+    v1.2.0 zeroed all five scores here. That is reverted because the judge was measured
+    tracking answer length and ASR quality rather than topic, so the zeroing landed on A1
+    learners and destroyed the evidence needed to catch it. The verdict still travels in
+    `content.relevance` -- the client suppresses the display, the server keeps the data.
     """
 
     captured, stored = {}, {}
@@ -521,35 +523,30 @@ def test_off_topic_answer_has_all_scores_withheld_as_zero(
     assert response.status_code == 200
     payload = response.json()
     assert payload["scores"] == {
-        "accuracy": 0.0, "fluency": 0.0, "proficiency": 0.0,
-        "pronunciation": 0.0, "range": 0.0,
+        "accuracy": 5.6, "fluency": 2.2, "proficiency": 2.1,
+        "pronunciation": 2.4, "range": 1.9,
     }
-    # 0.0 labels as A1: production has no band below it. The client must not render this
-    # -- content.relevance == "off_topic" is what governs the screen.
-    assert payload["cefr_label"] == "A1"
-    assert payload["cefr_label_fine"] == "A1"
-    assert all(label == {"label": "A1", "label_fine": "A1"}
-               for label in payload["dimension_labels"].values())
-    # A withheld score is not a clipped measurement.
-    assert payload["clipped"] is False
-    # The transcript is what the learner actually said and is the evidence for the
-    # verdict, so it survives the zeroing.
+    # Labels are derived from the real numbers, as on any other verdict.
+    assert payload["cefr_label"] == "A2"
+    assert payload["content"]["relevance"] == "off_topic"
     assert payload["transcript"] == "Hei maailma"
+    # The row carries the same numbers, so a wrongly flagged recording can still be found
+    # later by comparing the score against the flag.
     assert stored == {
-        "accuracy": 0.0, "fluency": 0.0, "proficiency": 0.0, "pronunciation": 0.0,
-        "range_score": 0.0, "transcript": "Hei maailma",
+        "accuracy": 5.6, "fluency": 2.2, "proficiency": 2.1, "pronunciation": 2.4,
+        "range_score": 1.9, "transcript": "Hei maailma",
         "content_relevance": "off_topic",
     }
     os.unlink(captured["temp_path"])
 
 
-@pytest.mark.parametrize("relevance", ["on_topic", "partial"])
-def test_on_topic_and_partial_answers_keep_their_scores(
+@pytest.mark.parametrize("relevance", ["on_topic", "partial", "off_topic"])
+def test_no_verdict_changes_the_scores(
     relevance: str,
     monkeypatch: pytest.MonkeyPatch,
     client: TestClient,
 ):
-    """Only off_topic withholds. `partial` annotates; it must not touch the numbers."""
+    """The judge is a side channel: no verdict may move a number, in any direction."""
 
     captured, stored = {}, {}
     _patch_with_relevance(monkeypatch, captured, stored, relevance)

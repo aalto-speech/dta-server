@@ -7,11 +7,14 @@ These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the a
 - `GET /ping`: health check.
 - `GET /status`: app status and uptime.
 - `POST /analytics/comparison`: cohort comparison stats for a user.
-- `POST /request/user`: delete or export request submission.
-- `POST /feedback`: feedback submission.
+- `POST /feedback`: feedback submission (upserts on `guid` + `assessment_id` + type).
 - `POST /speech/assess`: WAV upload and speech scoring.
 - `POST /onboarding`: create a user from onboarding data.
-- `DELETE /users`: admin user deletion.
+- `PATCH /users/level`: move the CEFR level a user is working at.
+- `DELETE /users`: user deletion, requires `X-Delete-Key`.
+
+`POST /request/user` was removed in v1.3.0. It took a `type` of `delete` or `export`;
+this app does not export user data, and deletion is `DELETE /users`.
 
 > [!TIP]
 > Building a client app? [FRONTEND.md](./FRONTEND.md) documents every field, error and
@@ -65,14 +68,15 @@ Response fields and what to do with them:
   `{relevance: on_topic|partial|off_topic, confidence, reason, judge}`, from a
   separate zero-shot check run after scoring. Stored on the row as
   `content_relevance` / `content_confidence`. **`null` means "not checked", not "off
-  topic"** — it fails open by design, and nothing is withheld in that case.
-  **On `off_topic` the five scores are withheld: zeroed in the response and stored as
-  zeros**, with `cefr_label`/`cefr_label_fine`/`dimension_labels` all `"<A1"` and
-  `clipped: false`. Scoring an answer to a different question is not a measurement of
-  the task that was set. The transcript is kept — it is the evidence for the verdict.
-  For analysis, exclude `WHERE content_relevance = 'off_topic'` rather than reading a
-  0.0 as "below A1"; the model's real output for those rows is not recoverable. See
-  `inference/dta_scorer/relevance.py` for what the judge does and does not catch.
+  topic"** — it fails open by design.
+  **The verdict never changes the scores.** v1.2.0 zeroed all five on `off_topic`;
+  v1.3.0 reverted that, because the judge was measured tracking answer length and ASR
+  quality rather than topic (the same on-topic content scores p(bad)=0.59 at three words
+  and 0.02 at twenty), so the zeroing fell on A1 learners and destroyed the evidence
+  needed to notice. With the real scores stored, a wrongly flagged recording can be found
+  by comparing the score against the flag — that query is the point.
+  For analysis, treat `content_relevance` as a flag to filter on, not as a fact.
+  See `inference/dta_scorer/relevance.py` for what the judge does and does not catch.
 - Requests fail with `503 SCORING_UNAVAILABLE` while the scorer is starting
   (~20 s on GPU, ~10 min on CPU staging) or unreachable, and with
   `400 BAD_REQUEST` for a `task_id` with no mapped speaking task (valid ids: 1–5).
