@@ -36,32 +36,62 @@ deviations, both deliberate:
      LOW-PROFICIENCY GUARD below).
 
 Because of (1) and (2) the paper's measured label distributions do not transfer to this
-prompt. Treat the verdict as a useful signal that has not yet been validated against a
-labelled Finnish off-topic set -- collect `content_relevance` from production, label a
-sample, and measure before anyone lets `off_topic` block a learner outright.
+prompt.
 
-WHAT WAS MEASURED (14 hand-written cases on the production P100, 2026-08-09; a smoke test,
-not a validation set):
+WHY v2 EXISTS -- v1 FAILED ON REAL LEARNERS. v1 was tuned on 14 hand-written cases and
+looked fine. Then nine real recordings arrived: five from an A1 speaker, four from an A2+
+speaker, every one of them a genuine attempt at the task it was given, confirmed by the app
+owner. v1 called **six of the nine** `partial` or `off_topic`, including a textbook answer
+to "what do you normally do at home" that was flagged `off_topic` at 0.77 and had its
+scores destroyed (the app zeroed them in v1.2.0). The two it got right scraped through at
+0.50 and 0.56.
 
-  * No genuinely on-topic answer was called `bad`. The worst was an A1-level, barely
-    grammatical but on-topic answer at p(bad)=0.33 -- well under the 0.6 threshold.
-  * Blatant off-topic answers land at p(bad) 0.78-0.95: an answer about a nuclear reactor
-    (the research repo's own attack shape), a weather monologue, Whisper's silence
-    hallucination ("Tekstitys: Yle"), and English speech force-decoded as Finnish.
-  * KNOWN MISS: a NEIGHBOURING topic is not separated. A shopping answer given to the
-    "what do you do at home" task scored p(good)=0.48 and passed as on-topic. The judge
-    catches wrong subjects, not wrong tasks within the same everyday domain.
-  * ~660 ms per judgement (1096-token prompt, one prefill, fp16 autocast). That is the
-    per-request cost of the feature, on top of ~1.7 s (5 s audio) to ~8.3 s (90 s audio).
-    If it ever needs to be cheaper: the few-shot prefix is ~1000 of those tokens and is
-    identical every time, so its KV cache could be built once at warmup and reused.
+The hand-written cases missed it because they were clean Finnish. Real ASR output for real
+learner speech is not clean, and the diagnosis was two-fold:
+
+  * The verdict tracked ANSWER LENGTH and ASR DAMAGE, not topic. The same on-topic content
+    scored p(bad)=0.59 at three words and 0.02 at twenty, and when Whisper rendered "sata
+    euroa" as "sata ilva" the judge lost the thread entirely. Both are proxies for
+    proficiency, so the check misfired precisely on the learners the app exists for.
+  * It was grading COMPLETENESS. Fluent A2+ answers that fully addressed their task came
+    back `average` at 0.46-0.86 -- "incomplete" was doing all the work, and relevance does
+    not care whether every sub-question was covered.
+
+v2 adds one few-shot example of ASR-mangled but on-topic speech (#3 below) and one
+paragraph telling the judge to ignore completeness. Measured on the same nine recordings
+plus seven genuine off-topic controls, on the production P100:
+
+                          real recordings wrongly flagged    genuine off-topic caught
+    v1 (shipped)                       6 of 9 (1 destroyed)          6 of 7
+    v2                                 1 of 9 (0 destroyed)          6 of 7
+
+  * Detection power is UNCHANGED: hallucinations still land at 0.91-0.96, English salad at
+    0.80, a wrong subject at 0.75, and an answer to a different DTA task at 0.72.
+  * The one remaining miss is recording 30 -- the most heavily ASR-mangled of the nine --
+    now `partial` at 0.76 rather than `off_topic`, so it annotates instead of destroying.
+  * A rejected candidate is worth recording: adding a SECOND mangled example fixed
+    recording 30 but broke the "answered a different DTA task" control, dropping detection
+    to 5 of 7. One example generalises; two overfit to the tuning set.
+  * KNOWN MISS, unchanged from v1: a NEIGHBOURING topic. A weekend-activities answer given
+    to the "which languages do you use" task passes. The judge catches wrong subjects, not
+    wrong tasks within the same everyday domain.
+  * ~660 ms per judgement (one prefill, fp16 autocast), on top of ~1.7 s (5 s audio) to
+    ~8.3 s (90 s audio). If it ever needs to be cheaper: the few-shot prefix is most of
+    those tokens and is identical every time, so its KV cache could be built once at warmup.
+
+Sixteen cases is still a tuning set, not a validation set, and nine of them drove the
+changes. Treat the verdict as a signal, never as a verdict on a learner: the application
+tier annotates results with it and does not withhold them (see
+app/services/speech_assessment_service.py, and the note there on why the zeroing was
+removed).
 
 LOW-PROFICIENCY GUARD. The failure that matters here is not a missed off-topic answer, it
 is an A1 learner whose halting, error-filled but perfectly on-topic answer gets called
-off-topic and withheld. That would punish exactly the users the app exists for. Three
-things guard against it: the system prompt says so in as many words, one few-shot example
-is a barely-grammatical answer labelled `good`, and `off_topic` is demoted to `partial`
-unless the judge's probability clears DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE.
+off-topic. That would punish exactly the users the app exists for. Four things guard
+against it: the system prompt says so in as many words, few-shot #2 is a barely-grammatical
+answer labelled `good`, few-shot #3 is an ASR-mangled one labelled `good`, and `off_topic`
+is demoted to `partial` unless the probability clears
+DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE.
 
 DECODING. `good`, `average` and `bad` are each a single Qwen token, so the verdict is a
 softmax over three logits at one position -- one forward pass, no generation loop. That is
@@ -79,19 +109,20 @@ from .prompt import build_llm_input, normalise_text
 
 # --- knobs (runtime only; none of this can move a score) --------------------------------
 ENABLED = os.environ.get("DTA_RELEVANCE_CHECK", "1") == "1"
-# An off_topic verdict is the destructive one -- the app withholds the score on it. Make it
-# clear a bar that `partial` (which only annotates) does not have to. 0.6 sits in the gap
-# measured above: on-topic answers peaked at p(bad)=0.33, blatant off-topic ones sat at
-# 0.78+. The cost of the two errors is not symmetric -- withholding a real learner's score
-# is much worse than missing an off-topic one -- so a borderline case (one probe case at
-# 0.49) becomes `partial` rather than being flagged. Raise it to make the feature more
-# cautious still; lower it only against labelled production data.
+# `off_topic` is the loudest verdict a learner can be shown, so make it clear a bar that
+# `partial` does not have to. On the v2 tuning set the two populations sit either side of
+# this: real recordings peak at p(bad)=0.76 (recording 30, the most ASR-mangled) while
+# genuine off-topic material sits at 0.72-0.96, so 0.6 no longer separates them cleanly on
+# its own -- it is the few-shot examples above that do the separating now, and this is the
+# backstop. The cost of the two errors is not symmetric: telling a learner who genuinely
+# tried that they answered the wrong question is worse than missing an off-topic answer.
+# Raise it to make the feature more cautious; lower it only against labelled data.
 OFF_TOPIC_MIN_CONFIDENCE = float(
     os.environ.get("DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE", "0.6"))
 # 90 s of speech is ~200 words; the cap only bites on a runaway ASR repetition loop.
 MAX_ANSWER_CHARS = int(os.environ.get("DTA_RELEVANCE_MAX_ANSWER_CHARS", "2000"))
 
-VERSION = "dta-relevance-v1"
+VERSION = "dta-relevance-v2"
 
 # Most DTA prompts open with ~150 characters of recording instructions that are identical
 # across tasks and are not part of what the candidate must talk about ("Teet 2
@@ -139,6 +170,17 @@ _SYSTEM = (
     "hesitant, or heavily error-filled answer that is still ABOUT the task is good or "
     "average, never bad: weak language is not a wrong topic. Answer bad only when the "
     "content is about something else, is empty, or is not a response to this task at all."
+    # --- DTA addition v2: judge topic, not completeness ---------------------------------
+    # The v1 failure, measured on nine real production recordings: the judge was grading
+    # how COMPLETE and how FLUENT an answer was, not what it was about. Fluent A2+ answers
+    # that fully addressed their task came back `average` at 0.46-0.86 -- "incomplete" was
+    # doing all the work. This paragraph is what moves them back to `good`.
+    "\n\nIMPORTANT: you are judging TOPIC, not completeness and not effort. If the answer "
+    "is about what the task asked about, answer good -- even if it is short, covers only "
+    "part of a multi-part task, leaves questions unanswered, or stops early. Answer "
+    "average ONLY when the answer starts on the task and then moves to a different "
+    "subject. Answer bad ONLY when the answer is about something else entirely, is empty, "
+    "or is not a response to this task at all."
 )
 
 # Hand-authored, using the real Finnish task questions from assets/tasks.json so the block
@@ -162,7 +204,18 @@ _FEWSHOT = [
      "Öö... minä ostaa maito ja leipä. Ja... öö... omena, banaani. Minä ei osta liha, ei "
      "hyvä. Minä menee kauppa lauantai.",
      "good"),
-    # 3. Starts on task, then drifts into an unrelated anecdote.
+    # 3. THE ASR GUARD, added in v2. A real production transcript shape: the one word that
+    #    carries the topic ("sata euroa") comes back as nonsense ("sata ilva"), and case
+    #    endings are gone. v1 read that damage as a wrong topic -- the recording this is
+    #    modelled on was called off_topic at 0.75 and had its scores destroyed. Adding this
+    #    single example moved every real recording in the tuning set down by 0.2-0.5 p(bad)
+    #    without touching the genuine off-topic controls.
+    ("03_m", "dta-task2_a",
+     "Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä "
+     "vastaat hänelle?",
+     "moi kaveri mä ei voi anta sinu sata ilva nyt mul ei o raha mä täyty ostaa ruoka",
+     "good"),
+    # 4. Starts on task, then drifts into an unrelated anecdote.
     ("03_n", "dta-task2_b",
      "Sinä et voi tulla tänään kurssille/töihin. Sinä lähetät ääniviestin "
      "opettajalle/pomolle ja kerrot, miksi sinä et voi tulla. Mitä sinä sanot viestissä?",
@@ -170,7 +223,7 @@ _FEWSHOT = [
      "Tallinnassa laivalla ja siellä oli tosi kivaa, me syötiin ravintolassa ja ostettiin "
      "suklaata, ja laivalla oli musiikkia ja tanssia.",
      "average"),
-    # 4. Fluent, well-formed, and about something else entirely -- the case the whole
+    # 5. Fluent, well-formed, and about something else entirely -- the case the whole
     #    feature exists for.
     ("04_i", "dta-task4_b",
      "Kerro, mitä kieliä sinä käytät ja missä. Mitä kieliä sinä puhut kotona, kaupassa, "
@@ -179,13 +232,13 @@ _FEWSHOT = [
      "Viikonloppuna minä pelaan jalkapalloa kavereiden kanssa ja sitten me katsomme "
      "elokuvia. Sunnuntaina minä nukun pitkään ja syön pizzaa ja käyn kuntosalilla.",
      "bad"),
-    # 5. Whisper's subtitle-credit hallucination, which is what near-silence transcribes to.
+    # 6. Whisper's subtitle-credit hallucination, which is what near-silence transcribes to.
     ("03_m", "dta-task2_a",
      "Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä "
      "vastaat hänelle?",
      "Tekstitys: Yle. Kiitos kun katsoit videon!",
      "bad"),
-    # 6. English speech decoded by a Finnish-forced Whisper. ASR_LANGUAGE is pinned to "fi"
+    # 7. English speech decoded by a Finnish-forced Whisper. ASR_LANGUAGE is pinned to "fi"
     #    (asr.py), so the decoder never switches language -- it renders English phonetically
     #    as Finnish word salad. Illustrative, not a captured production transcript.
     ("04_test", "dta-task5",
