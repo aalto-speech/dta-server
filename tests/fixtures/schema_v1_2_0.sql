@@ -69,23 +69,7 @@ CREATE TABLE
         'years_10_plus'
       )
     ),
-    -- The ONBOARDING SELF-ASSESSMENT. Written once, at sign-up, and never updated by any
-    -- code path. It is the only record of what a learner believed about their own Finnish
-    -- before the app told them anything, which makes it the evidence for the one question
-    -- nobody can ask twice: how well do people judge themselves? Overwriting it to track
-    -- the profile screen's Advance/Revert buttons would destroy that silently -- so those
-    -- buttons write current_cefr_level below instead.
     cefr_level TEXT NOT NULL CHECK (cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')),
-    -- The level the learner is CURRENTLY working at, moved by PATCH /users/level from the
-    -- profile screen. NULL means they have never touched the buttons, so every read is
-    -- COALESCE(current_cefr_level, cefr_level) -- a new column on an existing database
-    -- starts NULL, and that is exactly "unchanged". Cohort ranking follows this value: the
-    -- profile screen promises "your rank among other B1 learners", so a learner who moved
-    -- themselves to B1 expects to be measured against B1.
-    current_cefr_level TEXT CHECK (
-      current_cefr_level IS NULL
-      OR current_cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')
-    ),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -152,10 +136,6 @@ CREATE TABLE
     reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5),
     comment TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    -- When the learner last changed this answer. Equal to created_at until they do.
-    -- Both are kept because they answer different questions: created_at is when the
-    -- question was first answered, updated_at is when they settled on it.
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE,
     FOREIGN KEY (assessment_id) REFERENCES assessments (id) ON DELETE CASCADE
   );
@@ -174,18 +154,11 @@ CREATE TABLE
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );
 
--- Append-only trail of every level a user has been at, including the one they started
--- from. The profile buttons are gated client-side only and Revert is deliberately not
--- gated at all, so nothing stops a learner stepping repeatedly -- if the movement matters
--- to the analysis, this table is the record, not the client's restraint.
 CREATE TABLE
   IF NOT EXISTS user_cefr_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guid TEXT NOT NULL,
     cefr_level TEXT NOT NULL CHECK (cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')),
-    -- 'self_report' is the learner choosing their own level: at onboarding, and again on
-    -- every Advance/Revert. 'model' is reserved for a future automatic placement; nothing
-    -- writes it today.
     source TEXT NOT NULL CHECK (source IN ('self_report', 'model')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
@@ -201,16 +174,6 @@ CREATE INDEX IF NOT EXISTS idx_feedback_guid_created_at ON feedback (guid, creat
 CREATE INDEX IF NOT EXISTS idx_feedback_assessment_id ON feedback (assessment_id);
 
 CREATE INDEX IF NOT EXISTS idx_feedback_type_guid_created_at ON feedback (type, guid, created_at);
-
--- One learner answering one question about one recording is ONE row, however many times
--- they change their mind. The 2.0.0 client posts each answer as it is given (emoji on tap,
--- comment on leaving the box), so repeat posts are the normal case, not an anomaly -- see
--- create_feedback() in app/db.py, which upserts onto this index.
---
--- SQLite treats NULLs as distinct in a unique index, so this constrains only the three
--- assessment-scoped types. `comparison_ui` and `overall_experience` carry no assessment_id
--- and are deliberately left un-deduplicated: they are sent once, on a button.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_one_answer_per_question ON feedback (guid, assessment_id, type);
 
 CREATE INDEX IF NOT EXISTS idx_user_cefr_history_guid_created_at_id ON user_cefr_history (guid, created_at DESC, id DESC);
 

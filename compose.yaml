@@ -23,6 +23,21 @@ services:
       # Seconds the app waits for one scoring call. GPU scoring takes ~2-8 s;
       # CPU staging takes 30-60 s, so staging sets ASA_TIMEOUT=300.
       ASA_TIMEOUT: ${ASA_TIMEOUT:-60}
+      # Analytics gating for /analytics/comparison. Neither was passed through before
+      # 2026-08-11, so setting them in the env file silently did nothing and the app kept
+      # the code defaults (100 / 3).
+      #
+      # MIN_COHORT_SIZE is how many learners must share a CEFR level before anyone at that
+      # level is shown their percentile. It guards two things: a rank computed over a
+      # handful of people swings wildly as people join, and in a very small cohort a
+      # learner can infer a lot about the others from their own position. The code default
+      # of 100 suits a finished study; production runs 15 while the cohorts are small
+      # (A1 17, A2 53, B1 7 as of the historical import), which turns the feature on for
+      # the levels most learners are actually at.
+      MIN_COHORT_SIZE: ${MIN_COHORT_SIZE:-100}
+      # How many scored recordings the REQUESTING user needs before their own average is
+      # stable enough to rank.
+      MIN_USER_ASSESSMENTS: ${MIN_USER_ASSESSMENTS:-3}
 
   # M-CASA speech scorer. No `ports:` on purpose - the /score endpoint is
   # unauthenticated and must stay reachable only from the compose network.

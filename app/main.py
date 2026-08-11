@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from time import monotonic
 
-from fastapi import Depends, FastAPI, Form, Header
+from fastapi import Depends, FastAPI, Form
 from fastapi.responses import JSONResponse, Response
 
 from app.config import SETTINGS
@@ -21,13 +21,14 @@ from app.models.speech_assessment import (
     SpeechAssessmentRequest,
     SpeechAssessmentResponse,
 )
-from app.models.user_requests import DeleteUserRequest, UserDataRequest
+from app.models.user_requests import DeleteUserRequest
+from app.models.users import SetUserCEFRLevelRequest, SetUserCEFRLevelResponse
 from app.services.admin_service import delete_user
 from app.services.analytics_service import get_comparison
 from app.services.feedback_service import record_feedback
 from app.services.onboarding_service import create_onboarding_user
 from app.services.speech_assessment_service import assess_speech_request
-from app.services.user_request_service import handle_user_request
+from app.services.user_service import update_user_cefr_level
 from app.utils.logger import configure_app_logging, get_logger
 
 configure_app_logging(SETTINGS.logs_save_dir, SETTINGS.log_level)
@@ -122,33 +123,11 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
     return get_comparison(data)
 
 
-@app.post(
-    "/request/user",
-    status_code=202,
-    responses={403: ERROR_RESPONSE, 501: ERROR_RESPONSE},
-)
-async def request_user(
-    data: UserDataRequest = Form(),
-    x_client_key: str | None = Header(default=None, alias="X-Client-Key"),
-) -> JSONResponse:
-    """Submit a user data request (delete or export).
-
-    Deletion happens immediately. The 202 body carries the outcome:
-    `{"status": "deleted"}` when the data is gone, `{"status": "pending"}` when
-    the deletion failed and is logged for a maintainer. Both are 202 on purpose --
-    the client stops retrying on any 2xx.
-
-    X-Client-Key is validated only when the server configures CLIENT_API_KEY.
-
-    Args:
-        data: User request payload with GUID and request type.
-        x_client_key: Optional shared client key.
-
-    Returns:
-        JSONResponse: 202 for delete requests, 501 for export requests.
-    """
-
-    return handle_user_request(data, client_key=x_client_key)
+# POST /request/user was removed in v1.3.0. It carried a `type` field with `delete` and
+# `export` values; the app never exports user data and never will, and a route that accepts
+# the request is a route that can be built out. Deletion is DELETE /users below -- one
+# route, one credential, and an honest status code instead of a 202 whose body had to be
+# read to find out whether anything happened.
 
 
 @app.post(
@@ -219,6 +198,36 @@ async def onboarding(data: OnboardingRequest = Form()) -> Response:
     """
 
     return create_onboarding_user(data)
+
+
+@app.patch(
+    "/users/level",
+    status_code=200,
+    response_model=SetUserCEFRLevelResponse,
+    responses={403: ERROR_RESPONSE, 404: ERROR_RESPONSE},
+)
+async def set_user_level(
+    data: SetUserCEFRLevelRequest = Depends(SetUserCEFRLevelRequest.as_form)
+) -> JSONResponse:
+    """Move the CEFR level a user is working at, from the profile screen.
+
+    Its own path, deliberately not `PATCH /users`: `/users` erases the account, and on the
+    client every endpoint is a full URL in one config file. Two constants holding the same
+    string, told apart only by a verb chosen elsewhere, is a mistake waiting to happen in
+    the direction nobody wants.
+
+    The onboarding self-assessment is never changed by this route -- it records what the
+    learner believed at sign-up. Cohort ranking in /analytics/comparison follows the value
+    set here.
+
+    Args:
+        data: Target level (not a direction) and the guid it applies to.
+
+    Returns:
+        JSONResponse: 200 with the level as stored.
+    """
+
+    return update_user_cefr_level(data)
 
 
 @app.delete(

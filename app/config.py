@@ -48,7 +48,6 @@ class Settings:  # pylint: disable=too-many-instance-attributes
     logs_save_dir: str
     log_level: str
     server_delete_key: str
-    client_api_key: str
     min_cohort_size: int
     min_user_assessments: int
     asa_url: str
@@ -168,11 +167,6 @@ def _build_settings() -> Settings:
         server_delete_key = legacy_delete_key
         logging.getLogger(__name__).warning(
             "ADMIN_API_KEY is deprecated; rename it to SERVER_DELETE_KEY in the env file")
-
-    # Optional shared key the mobile app sends as X-Client-Key on /request/user.
-    # Empty (the default) disables the check. NOT a security boundary -- it ships
-    # inside the APK, so it only raises the bar against casual scripted abuse.
-    client_api_key = os.getenv("CLIENT_API_KEY", "")
     min_cohort_size = _parse_int_env(
         "MIN_COHORT_SIZE", default=100, minimum=2)
     min_user_assessments = _parse_int_env(
@@ -196,7 +190,6 @@ def _build_settings() -> Settings:
         logs_save_dir=logs_save_dir,
         log_level=log_level,
         server_delete_key=server_delete_key,
-        client_api_key=client_api_key,
         min_cohort_size=min_cohort_size,
         min_user_assessments=min_user_assessments,
         asa_url=asa_url,

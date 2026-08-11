@@ -1,10 +1,20 @@
 # Frontend integration guide
 
 Everything a client app needs to talk to the DTA server: every endpoint, every field,
-every error it can return, and the order the calls happen in. Written against **v1.2.0**.
+every error it can return, and the order the calls happen in. Written against **v1.3.0**.
 Servers report their version in `GET /status` (`version`) and in OpenAPI `info.version` --
 feature-detect against that instead of guessing (both were added in v1.2.0; on older
 servers the `version` key is simply absent).
+
+**Changed in v1.3.0**, each explained at its endpoint below:
+
+| Change | Where |
+| --- | --- |
+| `off_topic` no longer zeroes the scores — every verdict returns the real numbers | [`/speech/assess`](#post-speechassess) |
+| Re-posting a feedback answer **updates** it instead of adding a row | [`/feedback`](#post-feedback) |
+| `PATCH /users/level` added — the profile screen's Advance / Revert | [`/users/level`](#patch-userslevel-added-v130) |
+| `POST /request/user` removed; deletion is `DELETE /users` | [User deletion](#user-deletion) |
+| 409 on onboarding now says `GUID_ALREADY_REGISTERED` | [`/onboarding`](#post-onboarding) |
 
 **The live contract is also machine-readable.** FastAPI publishes it and the server
 serves it:
@@ -41,8 +51,9 @@ Every error returns the same envelope with an HTTP status:
 Branch on `detail.type`, never on the message text. Types you can receive:
 `BAD_REQUEST`, `INVALID_API_KEY`, `USER_NOT_FOUND`, `USER_CONSENT_MISSING`,
 `UNSUPPORTED_MEDIA_TYPE`, `FILE_TOO_LARGE`, `AUDIO_TOO_LONG`, `SCORING_UNAVAILABLE`,
-`NOT_IMPLEMENTED`, `DATABASE_CONSTRAINT_ERROR`, `DATABASE_UNAVAILABLE`,
-`DATABASE_ERROR`, `INTERNAL_SERVER_ERROR`, `HTTP_ERROR`, `VALIDATION_ERROR`.
+`NOT_IMPLEMENTED`, `GUID_ALREADY_REGISTERED`, `DATABASE_CONSTRAINT_ERROR`,
+`DATABASE_UNAVAILABLE`, `DATABASE_ERROR`, `INTERNAL_SERVER_ERROR`, `HTTP_ERROR`,
+`VALIDATION_ERROR`.
 
 Since v1.2.0 this envelope is **published in the OpenAPI schema** (`ErrorEnvelope`,
 referenced from every endpoint's error responses), so generated clients can parse it.
@@ -73,7 +84,8 @@ record audio ──► POST /speech/assess       (per recording; returns scores 
                       ├──► POST /feedback              (optional, references assessment_id)
                       └──► POST /analytics/comparison  (optional, cohort position)
 
-user asks to be forgotten ──► POST /request/user (type=delete)
+user changes their level ──► PATCH  /users/level   (guid + target level)
+user asks to be forgotten ─► DELETE /users         (guid + X-Delete-Key)
 ```
 
 ---
@@ -134,8 +146,13 @@ column simply starts holding sentences instead of enum-ish words. Nothing on the
 parses their contents; whoever analyses the column later should expect free text.
 
 Returns **201** with no body. Sending the same `guid` twice returns **409**
-`DATABASE_CONSTRAINT_ERROR` — onboard once and persist a local flag. If you do hit 409,
-treat it as "already onboarded" and carry on rather than blocking the user.
+`GUID_ALREADY_REGISTERED` — onboard once and persist a local flag.
+
+**A 409 from this endpoint means the guid is taken and nothing else.** `users` has exactly
+one uniqueness constraint (`guid`), and every other rule on the table is rejected as 422
+before SQL sees it, so minting a fresh guid and retrying is always the correct response.
+Servers **older than v1.3.0** send the generic `DATABASE_CONSTRAINT_ERROR` here; treat
+either type the same way.
 
 On servers **older than v1.2.0** all metadata fields are required — an app that has
 stopped collecting them cannot onboard new users there. Feature-detect via `/status`.
@@ -201,7 +218,7 @@ ID travels with the recording through your UI code. IDs outside 1–5 are reject
     "relevance": "on_topic",
     "confidence": 0.97,
     "reason": null,
-    "judge": "dta-relevance-v1"
+    "judge": "dta-relevance-v3"
   }
 }
 ```
@@ -234,9 +251,9 @@ Four facts that affect how you use them:
 3. `cefr_label` (`"A2"`) and `cefr_label_fine` (`"A2+"`) are precomputed from
    `proficiency`; since v1.2.0 `dimension_labels` carries the same two labels for each
    analytic dimension, so a five-row results screen derives nothing locally.
-4. **All five scores can be `0.0` because the answer was withheld, not measured.** That
-   happens only when `content.relevance` is `"off_topic"` — see below. Check that before
-   rendering any score, or you will show a learner a zero they did not earn.
+4. **Every verdict returns the real measured scores, including `off_topic`** (v1.3.0
+   reverted the zeroing that v1.2.0 introduced). `content.relevance` decides what you
+   *show*; it no longer changes what you *receive*.
 
 ### Exactly how the labels are derived
 
@@ -244,23 +261,28 @@ Four facts that affect how you use them:
 
 | Label | Score range |
 | --- | --- |
-| `A1` | `[0, 2)` |
-| `A2` | `[2, 2.5)` |
-| `A2+` | `[2.5, 3)` |
-| `B1` | `[3, …)` |
+| `A1` | `[0, 1.55)` |
+| `A2` | `[1.55, 2.40)` |
+| `A2+` | `[2.40, 2.75)` |
+| `B1` | `[2.75, …)` |
 
-`cefr_label` is the same rule without the plus level: `A1` `[0,2)`, `A2` `[2,3)`,
-`B1` `[3,…)`. `dimension_labels` uses the identical banding on each raw dimension score.
+`cefr_label` is the same rule without the plus level: `A1` `[0,1.55)`, `A2`
+`[1.55,2.75)`, `B1` `[2.75,…)`. `dimension_labels` uses the identical banding on each raw
+dimension score.
 
 Three consequences, all of them things a client has got wrong before:
 
-- **The rule floors into a band. It does not round to the nearest one.** `2.41` is `"A2"`,
-  not `"A2+"`. Compute star tiers with these exact boundaries and they cannot contradict
-  the label.
+- **Read the label, do not derive it.** `cefr_label` / `cefr_label_fine` are computed on
+  the server, and the boundaries are expected to move as the study collects more data —
+  they changed on 2026-08-11 from round numbers to the values above. A client that reads
+  the label follows those revisions with no release; a client that recomputes them from
+  the number silently disagrees with the server the day they change.
+- **The rule floors into a band. It does not round to the nearest one.** `2.39` is `"A2"`,
+  not `"A2+"`.
 - **`<A1`, `A1+`, `B1+` and anything above `B1` are never sent.** You do not need to fold
   or cap anything — a raw dimension score of 5.0 already arrives as `"B1"`, and a
   proficiency of 0.0 arrives as `"A1"`.
-- **Boundaries are inclusive at the bottom**: 2.0 is A2, 2.5 is A2+, 3.0 is B1.
+- **Boundaries are inclusive at the bottom**: 1.55 is A2, 2.40 is A2+, 2.75 is B1.
 
 The scores themselves are unchanged calibrated model output on the 0–6 scale; only the
 labels are banded this way.
@@ -282,59 +304,73 @@ and the transcript and returns one of three verdicts.
 | --- | --- | --- |
 | `on_topic` | the real scores | The result, normally. |
 | `partial` | the real scores | The result, **plus a short prompt** to answer the question asked next time. |
-| `off_topic` | **all five are `0.0`** | **No grading.** Say the answer did not match the task and offer it again. |
+| `off_topic` | the real scores | Your choice: the result with a notice above it, or no grading. |
 
-`confidence` is the judge's probability for the verdict it gave (0–1). `reason` is a
-short English string, fixed per verdict rather than generated — **localise from
-`relevance`, not from `reason`**. `judge` identifies the prompt version behind the
-verdict.
+`reason` is a short English string, fixed per verdict rather than generated — **localise
+from `relevance`, not from `reason`**. `judge` identifies the prompt version behind the
+verdict (`dta-relevance-v3` from v1.3.0; the string changes whenever the prompt does, so
+do not parse it, just log it).
 
-**On `off_topic` the server withholds the scores itself** (since v1.2.0). You receive:
+`confidence` (0–1) is the probability behind whichever verdict was given, and it means a
+slightly different thing for each — **which is why you should branch on `relevance` and
+not on this number**:
+
+| `relevance` | `confidence` is |
+| --- | --- |
+| `on_topic` | how sure the judge is the answer addresses the task |
+| `off_topic` | how sure it is the answer does not |
+| `partial` | how much of its belief was **not** on "addresses the task" — neither bar was cleared |
+
+**The verdict never changes the scores** (v1.3.0). Every response carries the real
+measured numbers whatever the judge said:
 
 ```json
 {
-  "scores": {"proficiency": 0.0, "fluency": 0.0, "pronunciation": 0.0,
-             "range": 0.0, "accuracy": 0.0},
+  "scores": {"proficiency": 2.1, "fluency": 2.2, "pronunciation": 2.4,
+             "range": 1.9, "accuracy": 5.6},
   "transcript": "yma tasan yma desi yma tasan yma desi",
-  "cefr_label": "A1", "cefr_label_fine": "A1",
-  "dimension_labels": {"fluency": {"label": "A1", "label_fine": "A1"}, "…": "…"},
+  "cefr_label": "A2", "cefr_label_fine": "A2",
+  "dimension_labels": {"fluency": {"label": "A2", "label_fine": "A2"}, "…": "…"},
   "clipped": false,
   "content": {"relevance": "off_topic", "confidence": 0.64,
               "reason": "The answer does not address the task that was asked.",
-              "judge": "dta-relevance-v1"}
+              "judge": "dta-relevance-v3"}
 }
 ```
 
-The same zeros are written to the database. Scoring an answer to a different question
-was never a measurement of the task that was set, so it is not reported as one.
+> [!IMPORTANT]
+> **v1.2.0 zeroed these five scores. v1.3.0 does not.** If you wrote client code that
+> treats `0.0` as "withheld", delete it — a `0.0` now means the model actually scored the
+> recording that low. The change was made because the judge was measured tracking answer
+> length and ASR quality rather than topic (the same on-topic content scores p(bad)=0.59
+> at three words and 0.02 at twenty), so the zeroing landed hardest on A1 learners *and*
+> destroyed the evidence needed to notice. With the real scores kept, a wrongly flagged
+> recording can be found later by comparing the score against the flag.
 
-Five rules, all load-bearing:
+Four rules, all load-bearing:
 
 1. **`content` may be `null` or absent — that means "not checked", never "off topic".**
-   The check fails open (older server, judge disabled, judge errored). **Nothing is
-   zeroed in that case** — you get the real scores. Show them.
-2. **Never render `0.0` as a grade of zero.** Branch on `relevance == "off_topic"` and
-   show no score at all. A learner shown "0" for a recording of their own voice reads it
-   as a judgement of their Finnish — the exact misleading outcome this feature exists to
-   prevent.
-3. **The `transcript` is real even when the scores are zeroed**, and so is
-   `assessment_id`. The transcript is the evidence for the verdict: showing it ("we
-   heard: …") is the clearest way to explain why a task was not graded, and feedback can
-   still reference the attempt.
-4. **`off_topic` already clears a confidence bar server-side.** A verdict the judge was
-   unsure of is returned as `partial` instead, because withholding a real learner's score
-   is worse than missing an off-topic answer. Do not add a second threshold on
-   `confidence`; branch on `relevance` alone.
-5. **Word both non-`on_topic` cases as guidance, not failure.** An empty or silent
-   recording also returns `off_topic` (with `reason` naming the no-speech case), and that
-   is the most common way a learner will meet this.
+   The check fails open (older server, judge disabled, judge errored).
+2. **`off_topic` is not reliable enough to be a verdict on a learner.** It is measured to
+   misfire on short, heavily accented or ASR-mangled answers that were genuine attempts —
+   which is exactly what an A1 learner produces. Word it as "we could not tell — try
+   again", never as failure, and never suppress the score in a way the learner cannot get
+   past.
+3. **Both verdicts already clear a bar server-side, and `off_topic`'s is deliberately
+   high.** `off_topic` needs p(bad) ≥ 0.70; anything the judge is less sure of comes back
+   as `partial` instead. Measured on real recordings, that bar sits 0.26 clear of the
+   worst genuine answer, so `off_topic` should be rare and mostly means silence or an
+   answer given in another language. Do not add a threshold of your own on `confidence`;
+   branch on `relevance` alone.
+4. **An empty or silent recording also returns `off_topic`**, with `reason` naming the
+   no-speech case. That is the most common way a learner will meet this — 11 of the first
+   14 production recordings were silence that the ASR hallucinated words for.
 
 On `partial` specifically: a short, plain prompt — *"Remember to answer the question in
 the task"* — is the right register. Measured on the production GPU, an A1-level answer
 that is halting and barely grammatical but genuinely on topic comes back `partial`
 rather than `on_topic`, so the weakest learners will see this message most often. It
-must read as a tip for next time, never as a verdict on their Finnish. (Their scores are
-untouched in that case — `partial` never zeroes anything.)
+must read as a tip for next time, never as a verdict on their Finnish.
 
 What it does **not** do: separate two tasks in the same everyday domain. A shopping
 answer given to the "what do you do at home" task is measured to pass as on-topic. It
@@ -412,6 +448,25 @@ was silently stored as a link to an unrelated assessment.) Rows for `comparison_
 `overall_experience` carry the `guid`, so they are attributable and queryable per user
 without an assessment link.
 
+> [!IMPORTANT]
+> **Posting the same answer again updates it — it does not add a row (v1.3.0).** One
+> learner answering one question about one recording is one row, however many times they
+> change their mind. Send each answer as it is given; the rating when the emoji is tapped
+> and the comment when the box is left is exactly the intended usage, and the last post
+> wins.
+>
+> The key is `(guid, assessment_id, feedback_classification)`, so the three
+> assessment-scoped types are deduplicated independently and the same question about a
+> different recording stays separate. `comparison_ui` and `overall_experience` carry no
+> `assessment_id` and are **not** deduplicated — they are sent once, on a button.
+>
+> `comment` is overwritten every time, **including back to empty**: the server takes each
+> post as the whole answer, not as a patch. If you send a rating without the comment the
+> learner already typed, you erase it.
+>
+> Servers **older than v1.3.0** insert a new row per post; there, the newest row per key
+> is the answer and every earlier one is a keystroke.
+
 **Naming note for anyone analysing the data:** `self_assessment` does NOT mean the user
 assessing their own CEFR level. The question shown under that classification is *"How
 did you find this task?"* on a five-emoji scale — a task reaction. The wire value is
@@ -435,10 +490,50 @@ Where the user stands against others at the same self-reported CEFR level.
 Success (**200**):
 
 ```json
-{ "cefr_level": "A2", "cohort_size": 120, "percentile": 0.72, "rank": 34 }
+{
+  "cefr_level": "A2", "cohort_size": 120,
+  "percentile": 0.72, "rank": 34,
+  "display": { "top_percent": 50, "top_rank": 50 }
+}
 ```
 
-`percentile` is 0–1 (0.72 = better than 72% of the cohort), `rank` starts at 1.
+### Display `display`, and only `display` (v1.3.0)
+
+**`percentile` and `rank` are raw research values. Do not put them on screen.** They are
+in the payload for analysis and debugging, and they are deliberately finer than anything
+a learner should see.
+
+`display` holds the buckets the server has decided are safe to show:
+
+| Field | Meaning |
+| --- | --- |
+| `top_percent` | Render as "top N %". One of `1`, `5`, `10`, `25`, `50`, or `null` |
+| `top_rank` | Render as "top N" / "#N". One of `1`, `2`, `3`, `5`, `10`, `25`, `50`, `100`, or `null` |
+
+**`null` means show nothing** — no position, no placeholder, no "unranked". The learner
+still sees their score and CEFR band, which is the information that matters. Both fields
+are `null` for anyone in the bottom half of their cohort, and `top_rank` alone is `null`
+past #100, where a rank number stops carrying meaning.
+
+The server owns these ladders for the same reason it owns the CEFR label: they will be
+revised as cohorts grow, and a revision has to reach every installed app without a client
+release. **Do not derive a position from `rank` or `percentile` in the client** — if you
+find yourself writing a threshold, that logic belongs on the server.
+
+Buckets always round *away* from the learner, so every rendered claim is true: a learner
+who is really at 3.4 % is shown "top 5 %", and #46 is shown as "top 50". Nothing is ever
+rounded in the flattering direction.
+
+Both fields can be non-null at once; pick whichever suits the screen, or show both. They
+are derived from the same rank, so they cannot contradict each other.
+
+> [!NOTE]
+> `display` requires **v1.3.0 or newer**. On older servers the field is absent — treat a
+> missing `display` as "show no position" rather than falling back to `percentile`.
+
+Ties are resolved by **competition rank**: learners with equal averages share the better
+rank (1, 2, 2, 4). Before v1.3.0 ties were split by GUID order, so one of two identical
+learners was permanently ranked above the other by an accident of their identifier.
 
 **Also 200: the "not available yet" states.** These are normal, not errors, and the app
 must render them — early in a study *most* users will see them. Detect them by the
@@ -459,56 +554,70 @@ Branch on that — not on sentinel values like a negative `percentile`, which wo
 silently if a field were renamed. All four response models are published in the OpenAPI
 schema since v1.2.0.
 
-## `POST /request/user`
+## `PATCH /users/level` (added v1.3.0)
 
-The user exercising their data rights from inside the app.
+The Advance / Revert buttons on the profile screen: which level the learner wants to work
+at from now on.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `guid` | UUID | |
-| `type` | enum | `delete` or `export` |
+| `guid` | UUID | form field |
+| `cefr_level` | enum | `A1`, `A2`, `B1`, `B2`, `C1_plus` — the **target**, never a direction |
 
-Optional header: `X-Client-Key` — validated only when the server configures
-`CLIENT_API_KEY` (403 `INVALID_API_KEY` on mismatch). It is a guardrail against
-scripted abuse, not a security boundary: it ships inside the app binary.
+Returns **200** `{"guid": "...", "cefr_level": "A2"}` — the level as stored. **404**
+`USER_NOT_FOUND` if the guid was never onboarded or has been deleted.
 
-It is a **different credential from the delete key** and opens far less. `X-Client-Key`
-lets a caller *ask* for the deletion of a guid they already hold; erasing data outright
-needs `X-Delete-Key` on `DELETE /users`, which never leaves the server. Do not set them
-to the same value — the app key is recoverable from a decompiled build.
+- **Its own path, deliberately.** `DELETE /users` erases the account. Keep the two URLs as
+  separate constants; do not build this one by appending to that one.
+- **Send a target, not a step.** A retried or duplicated request lands the learner in the
+  same place instead of moving them twice, which is what makes retrying safe.
+- **The onboarding self-assessment is never changed by this.** `users.cefr_level` keeps
+  what the learner said at sign-up — it is the only evidence of how well people judge
+  their own Finnish, and this endpoint is not allowed to overwrite it.
+- **Cohort ranking follows this value** from the next `/analytics/comparison` onwards, so
+  a learner who moves to B1 is ranked against B1. Moving between cohorts also changes
+  other learners' percentiles, since the cohort is the denominator.
+- **Every change is recorded server-side** (`user_cefr_history`), including the starting
+  level. The client-side gating on Advance is not something the server relies on.
 
-**`delete` deletes immediately (since v1.2.0)** — recordings first, then database rows
-— and always answers **202** with the outcome in the body:
+No key or extra credential: the guid is the scope, as on every other app endpoint.
 
-| Body | Meaning | What to tell the user |
+## User deletion
+
+`DELETE /users` erases the user: the database rows and the stored audio recordings,
+recordings first, so a failure leaves the user row in place and the outstanding deletion
+stays visible and retryable.
+
+| Field | Type | Notes |
 | --- | --- | --- |
-| `{"status": "deleted", ...}` | Data is gone from the server | "Your data has been deleted." |
-| `{"status": "pending", ...}` | The deletion failed; it is logged with the guid for a maintainer | "Removal from our servers is underway." |
-| no `status` key | Server older than v1.2.0: request was parked for an admin | cautious wording; do not claim deletion happened |
+| `guid` | UUID | form field (yes, a body on DELETE — `UnityWebRequest.Delete` sends none, so build the request by hand) |
+| `X-Delete-Key` | header | must equal the server's `SERVER_DELETE_KEY` |
 
-Same 202 either way — retry logic keys off the HTTP status alone, and any 2xx means
-"the request arrived, stop retrying". Every attempt (success or failure) is logged
-server-side with the guid, timestamp and cause, so failed deletions are auditable even
-after the app has discarded the guid.
+| Status | Meaning | What to tell the user |
+| --- | --- | --- |
+| **204** | The data is gone. Not "accepted" — gone. | "Your data has been deleted." |
+| **403** | The key did not match | Nothing the user can fix — see below |
+| **500** | The erase itself failed; logged and recorded for a maintainer | "Removal from our servers is underway." |
 
-- Deletion erases **both** the database rows and the stored audio recordings.
-- **A deleted guid can be re-onboarded** — the guid is not burned. Generating a fresh
-  guid and re-onboarding is equally fine (that person then appears twice in the data
-  over time, which the study accepts). A "start over" flow on 404 `USER_NOT_FOUND`
-  needs no server support.
-- `export` → **501 Not Implemented** (`NOT_IMPLEMENTED`). Not built yet; either hide the
-  option or show that it is coming.
+> [!WARNING]
+> **Treat 403 as terminal, and loud.** It is the one failure that cannot be retried into
+> success: the key is wrong, so every retry returns 403 forever. If the client wipes local
+> data, tells the learner "request received", and queues a silent retry, then the learner
+> believes they were forgotten, the guid that could find their rows is gone from the
+> device, and the server still holds everything. That is a data-protection failure with no
+> alarm on it. Fail visibly on 403 instead of queueing.
 
-## User deletion (maintainer)
+The key is a deterrent, not a secret — it ships in the APK and is extractable, like the
+server URL beside it. It exists so that deletion is not a bare unauthenticated endpoint
+that anyone who guesses a guid can call.
 
-`DELETE /users` requires the server's delete key (header `X-Delete-Key`, matching
-`SERVER_DELETE_KEY`; both were called "admin" before v1.2.0) and **must not ship in the
-app** — the key would be extractable from the binary and lets anyone delete any user.
-Note this is a different credential from `X-Client-Key`, which the app may send on
-`POST /request/user` and which can only ask for a deletion, never perform one. It erases the
-rows and the recordings, recordings first (a failure leaves the user row in place so
-the deletion stays visible and retryable). The app's route is `POST /request/user`
-above, which performs the same deletion with the same guarantees.
+**A deleted guid can be re-onboarded** — the guid is not burned. Generating a fresh guid
+instead is equally fine (that person then appears twice in the data over time, which the
+study accepts). A "start over" flow on 404 `USER_NOT_FOUND` needs no server support.
+
+There is **no export endpoint and no "was this guid deleted?" endpoint**, by design.
+`POST /request/user`, which carried an `export` type and answered 501, was removed in
+v1.3.0.
 
 ## Practical notes for Unity / C#
 
