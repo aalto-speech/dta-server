@@ -14,8 +14,11 @@ prompt -- so a good score here is a check that nothing regressed, not evidence t
 generalises. Add real recordings as they arrive; that is what makes this worth more.
 
 The bar to clear:
-  * DESTROYED must be 0. A genuine attempt called `off_topic` is the failure this whole
-    feature must not commit -- it is the loudest thing the app can say to a learner.
+  * FLAGGED must be 0. No genuine attempt may come back `off_topic` -- that is the loudest
+    thing the app can say to a learner, and on this evidence it is usually wrong when it
+    says it. (Until v1.3.0 an `off_topic` verdict also zeroed the five scores, so this line
+    used to say "destroyed". The app no longer withholds anything: a false positive now
+    costs an undeserved warning rather than a grade.)
   * CAUGHT must not fall below 6/7. If a change fixes a miss by making the judge agreeable,
     it has removed the feature rather than fixed it.
 """
@@ -105,12 +108,12 @@ def main() -> int:
     catalogue = TaskCatalogue.load()
 
     print("REAL production recordings -- all genuine attempts:")
-    destroyed = 0
+    flagged = 0
     for db_id, task_id, level, transcript in REAL:
         verdict = judge.judge(catalogue.get(task_id), transcript)
         bad = verdict["relevance"] == "off_topic"
-        destroyed += bad
-        print(f"  {'DESTROYED' if bad else '         '} id={db_id:<3} task={task_id} "
+        flagged += bad
+        print(f"  {'FLAGGED' if bad else '       '} id={db_id:<3} task={task_id} "
               f"{level:<3} {verdict['relevance']:<10} {verdict['confidence']}")
 
     print("\nCONTROLS -- must be caught:")
@@ -122,8 +125,8 @@ def main() -> int:
         print(f"  {'ok  ' if hit else 'MISS'} {name:<30} {verdict['relevance']:<10} "
               f"{verdict['confidence']}")
 
-    print(f"\nDESTROYED {destroyed}/{len(REAL)}   CAUGHT {caught}/{len(CONTROLS)}")
-    ok = destroyed == 0 and caught >= 6
+    print(f"\nFLAGGED {flagged}/{len(REAL)}   CAUGHT {caught}/{len(CONTROLS)}")
+    ok = flagged == 0 and caught >= 6
     print("PASS" if ok else "FAIL -- see the bar in this file's docstring")
     return 0 if ok else 1
 

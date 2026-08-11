@@ -271,7 +271,8 @@ when the line is left empty.
 | `DTA_AUTOCAST_DTYPE`   | `bfloat16`        | Scorer autocast dtype. Production sets `float16`: its P100 (Pascal) has no bf16, and fp32 halves throughput. |
 | `ASA_TIMEOUT`          | `60`              | App-side timeout (s) for one scoring call (`300` on CPU staging).    |
 | `DTA_RELEVANCE_CHECK`  | `1`               | Topical-relevance judge (`content` block). `0` serves scores without it; costs ~0.7 s/request on the P100. |
-| `DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE` | `0.6` | Below this probability an `off_topic` verdict is returned as `partial`. Raise to be more cautious. |
+| `DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE` | `0.70` | `p(bad)` needed for the loud `off_topic` verdict; below it the answer comes back `partial`. Set 0.26 clear of the worst genuine learner answer measured, so false accusations stay rare. Lower it to catch more wrong-subject answers, at the cost of warning real learners. |
+| `DTA_RELEVANCE_ON_TOPIC_MIN_CONFIDENCE` | `0.40` | `p(good)` needed to call an answer on-topic with no warning. Everything between the two bars is `partial`. Raise it to warn more often. |
 
 ### Advanced variables (only used during setup)
 

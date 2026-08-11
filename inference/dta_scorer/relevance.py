@@ -105,24 +105,53 @@ import re
 
 import torch
 
-from .prompt import build_llm_input, normalise_text
+from .prompt import normalise_text
 
 # --- knobs (runtime only; none of this can move a score) --------------------------------
 ENABLED = os.environ.get("DTA_RELEVANCE_CHECK", "1") == "1"
-# `off_topic` is the loudest verdict a learner can be shown, so make it clear a bar that
-# `partial` does not have to. On the v2 tuning set the two populations sit either side of
-# this: real recordings peak at p(bad)=0.76 (recording 30, the most ASR-mangled) while
-# genuine off-topic material sits at 0.72-0.96, so 0.6 no longer separates them cleanly on
-# its own -- it is the few-shot examples above that do the separating now, and this is the
-# backstop. The cost of the two errors is not symmetric: telling a learner who genuinely
-# tried that they answered the wrong question is worse than missing an off-topic answer.
-# Raise it to make the feature more cautious; lower it only against labelled data.
+# TWO THRESHOLDS, one per verdict, both read off the SAME three probabilities so they can
+# be compared directly:
+#
+#     p(bad)  >= OFF_TOPIC_MIN_CONFIDENCE  -> off_topic
+#     p(good) >= ON_TOPIC_MIN_CONFIDENCE   -> on_topic
+#     otherwise                            -> partial
+#
+# `partial` is what is left over, which is the point: it is the cheap verdict, so it absorbs
+# every case neither of the other two is confident enough to claim. Checking `off_topic`
+# first means a transcript with concentrated mass on `bad` is called off-topic even if it
+# would also clear the on-topic bar; nothing here has ever come close to both.
+#
+# The two verdicts cost the learner very different amounts, which is why they get separate
+# bars rather than an argmax. `off_topic` tells someone who recorded an honest attempt that
+# they answered the wrong question -- and measured on real recordings, this judge is usually
+# wrong when it says that. Every attempt to make it better at spotting a genuinely wrong
+# subject made it more suspicious of ASR-mangled beginner Finnish, at roughly one real answer
+# newly warned per control gained. `partial` is a "remember to answer the question" tip
+# beside a result that is still shown in full; being wrong costs a needless nudge.
+#
+# Both values are measured, not chosen -- eval_relevance.py dumps the probabilities for the
+# whole tuning set and these are read off that distribution.
+#
+# 0.70 is deliberately well clear of the real-answer population rather than just past it.
+# Genuine learner answers reach p(bad)=0.436 at worst (recording 30, the most ASR-mangled of
+# the nine), so this leaves 0.26 of margin. A tighter 0.50 also flags nothing in the tuning
+# set and catches one more control -- but it leaves only 0.06 of margin, and the set is nine
+# recordings by two speakers. The wide bar is the one likelier to survive a speaker we have
+# not heard yet, and the cost of being wrong here is telling someone who genuinely tried
+# that they answered the wrong question.
+#
+# What clears 0.70 in practice: silence hallucinations (0.76-0.94) and answers given in
+# another language (0.78). A fluent wrong-subject answer sits at 0.54 and therefore comes
+# back `partial` -- still warned, not silently accepted, but not accused.
 OFF_TOPIC_MIN_CONFIDENCE = float(
-    os.environ.get("DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE", "0.6"))
+    os.environ.get("DTA_RELEVANCE_OFF_TOPIC_MIN_CONFIDENCE", "0.70"))
+# The middle band, 0.40-0.70 on p(bad) without p(good) clearing this bar, is `partial`.
+ON_TOPIC_MIN_CONFIDENCE = float(
+    os.environ.get("DTA_RELEVANCE_ON_TOPIC_MIN_CONFIDENCE", "0.40"))
 # 90 s of speech is ~200 words; the cap only bites on a runaway ASR repetition loop.
 MAX_ANSWER_CHARS = int(os.environ.get("DTA_RELEVANCE_MAX_ANSWER_CHARS", "2000"))
 
-VERSION = "dta-relevance-v2"
+VERSION = "dta-relevance-v3"
 
 # Most DTA prompts open with ~150 characters of recording instructions that are identical
 # across tasks and are not part of what the candidate must talk about ("Teet 2
@@ -140,6 +169,39 @@ def task_question(task) -> str:
     """The part of the task prompt that states what to talk about."""
     return _BOILERPLATE.sub("", task.prompt_fi) or task.prompt_fi
 
+# POINT OF DIVERGENCE FROM THE SCORER. The scorer must send `<TASK task_id=04_h
+# task_name=dta-task4_a>\nQ1: ...\nA1: ...` byte for byte -- that is a training-parity
+# requirement (prompt.py). The judge has no such constraint: it is zero-shot on base
+# weights, and it was inheriting two problems from that template.
+#
+#   * `task_id=04_h task_name=dta-task4_a` are internal DTA codes. The base model has never
+#     seen them and they carry no meaning for a relevance decision -- they are noise in
+#     every single example. The research original used a generic `<TASK part=P1>`.
+#   * `A1:` meant "Answer 1" in the SANDI format it came from. Here the system prompt also
+#     says "candidates are learners at CEFR A1-B1", so the same two characters denote both
+#     the answer marker and the lowest CEFR level, in one prompt.
+#
+# Spelling the two fields out removes both. The scorer's template is untouched.
+_JUDGE_BLOCK = "<TASK>\nQUESTION: {question}\nANSWER: {answer}\n\nRelevance:"
+
+# Qwen3's chat template injects an empty reasoning block at the generation position even
+# with enable_thinking=False, and it STRIPS reasoning blocks out of assistant history. So
+# every demonstration ends `<|im_start|>assistant\ngood<|im_end|>` while the position we
+# actually read the label logit from ends `<|im_start|>assistant\n<think>\n\n</think>\n\n`
+# -- formatted unlike all nine examples, at the one place it matters. Putting the block
+# into the few-shot content does not help (the template removes it again), so it is cut
+# from the generation prompt instead, which makes the read position identical to the
+# demonstrations.
+_THINK_SUFFIX = "<think>\n\n</think>\n\n"
+
+
+def judge_block(question: str, answer: str) -> str:
+    """The task/answer block as the JUDGE sees it. Not the scorer's format."""
+
+    return _JUDGE_BLOCK.format(question=normalise_text(question),
+                               answer=normalise_text(answer))
+
+
 # label token -> what the API calls it. The judge's own vocabulary is kept because the
 # prompt that was validated is written in it; the mapping happens at the boundary.
 _LABELS = {"good": "on_topic", "average": "partial", "bad": "off_topic"}
@@ -155,26 +217,55 @@ _REASONS = {
 _NO_SPEECH_REASON = "No speech could be recognised in the recording."
 
 _SYSTEM = (
-    # --- verbatim from CASA prompts/content_validation.json -----------------------------
+    # "verbatim ASR" and the intention-inference sentence are the app owner's wording: the
+    # judge kept reading transcription damage as a wrong topic, so the prompt now says up
+    # front that damage is expected and that the job is to work out what the speaker meant.
     "You are an examiner for a spoken language exam. You are given the exam TASK (the "
-    "question / prompt) and the candidate's spoken answer, transcribed by ASR (which may "
-    "contain recognition errors). Judge ONLY how well the answer ADDRESSES the task — its "
-    "topical relevance and task fulfilment. Do NOT judge grammar, vocabulary, pronunciation "
-    "or fluency. Reply with exactly one word:\n"
-    "  good = the answer clearly addresses the question / task and stays on topic;\n"
-    "  average = on the general topic but incomplete, drifts, or only loosely addresses the "
-    "task;\n"
+    "question / prompt) and the candidate's spoken answer, transcribed by verbatim ASR "
+    "(which means there are typos, grammar errors and mispronunciation errors in the "
+    "text). Judge ONLY how well the answer ADDRESSES the task — its topical relevance and "
+    "task fulfilment. Do NOT judge grammar, vocabulary, pronunciation or fluency. You "
+    "should try your best to infer the speaker's intention from the ASR text. Reply with "
+    "exactly one word:\n"
+    # `average` no longer says "incomplete". It used to, while the paragraph below told the
+    # model that incomplete answers are good -- the prompt argued with itself, and measured
+    # on real recordings the "incomplete" reading won: fluent A2+ answers that fully
+    # addressed their task came back `average` at 0.46-0.86.
+    # `bad` is CASA's wording, unchanged and deliberately broad. Narrowing it to "about
+    # something else entirely" was measured at 6/7 -> 4/7 detection, because genuine
+    # off-topic answers fell through into `average`.
+    "  good = the answer addresses the question / task and stays on topic;\n"
+    "  average = the answer starts on the topic of the task but then drifts onto a "
+    "different subject;\n"
     "  bad = does not address the question, is off-topic, or is non-responsive.\n"
-    # --- DTA addition: the low-proficiency guard ----------------------------------------
-    "\nThe exam is in Finnish and the candidates are learners at CEFR A1–B1. A short, "
-    "hesitant, or heavily error-filled answer that is still ABOUT the task is good or "
-    "average, never bad: weak language is not a wrong topic. Answer bad only when the "
-    "content is about something else, is empty, or is not a response to this task at all."
-    # --- DTA addition v2: judge topic, not completeness ---------------------------------
-    # The v1 failure, measured on nine real production recordings: the judge was grading
-    # how COMPLETE and how FLUENT an answer was, not what it was about. Fluent A2+ answers
-    # that fully addressed their task came back `average` at 0.46-0.86 -- "incomplete" was
-    # doing all the work. This paragraph is what moves them back to `good`.
+    # --- what the exam actually is --------------------------------------------------------
+    # Nothing used to tell the judge how long an answer is supposed to be, so "is this
+    # enough?" was left to its imagination -- and its imagination was calibrated on written
+    # English essays, not on 30 seconds of beginner Finnish.
+    "\nThe exam is short spoken Finnish. A reaction task gives the candidate 30 seconds; a "
+    "monologue or picture task gives one minute. Answers are therefore SHORT -- a handful "
+    "of sentences at most, often less. That is the format working as intended, not the "
+    "candidate failing to answer.\n"
+    # --- what the transcripts actually look like -------------------------------------------
+    # Verified against every transcript in the production database: all lowercase, no
+    # punctuation at all, hesitation written as repeated words.
+    "\nThe transcript has no capital letters and no punctuation, and it never will. "
+    "Hesitation appears as repeated words, not as pauses you can see. Do not read either "
+    "as the candidate being unclear.\n"
+    # --- mispronunciation ------------------------------------------------------------------
+    # The failure this prevents: a beginner mispronounces one word, the ASR writes down a
+    # different real Finnish word, and the sentence stops making sense word by word.
+    "\nCandidates are beginners and mispronounce words, so the ASR often writes a DIFFERENT "
+    "real Finnish word or a non-word: \"raha\" (money) can come out as \"vaha\" (wax), "
+    "\"euroa\" as \"ilva\". Individual words may therefore be wrong or meaningless even "
+    "though the candidate said the right thing. Judge the answer as a whole, not word by "
+    "word.\n"
+    # --- the low-proficiency guard, with the app owner's other-language addition ------------
+    "\nThe speaking task is in Finnish and the candidates are learners at CEFR A1–B1. A "
+    "short, hesitant, or heavily error-filled answer that is still ABOUT the task is good "
+    "or average, never bad: weak language is not a wrong topic. Answer bad only when the "
+    "content is about something else, is empty, the candidate answers in English or "
+    "another language, or is not a response to this task at all."
     "\n\nIMPORTANT: you are judging TOPIC, not completeness and not effort. If the answer "
     "is about what the task asked about, answer good -- even if it is short, covers only "
     "part of a multi-part task, leaves questions unanswered, or stops early. Answer "
@@ -183,69 +274,103 @@ _SYSTEM = (
     "or is not a response to this task at all."
 )
 
-# Hand-authored, using the real Finnish task questions from assets/tasks.json so the block
-# the judge sees at inference time has the same shape as the ones it sees here -- including
-# the boilerplate stripping above, hence no "Klikkaa Start recording" lines. Written as our
-# Finnish Whisper actually transcribes learner speech (punctuated, filler words kept).
+# (question, answer, label). The task ids are in the comments rather than the tuple: they
+# used to be rendered into every example and are now deliberately absent from the block the
+# judge sees -- see judge_block() above.
+#
+# REAL RECORDINGS WHEREVER THEY EXIST. Six of these eight answers are verbatim production
+# transcripts, database ids given per example. They were hand-written Finnish until now,
+# which was a mistake with 23 real transcripts sitting in the database: invented learner
+# Finnish is a guess at how beginners fail, and the real thing does not look like the guess.
+#
+# The four remaining synthetic examples are marked SYNTHETIC. Each is a failure mode that
+# has not happened in production yet, so there is nothing real to copy:
+#   * both `average` examples -- no recording has ever drifted off its task mid-answer;
+#   * the wrong-subject `bad` -- nobody has answered a different question fluently;
+#   * the three-word `good` -- every real short transcript is a hallucination, not a real
+#     short answer, so the "brevity is not evasion" case has to be constructed.
+# Replace each with a real recording as soon as one exists.
+#
+# NOT FROM THE EVAL SET. Database ids 28-36 are the labelled tuning/eval set in
+# eval_relevance.py and are deliberately NOT used here -- an example that appears in the
+# prompt cannot also measure it. Ids 7 and 8 predate that set and are free to use.
+#
+# FORMAT -- every answer is a real ASR string or written like one: no capital letters, no
+# commas, no full stops, no ellipses, hesitation as repeated words. Verified against all 23
+# transcripts in the database: not one contains a capital letter or a punctuation mark.
+#
+# ORDER -- grouped good / average / bad, deliberately. Interleaving was measured twice with
+# content held constant: detection fell 6/7 -> 3/7, and a strict good/average/bad cycle fell
+# to 2/7 under three different system prompts.
 _FEWSHOT = [
-    # 1. Clearly addresses the task.
-    ("04_h", "dta-task4_a",
-     "Kerro, mitä kaikkea sinä teet normaalisti kotona.",
-     "Minä asun Espoossa vaimon kanssa. Kotona minä siivoan ja teen ruokaa melkein joka "
-     "päivä. Aamulla juon kahvia ja luen uutisia, ja illalla katson televisiota tai luen "
-     "kirjaa. Viikonloppuna minä pesen pyykkiä ja joskus leivon pullaa.",
-     "good"),
-    # 2. THE LOW-PROFICIENCY GUARD. Barely grammatical, one-word-at-a-time, and it still
-    #    answers all three questions. This example exists so the judge does not learn to
-    #    read "weak" as "off topic".
-    ("04_test", "dta-task5",
-     "Mitä sinä normaalisti ostat kaupasta? Mitä sinä et normaalisti osta kaupasta? "
-     "Milloin sinä normaalisti käyt kaupassa?",
-     "Öö... minä ostaa maito ja leipä. Ja... öö... omena, banaani. Minä ei osta liha, ei "
-     "hyvä. Minä menee kauppa lauantai.",
-     "good"),
-    # 3. THE ASR GUARD, added in v2. A real production transcript shape: the one word that
-    #    carries the topic ("sata euroa") comes back as nonsense ("sata ilva"), and case
-    #    endings are gone. v1 read that damage as a wrong topic -- the recording this is
-    #    modelled on was called off_topic at 0.75 and had its scores destroyed. Adding this
-    #    single example moved every real recording in the tuning set down by 0.2-0.5 p(bad)
-    #    without touching the genuine off-topic controls.
-    ("03_m", "dta-task2_a",
-     "Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä "
+    # id 8, task 1 -- good. REAL. Refuses to lend, explains the money is needed for food.
+    ("Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä "
      "vastaat hänelle?",
-     "moi kaveri mä ei voi anta sinu sata ilva nyt mul ei o raha mä täyty ostaa ruoka",
+     "hei mä ei haluan anna anta sinun sata euroa mä mä täyttyy ostaa ruokaa kaupasa",
      "good"),
-    # 4. Starts on task, then drifts into an unrelated anecdote.
-    ("03_n", "dta-task2_b",
-     "Sinä et voi tulla tänään kurssille/töihin. Sinä lähetät ääniviestin "
+    # id 7, task 1 -- good. REAL, and THE MISPRONUNCIATION CASE, not a constructed one:
+    # "euroa" came out as "ilva" and the pronouns are mangled, so word by word much of it is
+    # meaningless. As a whole it is plainly still about lending money for food shopping.
+    # An earlier prompt called this exact recording off_topic at 0.75.
+    ("Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä "
+     "vastaat hänelle?",
+     "moi haluan haluan häne sinu sata ilva mun täytti ostaa ruokakaupassa",
+     "good"),
+    # SYNTHETIC -- good. THREE WORDS, so that brevity is never mistaken for evasion. Every
+    # real short transcript in the database is a hallucination rather than a real short
+    # answer, so there is nothing to copy. Replace when a real one turns up.
+    ("Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä "
+     "vastaat hänelle?",
+     "ei ole rahaa",
+     "good"),
+    # SYNTHETIC -- average. Opens on the task, then leaves it for a holiday anecdote.
+    # No production recording has ever drifted like this.
+    ("Sinä et voi tulla tänään kurssille/töihin. Sinä lähetät ääniviestin "
      "opettajalle/pomolle ja kerrot, miksi sinä et voi tulla. Mitä sinä sanot viestissä?",
-     "Moi opettaja, minä olen vähän kipeä tänään. Ai niin, viime viikolla minä kävin "
-     "Tallinnassa laivalla ja siellä oli tosi kivaa, me syötiin ravintolassa ja ostettiin "
-     "suklaata, ja laivalla oli musiikkia ja tanssia.",
+     "moi opettaja mä olen vähän kipeä tänään ai niin viime viikolla mä kävin tallinnassa "
+     "laivalla ja siellä oli tosi kivaa me syötiin ravintolassa ja ostettiin suklaata ja "
+     "laivalla oli musiikkia ja tanssia",
      "average"),
-    # 5. Fluent, well-formed, and about something else entirely -- the case the whole
-    #    feature exists for.
-    ("04_i", "dta-task4_b",
-     "Kerro, mitä kieliä sinä käytät ja missä. Mitä kieliä sinä puhut kotona, kaupassa, "
-     "työssä...? Katsotko televisiota tai kuunteletko musiikkia: mitä kieliä sinä kuulet? "
-     "Entä mitä kieliä luet tai kirjoitat?",
-     "Viikonloppuna minä pelaan jalkapalloa kavereiden kanssa ja sitten me katsomme "
-     "elokuvia. Sunnuntaina minä nukun pitkään ja syön pizzaa ja käyn kuntosalilla.",
+    # SYNTHETIC -- bad, and deliberately a HARD one: fluent, plausible, and simply not an
+    # answer to the question asked. Non-responsive rather than off-subject, which is the
+    # boundary worth teaching -- a single hallucinated word teaches nothing the model does
+    # not already know (it flags "puhemies" at 0.97 with no example at all).
+    #
+    # Two earlier versions of this slot were both wrong, and measurably:
+    #   * a weekend-activities answer, which duplicated a control in eval_relevance.py --
+    #     the prompt was teaching the test;
+    #   * a polite apology to a teacher, which shares its register with recording 34
+    #     ("olen tosi pahoillani ... mulla ei ole tarpeeksi rahaa"). With that example in
+    #     the prompt, recording 34 -- a perfect answer -- came back off_topic at 0.667.
+    #     Removing the apology fixed it. The model was matching politeness, not topic.
+    ("Kerro, mitä kaikkea sinä teet normaalisti kotona.",
+     "mä menen töihin bussilla joka aamu ja mun työpaikka on keskustassa ja siellä on "
+     "kymmenen ihmistä ja me teemme tietokoneella töitä ja lounas on kello kaksitoista",
      "bad"),
-    # 6. Whisper's subtitle-credit hallucination, which is what near-silence transcribes to.
-    ("03_m", "dta-task2_a",
-     "Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä "
+    # id 23, task 1 -- bad. REAL, and chosen over the obvious alternative. The database is
+    # full of "puhemies" (what near-silence transcribes to here, six of the first fourteen
+    # recordings), but that case is trivial: the model already flags it at 0.93 with no
+    # example at all, so an example spends 30 tokens teaching what is already known. This
+    # one is harder and more useful -- coherent, plausible Finnish that simply is not a
+    # response to the question. Hallucinations are measured in eval_relevance.py instead;
+    # easy cases belong in the eval, hard cases belong in the prompt.
+    ("Sinun ystävällä ei ole paljon rahaa, ja hän pyytää sinulta 100 euroa. Mitä sinä "
      "vastaat hänelle?",
-     "Tekstitys: Yle. Kiitos kun katsoit videon!",
+     "tää on pienempää",
      "bad"),
-    # 7. English speech decoded by a Finnish-forced Whisper. ASR_LANGUAGE is pinned to "fi"
-    #    (asr.py), so the decoder never switches language -- it renders English phonetically
-    #    as Finnish word salad. Illustrative, not a captured production transcript.
-    ("04_test", "dta-task5",
-     "Mitä sinä normaalisti ostat kaupasta? Mitä sinä et normaalisti osta kaupasta? "
+    # task 5 -- bad. REAL, captured during client testing (quoted in the frontend's
+    # TO_BACKEND.md): the candidate answered in English, and ASR_LANGUAGE is pinned to "fi"
+    # (asr.py), so the decoder rendered it phonetically as Finnish-looking word salad with
+    # occasional real Finnish surfacing. This is the example behind "answers in English or
+    # another language" in the system prompt.
+    ("Mitä sinä normaalisti ostat kaupasta? Mitä sinä et normaalisti osta kaupasta? "
      "Milloin sinä normaalisti käyt kaupassa?",
-     "Ai juusuali kou tuu se maaketti ja ai bai som milkki ja bredi ja se on se ja se ja "
-     "mitä mitä on se viikonloppu ja ja ja.",
+     "so i just like my red and butter and then some manana just we like to eat manana and "
+     "it really cheap as well mm and rice obviously just we are asians what i dont buy at "
+     "the store a washington food cream cream cheese aa we do drink a bit of meal and a bit "
+     "of acid when do u normaly go shopping i uselly go shopping at the wikinaa during the "
+     "afton kun i have alot of free time at wikinaa me go almost eivver wik tos me niitä "
+     "myyä food for the family",
      "bad"),
 ]
 
@@ -290,25 +415,27 @@ class RelevanceJudge:
 
     def _build_prefix(self) -> list[dict]:
         messages = [{"role": "system", "content": _SYSTEM}]
-        for task_id, task_name, question, answer, label in _FEWSHOT:
-            block = build_llm_input(task_id=task_id, task_name=task_name,
-                                    question=question, answer=answer)
-            messages.append({"role": "user", "content": f"{block}\n\nRelevance:"})
+        for question, answer, label in _FEWSHOT:
+            messages.append(
+                {"role": "user", "content": f"{judge_block(question, answer)}"})
             messages.append({"role": "assistant", "content": label})
         return messages
 
     def _render(self, task, transcript: str) -> str:
-        block = build_llm_input(task_id=task.task_id, task_name=task.task_name,
-                                question=task_question(task),
-                                answer=normalise_text(transcript)[:MAX_ANSWER_CHARS])
-        messages = self._prefix + [{"role": "user", "content": f"{block}\n\nRelevance:"}]
+        block = judge_block(task_question(task),
+                            normalise_text(transcript)[:MAX_ANSWER_CHARS])
+        messages = self._prefix + [{"role": "user", "content": block}]
         try:
-            return self.tokenizer.apply_chat_template(
+            rendered = self.tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
         except TypeError:
             # Older template without the thinking switch: the label is still the next token.
-            return self.tokenizer.apply_chat_template(
+            rendered = self.tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True)
+        # See _THINK_SUFFIX: make the position we read match the demonstrations.
+        if rendered.endswith(_THINK_SUFFIX):
+            rendered = rendered[: -len(_THINK_SUFFIX)]
+        return rendered
 
     @torch.inference_mode()
     def _label_probabilities(self, text: str) -> dict[str, float]:
@@ -346,15 +473,18 @@ class RelevanceJudge:
                     "reason": _NO_SPEECH_REASON, "judge": VERSION}
 
         probs = self._label_probabilities(self._render(task, text))
-        word = max(probs, key=probs.get)
-        relevance = _LABELS[word]
-        confidence = probs[word]
-
-        if relevance == "off_topic" and confidence < OFF_TOPIC_MIN_CONFIDENCE:
-            # Withholding a score is the one action here that costs the learner something.
-            # An unsure judge annotates instead.
-            relevance = "partial"
-            confidence = probs["average"] + probs["bad"]
+        # Not an argmax. The three labels are ordered by what they cost the learner, so the
+        # verdict is a pair of thresholds walked from the loudest down -- see the note on
+        # OFF_TOPIC_MIN_CONFIDENCE. An argmax would let `bad` win on 0.4 against a split
+        # `good`/`average`, which is exactly the case this judge gets wrong most often.
+        if probs["bad"] >= OFF_TOPIC_MIN_CONFIDENCE:
+            relevance, confidence = "off_topic", probs["bad"]
+        elif probs["good"] >= ON_TOPIC_MIN_CONFIDENCE:
+            relevance, confidence = "on_topic", probs["good"]
+        else:
+            # Neither bar cleared. `confidence` here is the mass NOT on "answers the task",
+            # which is what the verdict is actually asserting.
+            relevance, confidence = "partial", probs["average"] + probs["bad"]
 
         return {"relevance": relevance, "confidence": round(float(confidence), 3),
                 "reason": _REASONS[relevance], "judge": VERSION}

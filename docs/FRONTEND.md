@@ -218,7 +218,7 @@ ID travels with the recording through your UI code. IDs outside 1–5 are reject
     "relevance": "on_topic",
     "confidence": 0.97,
     "reason": null,
-    "judge": "dta-relevance-v1"
+    "judge": "dta-relevance-v3"
   }
 }
 ```
@@ -301,10 +301,20 @@ and the transcript and returns one of three verdicts.
 | `partial` | the real scores | The result, **plus a short prompt** to answer the question asked next time. |
 | `off_topic` | the real scores | Your choice: the result with a notice above it, or no grading. |
 
-`confidence` is the judge's probability for the verdict it gave (0–1). `reason` is a
-short English string, fixed per verdict rather than generated — **localise from
-`relevance`, not from `reason`**. `judge` identifies the prompt version behind the
-verdict.
+`reason` is a short English string, fixed per verdict rather than generated — **localise
+from `relevance`, not from `reason`**. `judge` identifies the prompt version behind the
+verdict (`dta-relevance-v3` from v1.3.0; the string changes whenever the prompt does, so
+do not parse it, just log it).
+
+`confidence` (0–1) is the probability behind whichever verdict was given, and it means a
+slightly different thing for each — **which is why you should branch on `relevance` and
+not on this number**:
+
+| `relevance` | `confidence` is |
+| --- | --- |
+| `on_topic` | how sure the judge is the answer addresses the task |
+| `off_topic` | how sure it is the answer does not |
+| `partial` | how much of its belief was **not** on "addresses the task" — neither bar was cleared |
 
 **The verdict never changes the scores** (v1.3.0). Every response carries the real
 measured numbers whatever the judge said:
@@ -319,7 +329,7 @@ measured numbers whatever the judge said:
   "clipped": false,
   "content": {"relevance": "off_topic", "confidence": 0.64,
               "reason": "The answer does not address the task that was asked.",
-              "judge": "dta-relevance-v1"}
+              "judge": "dta-relevance-v3"}
 }
 ```
 
@@ -341,9 +351,12 @@ Four rules, all load-bearing:
    which is exactly what an A1 learner produces. Word it as "we could not tell — try
    again", never as failure, and never suppress the score in a way the learner cannot get
    past.
-3. **`off_topic` already clears a confidence bar server-side.** A verdict the judge was
-   unsure of is returned as `partial` instead. Do not add a second threshold on
-   `confidence`; branch on `relevance` alone.
+3. **Both verdicts already clear a bar server-side, and `off_topic`'s is deliberately
+   high.** `off_topic` needs p(bad) ≥ 0.70; anything the judge is less sure of comes back
+   as `partial` instead. Measured on real recordings, that bar sits 0.26 clear of the
+   worst genuine answer, so `off_topic` should be rare and mostly means silence or an
+   answer given in another language. Do not add a threshold of your own on `confidence`;
+   branch on `relevance` alone.
 4. **An empty or silent recording also returns `off_topic`**, with `reason` naming the
    no-speech case. That is the most common way a learner will meet this — 11 of the first
    14 production recordings were silence that the ASR hallucinated words for.
