@@ -147,7 +147,7 @@ def test_assess_speech_success_returns_scores_and_transcript(
     assert payload["dimension_labels"]["accuracy"] == {
         "label": "B1", "label_fine": "B1"}
     assert payload["dimension_labels"]["range"] == {
-        "label": "A1", "label_fine": "A1"}          # 1.9 -> A1, not A2
+        "label": "A2", "label_fine": "A2"}          # 1.9 is above the 1.55 A2 cut
     assert payload["clipped"] is False
     assert captured["assess_args"]["task_id"] == 1
     assert captured["assess_args"]["filename"] == "sample.wav"

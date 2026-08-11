@@ -55,7 +55,7 @@ Response fields and what to do with them:
   with `proficiency`. Treat as indicative.
 - `cefr_label` and `cefr_label_fine` — display these rather than the bare number
   ("2.1" reads as a mark out of 5). **Production emits exactly four labels**:
-  `A1` `[0,2)`, `A2` `[2,2.5)`, `A2+` `[2.5,3)`, `B1` `[3,…)`, floored into the band
+  `A1` `[0,1.55)`, `A2` `[1.55,2.40)`, `A2+` `[2.40,2.75)`, `B1` `[2.75,…)`, floored into the band
   rather than rounded to the nearest one. `<A1`, `A1+` and `B1+` are never sent, and
   dimension labels are capped at `B1` the same way. The app tier re-derives all of them
   from the scores in `app/utils/cefr.py` and discards the inference container's own

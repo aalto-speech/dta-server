@@ -1,6 +1,6 @@
 """CEFR banding for PRODUCTION OUTPUT. This file owns the rule — never derive labels elsewhere.
 
-    A1   [0, 2)          A2   [2, 2.5)          A2+  [2.5, 3)          B1   [3, ...)
+    A1   [0, 1.55)    A2   [1.55, 2.40)    A2+  [2.40, 2.75)    B1   [2.75, ...)
 
 Four labels. That is the whole set. There is no `<A1`, no `A1+`, no `B1+`, and nothing
 above B1, on the wire or in the app.
@@ -36,10 +36,17 @@ it does not round to the nearest one.
 
 # (upper bound, label), walked in order. The top band is open-ended: this model cannot
 # resolve above B1, and a raw dimension score of 5.0 is still just "B1" to production.
-_FINE_BANDS = ((2.0, "A1"), (2.5, "A2"), (3.0, "A2+"))
+#
+# Revised 2026-08-11 from the round-number cuts (2.0 / 2.5 / 3.0) the first version used.
+# Those were placeholders; these come from the app owner's many-facet analysis of the study
+# data, chosen so the four labels fall in defensible proportions rather than at tidy
+# numbers. Expect them to move again as more data arrives -- which is exactly why this
+# lives on the server and not in the client.
+_FINE_BANDS = ((1.55, "A1"), (2.40, "A2"), (2.75, "A2+"))
 
-# The same rule without the half step, for the coarse label: A1 [0,2), A2 [2,3), B1 [3,...).
-_COARSE_BANDS = ((2.0, "A1"), (3.0, "A2"))
+# The same rule with A2 and A2+ merged, for the coarse label:
+# A1 [0, 1.55), A2 [1.55, 2.75), B1 [2.75, ...).
+_COARSE_BANDS = ((1.55, "A1"), (2.75, "A2"))
 
 _TOP = "B1"
 

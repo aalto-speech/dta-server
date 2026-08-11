@@ -261,23 +261,28 @@ Four facts that affect how you use them:
 
 | Label | Score range |
 | --- | --- |
-| `A1` | `[0, 2)` |
-| `A2` | `[2, 2.5)` |
-| `A2+` | `[2.5, 3)` |
-| `B1` | `[3, …)` |
+| `A1` | `[0, 1.55)` |
+| `A2` | `[1.55, 2.40)` |
+| `A2+` | `[2.40, 2.75)` |
+| `B1` | `[2.75, …)` |
 
-`cefr_label` is the same rule without the plus level: `A1` `[0,2)`, `A2` `[2,3)`,
-`B1` `[3,…)`. `dimension_labels` uses the identical banding on each raw dimension score.
+`cefr_label` is the same rule without the plus level: `A1` `[0,1.55)`, `A2`
+`[1.55,2.75)`, `B1` `[2.75,…)`. `dimension_labels` uses the identical banding on each raw
+dimension score.
 
 Three consequences, all of them things a client has got wrong before:
 
-- **The rule floors into a band. It does not round to the nearest one.** `2.41` is `"A2"`,
-  not `"A2+"`. Compute star tiers with these exact boundaries and they cannot contradict
-  the label.
+- **Read the label, do not derive it.** `cefr_label` / `cefr_label_fine` are computed on
+  the server, and the boundaries are expected to move as the study collects more data —
+  they changed on 2026-08-11 from round numbers to the values above. A client that reads
+  the label follows those revisions with no release; a client that recomputes them from
+  the number silently disagrees with the server the day they change.
+- **The rule floors into a band. It does not round to the nearest one.** `2.39` is `"A2"`,
+  not `"A2+"`.
 - **`<A1`, `A1+`, `B1+` and anything above `B1` are never sent.** You do not need to fold
   or cap anything — a raw dimension score of 5.0 already arrives as `"B1"`, and a
   proficiency of 0.0 arrives as `"A1"`.
-- **Boundaries are inclusive at the bottom**: 2.0 is A2, 2.5 is A2+, 3.0 is B1.
+- **Boundaries are inclusive at the bottom**: 1.55 is A2, 2.40 is A2+, 2.75 is B1.
 
 The scores themselves are unchanged calibrated model output on the 0–6 scale; only the
 labels are banded this way.
