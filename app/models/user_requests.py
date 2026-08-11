@@ -6,28 +6,16 @@ from pydantic import BaseModel
 
 
 class RequestType(StrEnum):
-    """User request types."""
+    """Row types in `user_requests`.
+
+    Internal only since v1.3.0: nothing on the wire carries a request type any more.
+    `POST /request/user` took one and is gone -- deletion is `DELETE /users`, and this app
+    does not export user data. `EXPORT` is kept because the table's CHECK constraint still
+    allows it and historical rows may hold it, not because anything can create one.
+    """
 
     DELETE = "delete"
     EXPORT = "export"
-
-
-class UserDataRequest(BaseModel):
-    """User data request payload.
-
-    Attributes:
-        guid: The user's GUID.
-        type: The request type.
-    """
-
-    guid: UUID
-    type: RequestType
-
-
-class RequestToDeleteUserForm(BaseModel):
-    """Form payload for deleting user data."""
-
-    guid: UUID
 
 
 class DeleteUserRequest(BaseModel):

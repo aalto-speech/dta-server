@@ -16,6 +16,7 @@ from app.models.analytics import (
     GetCohortStatsInput,
 )
 from app.models.onboarding import CEFRLevel
+from app.utils.ranking import build_display
 
 
 @pytest.fixture
@@ -65,6 +66,7 @@ def test_analytics_comparison_returns_stats_payload(
             cohort_size=SETTINGS.min_cohort_size,
             percentile=0.83,
             rank=1,
+            display=build_display(1, SETTINGS.min_cohort_size),
         )
 
     monkeypatch.setattr("app.services.analytics_service.auth.validate_user_access",
@@ -85,6 +87,7 @@ def test_analytics_comparison_returns_stats_payload(
         "cohort_size": SETTINGS.min_cohort_size,
         "percentile": 0.83,
         "rank": 1,
+        "display": build_display(1, SETTINGS.min_cohort_size),
     }
     assert captured == {
         "guid": form_data["guid"],
@@ -209,6 +212,7 @@ def test_analytics_comparison_rounds_percentile_via_endpoint(
             cohort_size=SETTINGS.min_cohort_size,
             percentile=0.12345,
             rank=1,
+            display=build_display(1, SETTINGS.min_cohort_size),
         )
 
     monkeypatch.setattr(
@@ -244,6 +248,7 @@ def test_analytics_comparison_returns_500_on_invalid_cohort_size(
             cohort_size=-1,
             percentile=0.5,
             rank=1,
+            display=build_display(1, SETTINGS.min_cohort_size),
         )
 
     monkeypatch.setattr(
@@ -335,6 +340,7 @@ def test_analytics_comparison_accepts_form_encoded_day_windows(
             cohort_size=SETTINGS.min_cohort_size,
             percentile=0.5,
             rank=1,
+            display=build_display(1, SETTINGS.min_cohort_size),
         )
 
     monkeypatch.setattr("app.services.analytics_service.auth.validate_user_access",

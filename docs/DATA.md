@@ -44,6 +44,27 @@ Each assessment row in the database stores the `audio_path` of its recording, so
 > recording that should be excluded from analysis. **`NULL` means the check did not run**
 > (rows imported from the old study, the judge disabled, or the judge failing open) — it
 > does **not** mean the answer was on topic, so filter on the value, never on falsiness.
+>
+> **The verdict is a flag, not a fact, and it is not validated.** Measured on the
+> production GPU it tracks answer length and ASR quality as much as topic: the same
+> on-topic content scores p(bad)=0.59 at three words and 0.02 at twenty. So it misfires
+> on short, heavily accented or ASR-mangled answers — which is what A1 speech looks like.
+> Do not drop `off_topic` rows without looking at them; the scores are real (v1.2.0 zeroed
+> them, v1.3.0 does not), so comparing the score against the flag is how you find the
+> false positives.
+
+Two more columns arrived in v1.3.0. `users.current_cefr_level` is the level a learner
+moved themselves to from the profile screen, and `users.cefr_level` remains their
+**onboarding self-assessment**, never overwritten — the pair is the only record of how
+well people judge their own Finnish. `NULL` in `current_cefr_level` means "never moved",
+so cohort membership is `COALESCE(current_cefr_level, cefr_level)`. Every change, plus the
+starting level, is in `user_cefr_history`.
+
+`feedback` gained `updated_at` and a uniqueness rule: one row per
+`(guid, assessment_id, type)`, so a learner who changed their mind is one final answer
+rather than a keystroke log. `created_at` is when they first answered, `updated_at` when
+they settled. Rows for `comparison_ui` / `overall_experience` carry no `assessment_id` and
+are not deduplicated.
 
 The portable way to find any volume's host path (works on every server, staging or
 production, migrated or not):

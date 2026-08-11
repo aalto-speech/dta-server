@@ -69,11 +69,37 @@ systemctl --user restart dta-compose.service
 
 The inference container refuses to start if image and weights do not match.
 
-## Recreating the database (rarely needed)
+## Schema changes
 
-Schema changes only apply to a **new** database file (there is no migration
-tooling). If a release requires it (the changelog will say so), and the data is
-disposable or exported first:
+The app applies `app/schema.sql` **only when the database file does not exist**, so a
+schema change reaches an existing database one of two ways.
+
+### Migration script (preferred)
+
+A release that changes the schema ships a script under `scripts/dta_production/`. Run it
+with the stack stopped; it is idempotent, backs up first, and verifies afterwards.
+
+```bash
+systemctl --user stop dta-compose.service
+DB=$(podman volume inspect -f '{{.Mountpoint}}' dta_database)/dta.db
+python3 scripts/dta_production/migrate_v1_3_0.py --db "$DB"           # dry run first
+python3 scripts/dta_production/migrate_v1_3_0.py --db "$DB" --apply
+systemctl --user start dta-compose.service
+```
+
+The v1.3.0 migration adds `users.current_cefr_level` and `feedback.updated_at`, collapses
+duplicate feedback answers, and backfills `user_cefr_history`. **Collected assessments and
+audio survive** — that is the point of migrating rather than recreating.
+
+`tests/test_migration_v1_3_0.py` asserts a migrated database ends up the same shape as one
+built fresh from `schema.sql`, so the two paths cannot drift apart silently.
+
+### Recreating the database (last resort)
+
+Some changes cannot be migrated in place — SQLite cannot alter a CHECK constraint, which
+is why v1.2.0 required this. **It destroys every assessment and every recording**, so only
+do it when the changelog says the release requires it and the data is disposable or
+exported first:
 
 ```bash
 systemctl --user stop dta-compose.service
