@@ -30,7 +30,23 @@ def delete_user(data: DeleteUserRequest) -> Response:
             place so the deletion stays visibly outstanding and can be retried.
     """
 
-    auth.validate_delete_access(data.delete_key)
+    try:
+        auth.validate_delete_access(data.delete_key)
+    except AppError:
+        # The guid is the point of this log line. A 403 is rejected before the guid is used
+        # anywhere else, so without it the one case where someone asked to be forgotten and
+        # was not is also the case that leaves no trace of who they were -- the client wipes
+        # its local copy either way, so the guid is gone from the device too.
+        #
+        # A wrong key is a misconfigured build, not a user action: it cannot be retried into
+        # success, and it fails for everyone at once. WARNING rather than INFO so it stands
+        # out if it ever starts happening.
+        logger.warning(
+            "DELETION REJECTED for guid=%s: the delete key did not match. This cannot "
+            "succeed on retry -- check the client build's key against SERVER_DELETE_KEY.",
+            data.guid,
+        )
+        raise
 
     # Recordings go first, deliberately. Deleting the row first and then failing on
     # the files would leave audio nothing in the database points at any more --

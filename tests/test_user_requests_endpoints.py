@@ -286,3 +286,41 @@ def test_failed_recording_delete_is_recorded_and_leaves_the_user_row(
     # Recordings are deleted before rows, so the user row survives a failure and the
     # outstanding deletion stays discoverable.
     assert called["delete_user_data"] is False
+
+
+def test_rejected_delete_is_logged_with_the_guid(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """A 403 must leave a record of WHO asked to be forgotten.
+
+    The key is checked before the guid is used anywhere else, so without this the one case
+    where a deletion silently did not happen is also the case that leaves no trace of whose
+    data it was -- the client wipes its local copy either way, so the guid is gone from the
+    device too.
+    """
+
+    logged = []
+
+    def _deny(_key):
+        raise AppError(
+            status_code=403,
+            error_type=ErrorType.INVALID_API_KEY,
+            message="Invalid API key",
+        )
+
+    monkeypatch.setattr(
+        "app.services.admin_service.auth.validate_delete_access", _deny)
+    monkeypatch.setattr(
+        "app.services.admin_service.logger.warning",
+        lambda message, *args: logged.append((message, args)),
+    )
+
+    payload = _valid_delete_users_form_data()
+    response = client.request(
+        "DELETE", "/users",
+        headers={"X-Delete-Key": "wrong"}, data=payload)
+
+    assert response.status_code == 403
+    assert logged, "a rejected deletion was not logged"
+    assert str(UUID(payload["guid"])) in str(logged[0][1])
