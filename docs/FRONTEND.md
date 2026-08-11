@@ -490,10 +490,50 @@ Where the user stands against others at the same self-reported CEFR level.
 Success (**200**):
 
 ```json
-{ "cefr_level": "A2", "cohort_size": 120, "percentile": 0.72, "rank": 34 }
+{
+  "cefr_level": "A2", "cohort_size": 120,
+  "percentile": 0.72, "rank": 34,
+  "display": { "top_percent": 50, "top_rank": 50 }
+}
 ```
 
-`percentile` is 0–1 (0.72 = better than 72% of the cohort), `rank` starts at 1.
+### Display `display`, and only `display` (v1.3.0)
+
+**`percentile` and `rank` are raw research values. Do not put them on screen.** They are
+in the payload for analysis and debugging, and they are deliberately finer than anything
+a learner should see.
+
+`display` holds the buckets the server has decided are safe to show:
+
+| Field | Meaning |
+| --- | --- |
+| `top_percent` | Render as "top N %". One of `1`, `5`, `10`, `25`, `50`, or `null` |
+| `top_rank` | Render as "top N" / "#N". One of `1`, `2`, `3`, `5`, `10`, `25`, `50`, `100`, or `null` |
+
+**`null` means show nothing** — no position, no placeholder, no "unranked". The learner
+still sees their score and CEFR band, which is the information that matters. Both fields
+are `null` for anyone in the bottom half of their cohort, and `top_rank` alone is `null`
+past #100, where a rank number stops carrying meaning.
+
+The server owns these ladders for the same reason it owns the CEFR label: they will be
+revised as cohorts grow, and a revision has to reach every installed app without a client
+release. **Do not derive a position from `rank` or `percentile` in the client** — if you
+find yourself writing a threshold, that logic belongs on the server.
+
+Buckets always round *away* from the learner, so every rendered claim is true: a learner
+who is really at 3.4 % is shown "top 5 %", and #46 is shown as "top 50". Nothing is ever
+rounded in the flattering direction.
+
+Both fields can be non-null at once; pick whichever suits the screen, or show both. They
+are derived from the same rank, so they cannot contradict each other.
+
+> [!NOTE]
+> `display` requires **v1.3.0 or newer**. On older servers the field is absent — treat a
+> missing `display` as "show no position" rather than falling back to `percentile`.
+
+Ties are resolved by **competition rank**: learners with equal averages share the better
+rank (1, 2, 2, 4). Before v1.3.0 ties were split by GUID order, so one of two identical
+learners was permanently ranked above the other by an accident of their identifier.
 
 **Also 200: the "not available yet" states.** These are normal, not errors, and the app
 must render them — early in a study *most* users will see them. Detect them by the

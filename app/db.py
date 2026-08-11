@@ -24,6 +24,7 @@ from app.models.user_requests import (
     GetUserInput,
 )
 from app.models.users import SetUserCEFRLevelInput
+from app.utils.ranking import build_display
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -182,8 +183,11 @@ def get_cohort_stats(
                 current_assessments=assessment_count,
             )
 
-        # Get all users in the same CEFR cohort with their average proficiency scores
-        # Order by average score (descending) and guid (ascending) for tie-breaking
+        # Get all users in the same CEFR cohort with their average proficiency scores.
+        # Ordering is by score only -- ties are resolved below by competition rank, not
+        # by guid. Two learners whose averages are equal are not meaningfully ordered,
+        # and a guid tiebreak ranked one above the other permanently, by an accident of
+        # how their identifier happened to sort.
         cohort_query = """
             SELECT a.guid, AVG(a.proficiency) AS avg_score
             FROM assessments a
@@ -196,7 +200,7 @@ def get_cohort_stats(
             )
             AND proficiency IS NOT NULL
             GROUP BY a.guid
-            ORDER BY avg_score DESC, guid ASC
+            ORDER BY avg_score DESC
         """
 
         cohort_rows = db.execute(
@@ -214,20 +218,21 @@ def get_cohort_stats(
             cefr_level=CEFRLevel(cefr_level)
         )
 
-    # Find the rank of the target user (1-indexed position in sorted list)
-    rank = None
-    for i, (guid, _) in enumerate(cohort_rows, 1):
-        if guid == target_guid:
-            rank = i
-            break
+    # Competition rank: everyone tied on score shares the best rank of the tie group
+    # (1, 2, 2, 4). Scores are compared at 6 decimal places -- far finer than the
+    # instrument resolves, so this only collapses genuine ties, not near-misses.
+    scores = {guid: round(score, 6) for guid, score in cohort_rows}
+    target_score = scores.get(target_guid)
 
-    if not rank:
+    if target_score is None:
         return NoRankAvailable(
             status="RANK_UNAVAILABLE",
             message=(
                 "Unable to determine rank for the user within the cohort at this time."
             ),
         )
+
+    rank = 1 + sum(1 for score in scores.values() if score > target_score)
 
     # Calculate percentile
     percentile = (cohort_size - rank) / cohort_size
@@ -237,6 +242,7 @@ def get_cohort_stats(
         cohort_size=cohort_size,
         percentile=round(percentile, 2),
         rank=rank,
+        display=build_display(rank, cohort_size),
     )
 
 

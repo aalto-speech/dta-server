@@ -41,6 +41,7 @@ def get_comparison(data: ComparisonRequest) -> JSONResponse:
         cohort_size=stats.cohort_size,
         percentile=stats.percentile,
         rank=stats.rank,
+        display=stats.display,
     )
 
     logger.info("Returned comparison stats for user %s", data.guid)

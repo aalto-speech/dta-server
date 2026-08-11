@@ -57,6 +57,18 @@ class ComparisonRequest(BaseModel):
             return value
 
 
+class ComparisonDisplay(BaseModel):
+    """The bucketed position the app is allowed to show.
+
+    Attributes:
+        top_percent: "Top N%" bucket, or null when nothing should be shown.
+        top_rank: "Top N" bucket, or null past the last rank rung / below the cutoff.
+    """
+
+    top_percent: int | None = None
+    top_rank: int | None = None
+
+
 class ComparisonStats(BaseModel):
     """Internal comparison statistics model."""
 
@@ -64,6 +76,7 @@ class ComparisonStats(BaseModel):
     cohort_size: int
     percentile: float
     rank: int
+    display: ComparisonDisplay
 
 
 class ComparisonUnavailable(BaseModel):
@@ -102,17 +115,23 @@ class GetCohortStatsInput(BaseModel):
 class ComparisonResponse(BaseModel):
     """Comparison response payload.
 
+    `percentile` and `rank` are the raw values, kept for research and debugging. Clients
+    display `display` and nothing else -- see app/utils/ranking.py for why the ladders
+    live on the server.
+
     Attributes:
         cefr_level: CEFR level label for the user's cohort.
         cohort_size: Number of users in the cohort used for comparison.
-        percentile: User's percentile rank within the cohort.
-        rank: User's rank.
+        percentile: User's percentile rank within the cohort. Not for display.
+        rank: User's competition rank. Not for display.
+        display: The bucketed position the app renders.
     """
 
     cefr_level: CEFRLevel
     cohort_size: int = Field(ge=SETTINGS.min_cohort_size)
     percentile: float = Field(ge=0, le=1)
     rank: int = Field(ge=1)
+    display: ComparisonDisplay
 
     @field_validator("percentile")
     @classmethod
