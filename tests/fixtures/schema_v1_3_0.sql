@@ -160,21 +160,6 @@ CREATE TABLE
     FOREIGN KEY (assessment_id) REFERENCES assessments (id) ON DELETE CASCADE
   );
 
--- The record of every data request, including the ones already carried out.
---
--- Deliberately NO foreign key to users, unlike every other table here. This one has to
--- outlive the row it points at: a completed deletion removes the user, and a cascade would
--- take the only proof the deletion ever happened with it. That proof is the point -- data
--- exported before the request was made lives on in archive copies the server cannot reach,
--- and this table is what says which GUIDs in those copies may no longer be used.
---
--- The cost of the missing FK is that nothing stops a row naming a GUID that was never a
--- user. That is the right trade: an unmatched row here is a typo, while a missing one is a
--- deletion nobody can prove happened.
---
--- `guid` is kept alone, without a single other column copied from the user. A bare
--- pseudonymous identifier plus a timestamp is what propagating an erasure downstream
--- requires, and it is deliberately the whole of what is retained.
 CREATE TABLE
   IF NOT EXISTS user_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT, -- request_id
@@ -185,7 +170,8 @@ CREATE TABLE
     ), -- request processing status
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     processed_at TEXT, -- timestamp when admin processed the request
-    admin_notes TEXT -- optional notes from admin
+    admin_notes TEXT, -- optional notes from admin
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );
 
 -- Append-only trail of every level a user has been at, including the one they started

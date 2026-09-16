@@ -108,9 +108,18 @@ database rows stay — `assessments.audio_path` then points at a file that lives
 your archive, which is fine for the app (it never reads recordings back after scoring)
 but means **the archive is the only copy: back it up**.
 
-The script also reports two data-protection cross-checks on every run: unhandled
-deletion requests in `user_requests`, and audio directories whose GUID is no longer in
-the `users` table.
+The script also reports data-protection cross-checks on every run: unhandled deletion
+requests in `user_requests`, **completed deletions and the GUIDs they name**, deletions
+recorded as completed whose user row is still present (an erase that did not finish), and
+audio directories whose GUID is no longer in the `users` table.
+
+The completed-deletion list is the one to act on. Since v1.4.0 a successful `DELETE
+/users` leaves a row in `user_requests` holding the GUID, the time and the number of
+recordings removed — and nothing else about the person. That row is the only thing that
+outlives them, and it exists for exactly one job: the data was already in the archive
+copies you downloaded before the request was made, and this is what tells you which GUIDs
+in those copies you may no longer use. Before v1.4.0 nothing was recorded, because the
+table's foreign key to `users` cascaded the row away with the very deletion it described.
 
 > [!IMPORTANT]
 > **Deleting a user deletes their recordings on the server, but not in your archive.**

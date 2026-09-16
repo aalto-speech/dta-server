@@ -36,6 +36,12 @@ this app does not export user data, and deletion is `DELETE /users`.
   can be retried rather than leaving audio nothing points at. It returns `204` for a
   GUID that does not exist, and copies already exported off the server are of course
   unaffected — see [DATA.md](./DATA.md).
+  Since v1.4.0 a successful deletion writes one row to `user_requests` (`type='delete'`,
+  `status='completed'`) holding the GUID, the time and the recording count. It is written
+  **before** the user row is removed, and if it cannot be written the call fails with
+  `500` and nothing is deleted — a deletion nobody can prove happened is worse than one
+  that has to be retried. The row is what identifies that GUID's data in archive copies
+  taken before the request; it carries no other field from the user.
 
 ## Cohort position
 

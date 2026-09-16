@@ -175,7 +175,7 @@ export_audio() {
 
 # Data-protection cross-checks. Since v1.1.2 deleting a user also deletes their
 # recordings, but audio orphaned by an older deletion can still be on disk, and copies
-# already downloaded are outside the server's reach. Both checks report, never act.
+# already downloaded are outside the server's reach. Every check reports, never acts.
 report_compliance() {
   local pending
   pending="$(sqlite3 -readonly -noheader "$DB_PATH" \
@@ -184,6 +184,42 @@ report_compliance() {
     echo ""
     echo "NOTE: $pending unhandled deletion request(s) in user_requests."
     echo "      Purge those GUIDs from this export and from any earlier archive copy."
+  fi
+
+  # The reason user_requests has no foreign key: since v1.4.0 a completed deletion leaves
+  # a row naming the guid, and that row is the only thing that outlives the user. These
+  # GUIDs are already absent from THIS export -- the point is the exports taken before the
+  # request was made, which are off the server and cannot be reached from here.
+  local completed
+  completed="$(sqlite3 -readonly -noheader "$DB_PATH" \
+    "SELECT COUNT(*) FROM user_requests WHERE type = 'delete' AND status = 'completed';" 2>/dev/null || echo 0)"
+  if [[ "$completed" != "0" && -n "$completed" ]]; then
+    echo ""
+    echo "NOTE: $completed completed deletion(s) recorded in user_requests."
+    echo "      Already gone from this export. Purge them from any EARLIER copy you"
+    echo "      downloaded, and drop them from analyses built on one:"
+    sqlite3 -readonly -noheader "$DB_PATH" \
+      "SELECT '        ' || guid || '   erased ' || COALESCE(processed_at, 'unknown')
+         || COALESCE('   (' || admin_notes || ')', '')
+       FROM user_requests
+       WHERE type = 'delete' AND status = 'completed'
+       ORDER BY processed_at;" 2>/dev/null
+  fi
+
+  # A deletion recorded as completed whose user row is still present. The record is
+  # written before the row is removed -- deliberately, so a crash in between leaves a
+  # wrong record rather than no record -- and this is what makes that case findable.
+  local unfinished
+  unfinished="$(sqlite3 -readonly -noheader "$DB_PATH" \
+    "SELECT COUNT(*) FROM user_requests r JOIN users u ON u.guid = r.guid
+     WHERE r.type = 'delete' AND r.status = 'completed';" 2>/dev/null || echo 0)"
+  if [[ "$unfinished" != "0" && -n "$unfinished" ]]; then
+    echo ""
+    echo "WARNING: $unfinished deletion(s) recorded as completed, but the user is still"
+    echo "         here. The erase did not finish. Re-run it for these GUIDs:"
+    sqlite3 -readonly -noheader "$DB_PATH" \
+      "SELECT '        ' || r.guid FROM user_requests r JOIN users u ON u.guid = r.guid
+       WHERE r.type = 'delete' AND r.status = 'completed';" 2>/dev/null
   fi
 
   [[ -d "$AUDIO_DIR" ]] || return 0
