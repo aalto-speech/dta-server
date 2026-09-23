@@ -77,11 +77,20 @@ def test_delete_user_deletes_recordings_and_rows(monkeypatch: pytest.MonkeyPatch
     directory = _make_recordings(guid, 2)
     deleted_rows = {}
 
+    recorded = {}
+
     monkeypatch.setattr("app.services.admin_service.auth.validate_delete_access",
                         lambda _: None)
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data",
         lambda data: deleted_rows.update(guid=str(data.guid)),
+    )
+    # Stubbed like delete_user_data: this test calls the service directly, so no app
+    # lifespan has run and the test database has no tables.
+    monkeypatch.setattr(
+        "app.services.admin_service.create_user_request",
+        lambda data: recorded.update(status=str(data.status),
+                                     admin_notes=data.admin_notes) or 1,
     )
 
     response = delete_user(DeleteUserRequest(delete_key="valid-admin-key", guid=guid))
@@ -89,6 +98,7 @@ def test_delete_user_deletes_recordings_and_rows(monkeypatch: pytest.MonkeyPatch
     assert response.status_code == 204
     assert not directory.exists()
     assert deleted_rows == {"guid": str(guid)}
+    assert recorded == {"status": "completed", "admin_notes": "2 recording(s) removed"}
 
 
 def test_delete_user_keeps_rows_when_recordings_cannot_be_deleted(
@@ -102,6 +112,7 @@ def test_delete_user_keeps_rows_when_recordings_cannot_be_deleted(
 
     guid = uuid4()
     called = {"rows": False}
+    recorded = {}
 
     def _fail(_):
         raise OSError("permission denied")
@@ -113,9 +124,16 @@ def test_delete_user_keeps_rows_when_recordings_cannot_be_deleted(
         "app.services.admin_service.delete_user_data",
         lambda _: called.update(rows=True),
     )
+    # Without this stub the write hits a database with no tables, and the service
+    # swallows that error -- so the test passed without the failure ever being recorded.
+    monkeypatch.setattr(
+        "app.services.admin_service.create_user_request",
+        lambda data: recorded.update(status=str(data.status)) or 1,
+    )
 
     with pytest.raises(AppError) as excinfo:
         delete_user(DeleteUserRequest(delete_key="key", guid=guid))
 
     assert excinfo.value.status_code == 500
     assert called["rows"] is False
+    assert recorded == {"status": "pending"}
