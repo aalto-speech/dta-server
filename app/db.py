@@ -1,8 +1,8 @@
 import json
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 from app.config import SETTINGS
 from app.models.analytics import (
@@ -14,6 +14,7 @@ from app.models.analytics import (
     GetCohortStatsInput,
     NoRankAvailable,
 )
+from app.models.events import CreateEventsInput, CreateEventsResult
 from app.models.feedback import CreateFeedbackInput
 from app.models.onboarding import CEFRLevel, CreateUserInput
 from app.models.speech_assessment import AssessmentCreateInput
@@ -278,8 +279,10 @@ def create_user(data: CreateUserInput) -> None:
         data.age_group,
         # NULL means "not collected"; json.dumps(None) would store the string 'null',
         # which is valid JSON but not an array, so it would trip the CHECK.
-        json.dumps(data.native_languages) if data.native_languages is not None else None,
-        json.dumps(data.other_languages) if data.other_languages is not None else None,
+        json.dumps(
+            data.native_languages) if data.native_languages is not None else None,
+        json.dumps(
+            data.other_languages) if data.other_languages is not None else None,
         data.moved_to_finland,
         data.finnish_learning_duration,
         data.finnish_self_assessment
@@ -455,3 +458,83 @@ def get_user_consent(data: GetUserConsentInput) -> bool:
         row = db.execute(query, params).fetchone()
 
     return row is not None
+
+
+def _get_owned_assessment_ids(
+    db: sqlite3.Connection,
+    guid: str,
+    assessment_ids: set[int],
+) -> set[int]:
+    """Return which of `assessment_ids` belong to `guid`, in one query.
+
+    Ids are bound as a JSON array, so the SQL text never depends on the request.
+    """
+
+    if not assessment_ids:
+        return set()
+
+    rows = db.execute(
+        """
+        SELECT id FROM assessments
+        WHERE guid = ? AND id IN (SELECT value FROM json_each(?))
+        """,
+        (guid, json.dumps(sorted(assessment_ids))),
+    ).fetchall()
+
+    return {row[0] for row in rows}
+
+
+def create_events(data: CreateEventsInput) -> CreateEventsResult:
+    """Insert a batch of validated events in one transaction.
+
+    Events referencing another user's assessment are skipped and returned by index.
+    A repeated (guid, event_id) is skipped as a duplicate. Any other constraint failure,
+    such as the user being deleted mid-request, rolls back the batch.
+    """
+
+    guid = str(data.guid)
+    referenced = set().union(*(e.assessment_ids for e in data.events))
+
+    query = """
+        INSERT INTO user_events (
+            guid,
+            event_id,
+            session_id,
+            name,
+            properties,
+            app_version,
+            occurred_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (guid, event_id) DO NOTHING
+    """
+
+    with database() as db:
+        owned = _get_owned_assessment_ids(db, guid, referenced)
+
+        to_insert = [
+            e for e in data.events if e.assessment_ids <= owned]
+        foreign = [e.index for e in data.events
+                   if not e.assessment_ids <= owned]
+
+        inserted = 0
+        if to_insert:
+            cur = db.executemany(query, [
+                (
+                    guid,
+                    str(e.event_id),
+                    str(data.session_id),
+                    e.name,
+                    e.properties_json,
+                    data.app_version,
+                    e.occurred_at,
+                )
+                for e in to_insert
+            ])
+            # Summed over all rows. A skipped duplicate counts 0.
+            inserted = cur.rowcount
+
+    return CreateEventsResult(
+        inserted=inserted,
+        duplicates=len(to_insert) - inserted,
+        foreign_reference_indices=foreign,
+    )

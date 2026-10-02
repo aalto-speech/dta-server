@@ -205,6 +205,30 @@ CREATE TABLE
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );
 
+-- In-app behaviour events for POST /events. Only validated values are stored.
+-- No CHECK on `name`: it is validated in app/models/events.py, so new events need no
+-- migration. Erased with the user by the cascade.
+CREATE TABLE
+  IF NOT EXISTS user_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guid TEXT NOT NULL,
+    -- Client-generated, so retries are stored once. Unique per guid, not globally.
+    event_id TEXT NOT NULL,
+    session_id TEXT NOT NULL, -- client-generated per app launch
+    name TEXT NOT NULL,
+    properties TEXT NOT NULL CHECK (
+      json_valid (properties)
+      AND json_type (properties) = 'object'
+    ),
+    app_version TEXT NOT NULL,
+    -- Device clock in UTC, CURRENT_TIMESTAMP format plus ms. Devices drift: compare with
+    -- received_at before trusting fine-grained timing.
+    occurred_at TEXT NOT NULL,
+    received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, -- the server clock
+    UNIQUE (guid, event_id),
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
+  );
+
 -- Indexes to optimize queries by guid and created_at for assessments and feedback tables
 CREATE INDEX IF NOT EXISTS idx_assessments_guid_created_at ON assessments (guid, created_at);
 
@@ -233,3 +257,7 @@ WHERE
   proficiency IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_users_cefr_level ON users (cefr_level);
+
+CREATE INDEX IF NOT EXISTS idx_user_events_guid_occurred_at ON user_events (guid, occurred_at);
+
+CREATE INDEX IF NOT EXISTS idx_user_events_name_occurred_at ON user_events (name, occurred_at);
