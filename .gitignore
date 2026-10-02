@@ -162,3 +162,9 @@ audio/
 
 # Logs directory
 logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
