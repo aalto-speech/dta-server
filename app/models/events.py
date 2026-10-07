@@ -31,43 +31,71 @@ class EventProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class AppOpenedProperties(EventProperties):
-    """Properties for `app_opened`."""
-
-
-class ScreenViewedProperties(EventProperties):
-    """Properties for `screen_viewed`.
+class PanelToggledProperties(EventProperties):
+    """Base model for `*_panel_toggled` events.
 
     Attributes:
-        screen: Screen identifier in lowercase snake_case.
+        active: Whether the panel is active after the toggle.
     """
 
-    screen: str = Field(max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
+    active: bool
 
 
-class ResultViewedProperties(EventProperties):
-    """Properties for `result_viewed`.
+class ASAPanelToggledProperties(PanelToggledProperties):
+    """Properties for `asa_panel_toggled`."""
+
+
+class ProfilePanelToggledProperties(PanelToggledProperties):
+    """Properties for `profile_panel_toggled`."""
+
+
+class TaskPanelToggledProperties(PanelToggledProperties):
+    """Properties for `task_panel_toggled`.
 
     Attributes:
-        assessment_id: The learner's own assessment whose result was opened.
+        task_id: The task whose panel was toggled.
     """
 
     # StrictInt rejects "5" and booleans.
+    task_id: StrictInt = Field(ge=1)
+
+
+class ResultPanelToggledProperties(PanelToggledProperties):
+    """Properties for `result_panel_toggled`.
+
+    Attributes:
+        assessment_id: The assessment whose result panel was toggled.
+    """
+
     assessment_id: StrictInt = Field(ge=1)
+
+
+class ButtonClickedProperties(EventProperties):
+    """Properties for `button_clicked`.
+
+    Attributes:
+        button_id: The button ID that was clicked.
+    """
+
+    button_id: str = Field(min_length=1, max_length=64)
 
 
 class EventName(StrEnum):
     """Accepted event names."""
 
-    APP_OPENED = "app_opened"
-    SCREEN_VIEWED = "screen_viewed"
-    RESULT_VIEWED = "result_viewed"
+    ASA_PANEL_TOGGLED = "asa_panel_toggled"
+    PROFILE_PANEL_TOGGLED = "profile_panel_toggled"
+    TASK_PANEL_TOGGLED = "task_panel_toggled"
+    RESULT_PANEL_TOGGLED = "result_panel_toggled"
+    BUTTON_CLICKED = "button_clicked"
 
 
 EVENT_PROPERTY_MODELS: dict[EventName, type[EventProperties]] = {
-    EventName.APP_OPENED: AppOpenedProperties,
-    EventName.SCREEN_VIEWED: ScreenViewedProperties,
-    EventName.RESULT_VIEWED: ResultViewedProperties,
+    EventName.ASA_PANEL_TOGGLED: ASAPanelToggledProperties,
+    EventName.PROFILE_PANEL_TOGGLED: ProfilePanelToggledProperties,
+    EventName.TASK_PANEL_TOGGLED: TaskPanelToggledProperties,
+    EventName.RESULT_PANEL_TOGGLED: ResultPanelToggledProperties,
+    EventName.BUTTON_CLICKED: ButtonClickedProperties,
 }
 
 
@@ -107,7 +135,7 @@ class EventBatchRequest(BaseModel):
 
     Attributes:
         guid: The user's GUID.
-        session_id: Client-generated ID for one app launch.
+        session_id: Client-generated ID for ASA panel launch.
         app_version: The app version.
         events: The events, validated one by one.
     """
