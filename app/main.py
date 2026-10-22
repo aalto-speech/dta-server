@@ -169,7 +169,7 @@ events_router = APIRouter(route_class=GzipRequestRoute)
         409: ERROR_RESPONSE, 413: ERROR_RESPONSE, 415: ERROR_RESPONSE,
     },
 )
-async def events(data: EventBatchRequest) -> JSONResponse:
+def events(data: EventBatchRequest) -> JSONResponse:
     """Record a batch of 1-100 behaviour events.
 
     The JSON body may be sent with `Content-Encoding: gzip` or uncompressed.

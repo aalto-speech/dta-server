@@ -214,7 +214,7 @@ CREATE TABLE
     guid TEXT NOT NULL,
     -- Client-generated, so retries are stored once. Unique per guid, not globally.
     event_id TEXT NOT NULL,
-    session_id TEXT NOT NULL, -- client-generated per app launch
+    session_id TEXT NOT NULL, -- client-generated per ASA panel launch
     name TEXT NOT NULL,
     properties TEXT NOT NULL CHECK (
       json_valid (properties)
@@ -261,3 +261,62 @@ CREATE INDEX IF NOT EXISTS idx_users_cefr_level ON users (cefr_level);
 CREATE INDEX IF NOT EXISTS idx_user_events_guid_occurred_at ON user_events (guid, occurred_at);
 
 CREATE INDEX IF NOT EXISTS idx_user_events_name_occurred_at ON user_events (name, occurred_at);
+
+-- How long each panel, popup and dimension stayed open, paired from its *_toggled events.
+-- An activation pairs with the next toggle of the same thing (name, task, dimension) in
+-- the same session. When that toggle is not a deactivation, one was lost -- the app was
+-- killed, or the event was rejected -- so closed_at and duration_ms are NULL, not a guess.
+-- Durations come from the device clock: see user_events.occurred_at.
+CREATE VIEW IF NOT EXISTS user_event_views AS
+WITH
+  toggles AS (
+    SELECT
+      guid,
+      session_id,
+      name,
+      json_extract (properties, '$.task_id') AS task_id,
+      json_extract (properties, '$.dimension') AS dimension,
+      json_extract (properties, '$.assessment_id') AS assessment_id,
+      json_extract (properties, '$.active') AS active,
+      occurred_at,
+      LEAD (json_extract (properties, '$.active')) OVER w AS next_active,
+      LEAD (occurred_at) OVER w AS next_occurred_at
+    FROM
+      user_events
+    WHERE
+      name LIKE '%\_toggled' ESCAPE '\'
+    WINDOW
+      w AS (
+        PARTITION BY
+          guid,
+          session_id,
+          name,
+          json_extract (properties, '$.task_id'),
+          json_extract (properties, '$.dimension')
+        ORDER BY
+          occurred_at,
+          id
+      )
+  )
+SELECT
+  guid,
+  session_id,
+  name,
+  task_id,
+  dimension,
+  assessment_id,
+  occurred_at AS opened_at,
+  CASE
+    WHEN next_active = 0 THEN next_occurred_at
+  END AS closed_at,
+  CASE
+    WHEN next_active = 0 THEN CAST(
+      ROUND(
+        (julianday (next_occurred_at) - julianday (occurred_at)) * 86400000
+      ) AS INTEGER
+    )
+  END AS duration_ms
+FROM
+  toggles
+WHERE
+  active = 1;

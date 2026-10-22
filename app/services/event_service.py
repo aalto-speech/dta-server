@@ -40,7 +40,8 @@ def _to_db_input(event: ValidatedEvent) -> CreateEventInput:
         event_id=event.event_id,
         name=event.name,
         properties_json=json.dumps(
-            event.properties.model_dump(mode="json"),
+            # Unset optional keys are left out, so a row holds only what was sent.
+            event.properties.model_dump(mode="json", exclude_none=True),
             sort_keys=True,
             separators=(",", ":"),
         ),

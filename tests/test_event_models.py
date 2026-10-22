@@ -15,37 +15,103 @@ from app.models.events import (
     MAX_EVENTS_PER_BATCH,
     EventBatchRequest,
     EventName,
+    TASK_BUTTONS,
+    Button,
+    ButtonClickedProperties,
+    Dimension,
     EventProperties,
     RejectionReason,
 )
+from app.models.speech_assessment import SpeechAssessmentScores
 from app.validators.events import validate_events
 
 # At least one valid and one invalid payload per EventName.
 VALID_PROPERTIES: dict[EventName, dict] = {
-    EventName.APP_OPENED: {},
-    EventName.SCREEN_VIEWED: {"screen": "results_detail"},
-    EventName.RESULT_VIEWED: {"assessment_id": 12},
+    EventName.TASK_PANEL_TOGGLED: {"active": True},
+    EventName.PROFILE_PANEL_TOGGLED: {"active": False},
+    EventName.ASA_PANEL_TOGGLED: {"active": True, "task_id": 1},
+    EventName.LOADING_PANEL_TOGGLED: {"active": False, "task_id": 5},
+    EventName.FEEDBACK_PANEL_TOGGLED: {"active": True, "task_id": 2, "assessment_id": 12},
+    EventName.INFO_POPUP_TOGGLED: {"active": True, "task_id": 3},
+    EventName.DIMENSION_TOGGLED: {"active": True, "task_id": 4, "dimension": "fluency"},
+    EventName.PROFILE_PANEL_SCROLLED: {"depth": 0.25},
+    EventName.FEEDBACK_PANEL_SCROLLED: {"depth": 1, "task_id": 2},
+    EventName.BUTTON_CLICKED: {"button_id": "record", "task_id": 3},
 }
 
+_TOGGLE_FAULTS = [{}, {"active": 1}, {"active": "true"}, {"active": None}]
+_TASK_FAULTS = [{"task_id": 0}, {"task_id": 6}, {"task_id": "1"}, {"task_id": True},
+                {"task_id": 1.5}, {"task_id": None}]
+
+
+def _task_scoped_faults(valid: dict) -> list[dict]:
+    """Toggle and task faults applied to a valid task-scoped toggle, plus a missing task."""
+
+    return (
+        [{**valid, **fault} for fault in _TOGGLE_FAULTS[1:] + _TASK_FAULTS]
+        + [{"active": True}, {**valid, "title": "Results"}]
+    )
+
+
 INVALID_PROPERTIES: dict[EventName, list[dict]] = {
-    EventName.APP_OPENED: [{"anything": 1}],
-    EventName.SCREEN_VIEWED: [
-        {},
-        {"screen": ""},
-        {"screen": "Results"},
-        {"screen": "a" * 65},
-        {"screen": 5},
-        {"screen": "home", "title": "Home"},
+    EventName.TASK_PANEL_TOGGLED: _TOGGLE_FAULTS + [{"active": True, "task_id": 1}],
+    EventName.PROFILE_PANEL_TOGGLED: _TOGGLE_FAULTS + [{"active": True, "anything": 1}],
+    EventName.ASA_PANEL_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}),
+    EventName.LOADING_PANEL_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}),
+    EventName.FEEDBACK_PANEL_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}) + [
+        {"active": True, "task_id": 1, "assessment_id": 0},
+        {"active": True, "task_id": 1, "assessment_id": "12"},
+        {"active": True, "task_id": 1, "assessment_id": False},
     ],
-    EventName.RESULT_VIEWED: [
+    EventName.INFO_POPUP_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}),
+    EventName.DIMENSION_TOGGLED: _task_scoped_faults(
+        {"active": True, "task_id": 1, "dimension": "range"}) + [
+        {"active": True, "task_id": 1},
+        {"active": True, "task_id": 1, "dimension": "Fluency"},
+        {"active": True, "task_id": 1, "dimension": "range_score"},
+        {"active": True, "task_id": 1, "dimension": 1},
+    ],
+    EventName.PROFILE_PANEL_SCROLLED: [
+        {}, {"depth": -0.01}, {"depth": 1.01}, {"depth": "0.5"}, {"depth": True},
+        {"depth": None}, {"depth": 0.5, "task_id": 1}, {"depth": 0.5, "direction": "down"},
+    ],
+    EventName.FEEDBACK_PANEL_SCROLLED: [
+        {"depth": 0.5}, {"task_id": 1}, {"depth": 2, "task_id": 1},
+        {"depth": 0.5, "task_id": 0}, {"depth": 0.5, "task_id": "1"},
+    ],
+    EventName.BUTTON_CLICKED: [
         {},
-        {"assessment_id": 0},
-        {"assessment_id": -1},
-        {"assessment_id": "12"},
-        {"assessment_id": 1.5},
-        {"assessment_id": False},
+        {"button_id": ""},
+        {"button_id": "settings"},
+        {"button_id": "Record", "task_id": 1},
+        {"button_id": "task_1"},
+        {"button_id": 1},
+        {"button_id": "record"},
+        {"button_id": "task"},
+        {"button_id": "profile", "task_id": 1},
+        {"button_id": "asa", "task_id": 1},
+        {"button_id": "record", "task_id": 6},
+        {"button_id": "record", "task_id": 1, "label": "Record"},
     ],
 }
+
+
+@pytest.mark.parametrize("button", list(Button))
+def test_every_button_parses_with_or_without_a_task_as_scoped(button: Button):
+    """Task buttons need a task_id, the others refuse one: the mirror image fails."""
+
+    with_task = {"button_id": button.value, "task_id": 2}
+    without_task = {"button_id": button.value}
+    valid, invalid = ((with_task, without_task) if button in TASK_BUTTONS
+                      else (without_task, with_task))
+
+    ButtonClickedProperties.model_validate(valid)
+    with pytest.raises(ValidationError):
+        ButtonClickedProperties.model_validate(invalid)
+
+
+def test_dimensions_match_the_score_keys_of_speech_assess():
+    assert {d.value for d in Dimension} == set(SpeechAssessmentScores.model_fields)
 
 
 def test_every_event_name_has_a_property_model():
@@ -146,8 +212,9 @@ def test_batch_request_bounds_the_event_count(count: int, ok: bool):
 NOW = datetime(2026, 10, 2, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def _raw(name: str = "app_opened", **overrides) -> dict:
-    event = {"event_id": str(uuid4()), "name": name, "occurred_at": NOW.isoformat()}
+def _raw(name: str = "task_panel_toggled", **overrides) -> dict:
+    event = {"event_id": str(uuid4()), "name": name, "occurred_at": NOW.isoformat(),
+             "properties": {"active": True}}
     event.update(overrides)
     return event
 
@@ -155,7 +222,8 @@ def _raw(name: str = "app_opened", **overrides) -> dict:
 def test_validate_events_normalises_to_utc_and_collects_assessment_refs():
     helsinki = timezone(timedelta(hours=3))
     valid, rejected = validate_events([
-        _raw("result_viewed", properties={"assessment_id": 4},
+        _raw("feedback_panel_toggled",
+             properties={"active": True, "task_id": 1, "assessment_id": 4},
              occurred_at=NOW.astimezone(helsinki).isoformat()),
     ], now=NOW)
 
@@ -176,6 +244,8 @@ def test_validate_events_keeps_request_indices():
 
 
 def test_validate_events_without_assessment_reference_has_no_refs():
-    valid, _ = validate_events([_raw("screen_viewed", properties={"screen": "home"})], now=NOW)
+    valid, _ = validate_events([
+        _raw("feedback_panel_toggled", properties={"active": True, "task_id": 1}),
+    ], now=NOW)
 
     assert valid[0].assessment_ids == set()

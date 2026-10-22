@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal, Union, cast
 from uuid import UUID
 
 from pydantic import (
@@ -8,8 +8,11 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PlainValidator,
+    StrictBool,
     StrictInt,
-    WithJsonSchema,
+    create_model,
+    model_validator,
 )
 
 MAX_EVENTS_PER_BATCH = 100
@@ -31,100 +34,245 @@ class EventProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# StrictInt rejects "5" and booleans. 1-5 is the task table in docs/FRONTEND.md.
+TaskId = Annotated[StrictInt, Field(ge=1, le=5)]
+
+# Fraction of the panel scrolled past: 0 is the top, 1 the bottom. Unity's
+# verticalNormalizedPosition runs the other way, so the client sends 1 minus it.
+ScrollDepth = Annotated[float, Field(
+    ge=0, le=1, strict=True, allow_inf_nan=False)]
+
+
+class Button(StrEnum):
+    """Accepted `button_id` values for `button_clicked`."""
+
+    ASA = "asa"
+    TASK = "task"
+    PROFILE = "profile"
+    REVERT_LEVEL = "revert_level"
+    ADVANCE_LEVEL = "advance_level"
+    RECORD = "record"
+    STOP = "stop"
+    REPLAY = "replay"
+    RESULTS = "results"
+    RESULTS_NEXT = "results_next"
+    NEW_TASK = "new_task"
+
+
+# A task button carries the task it opens; buttons under the ASA and feedback panels carry
+# the task on screen. The rest are outside any task and must not carry one.
+TASK_BUTTONS = frozenset({
+    Button.TASK,
+    Button.RECORD,
+    Button.STOP,
+    Button.REPLAY,
+    Button.RESULTS,
+    Button.RESULTS_NEXT,
+    Button.NEW_TASK,
+})
+
+
+class Dimension(StrEnum):
+    """Accepted `dimension` values, the score keys of POST /speech/assess."""
+
+    PROFICIENCY = "proficiency"
+    FLUENCY = "fluency"
+    PRONUNCIATION = "pronunciation"
+    RANGE = "range"
+    ACCURACY = "accuracy"
+
+
 class PanelToggledProperties(EventProperties):
-    """Base model for `*_panel_toggled` events.
+    """Base model for `*_toggled` events.
 
     Attributes:
         active: Whether the panel is active after the toggle.
     """
 
-    active: bool
+    active: StrictBool
 
 
-class ASAPanelToggledProperties(PanelToggledProperties):
-    """Properties for `asa_panel_toggled`."""
+class TaskPanelToggledProperties(PanelToggledProperties):
+    """Properties for `task_panel_toggled`."""
 
 
 class ProfilePanelToggledProperties(PanelToggledProperties):
     """Properties for `profile_panel_toggled`."""
 
 
-class TaskPanelToggledProperties(PanelToggledProperties):
-    """Properties for `task_panel_toggled`.
+class TaskScopedPanelToggledProperties(PanelToggledProperties):
+    """Base model for toggles under the ASA and feedback panels.
 
     Attributes:
-        task_id: The task whose panel was toggled.
+        task_id: The task on screen.
     """
 
-    # StrictInt rejects "5" and booleans.
-    task_id: StrictInt = Field(ge=1)
+    task_id: TaskId
 
 
-class ResultPanelToggledProperties(PanelToggledProperties):
-    """Properties for `result_panel_toggled`.
+class ASAPanelToggledProperties(TaskScopedPanelToggledProperties):
+    """Properties for `asa_panel_toggled`."""
+
+
+class LoadingPanelToggledProperties(TaskScopedPanelToggledProperties):
+    """Properties for `loading_panel_toggled`."""
+
+
+class FeedbackPanelToggledProperties(TaskScopedPanelToggledProperties):
+    """Properties for `feedback_panel_toggled`.
 
     Attributes:
-        assessment_id: The assessment whose result panel was toggled.
+        assessment_id: The assessment whose results are shown. Optional, so a missing
+            ID costs the link to the scores rather than the event.
     """
 
-    assessment_id: StrictInt = Field(ge=1)
+    assessment_id: StrictInt | None = Field(default=None, ge=1)
+
+
+class InfoPopupToggledProperties(TaskScopedPanelToggledProperties):
+    """Properties for `info_popup_toggled`."""
+
+
+class DimensionToggledProperties(TaskScopedPanelToggledProperties):
+    """Properties for `dimension_toggled`.
+
+    Attributes:
+        dimension: The score dimension toggled.
+    """
+
+    dimension: Dimension
+
+
+class ProfilePanelScrolledProperties(EventProperties):
+    """Properties for `profile_panel_scrolled`, sent once a scroll comes to rest.
+
+    Attributes:
+        depth: Where the scroll came to rest.
+    """
+
+    depth: ScrollDepth
+
+
+class FeedbackPanelScrolledProperties(ProfilePanelScrolledProperties):
+    """Properties for `feedback_panel_scrolled`, sent once a scroll comes to rest.
+
+    Attributes:
+        task_id: The task on screen.
+    """
+
+    task_id: TaskId
 
 
 class ButtonClickedProperties(EventProperties):
     """Properties for `button_clicked`.
 
     Attributes:
-        button_id: The button ID that was clicked.
+        button_id: The button clicked.
+        task_id: The task. Required for `task`, `record`, `stop`, `replay`, `results`,
+            `results_next` and `new_task`; not allowed for the rest.
     """
 
-    button_id: str = Field(min_length=1, max_length=64)
+    button_id: Button
+    task_id: TaskId | None = None
+
+    @model_validator(mode="after")
+    def _check_task_id(self) -> "ButtonClickedProperties":
+        scoped = self.button_id in TASK_BUTTONS
+        if (self.task_id is not None) != scoped:
+            rule = "required" if scoped else "not allowed"
+            raise ValueError(f"task_id is {rule} for button {self.button_id}")
+        return self
 
 
 class EventName(StrEnum):
     """Accepted event names."""
 
-    ASA_PANEL_TOGGLED = "asa_panel_toggled"
-    PROFILE_PANEL_TOGGLED = "profile_panel_toggled"
     TASK_PANEL_TOGGLED = "task_panel_toggled"
-    RESULT_PANEL_TOGGLED = "result_panel_toggled"
+    PROFILE_PANEL_TOGGLED = "profile_panel_toggled"
+    ASA_PANEL_TOGGLED = "asa_panel_toggled"
+    LOADING_PANEL_TOGGLED = "loading_panel_toggled"
+    FEEDBACK_PANEL_TOGGLED = "feedback_panel_toggled"
+    INFO_POPUP_TOGGLED = "info_popup_toggled"
+    DIMENSION_TOGGLED = "dimension_toggled"
+    PROFILE_PANEL_SCROLLED = "profile_panel_scrolled"
+    FEEDBACK_PANEL_SCROLLED = "feedback_panel_scrolled"
     BUTTON_CLICKED = "button_clicked"
 
 
 EVENT_PROPERTY_MODELS: dict[EventName, type[EventProperties]] = {
-    EventName.ASA_PANEL_TOGGLED: ASAPanelToggledProperties,
-    EventName.PROFILE_PANEL_TOGGLED: ProfilePanelToggledProperties,
     EventName.TASK_PANEL_TOGGLED: TaskPanelToggledProperties,
-    EventName.RESULT_PANEL_TOGGLED: ResultPanelToggledProperties,
+    EventName.PROFILE_PANEL_TOGGLED: ProfilePanelToggledProperties,
+    EventName.ASA_PANEL_TOGGLED: ASAPanelToggledProperties,
+    EventName.LOADING_PANEL_TOGGLED: LoadingPanelToggledProperties,
+    EventName.FEEDBACK_PANEL_TOGGLED: FeedbackPanelToggledProperties,
+    EventName.INFO_POPUP_TOGGLED: InfoPopupToggledProperties,
+    EventName.DIMENSION_TOGGLED: DimensionToggledProperties,
+    EventName.PROFILE_PANEL_SCROLLED: ProfilePanelScrolledProperties,
+    EventName.FEEDBACK_PANEL_SCROLLED: FeedbackPanelScrolledProperties,
     EventName.BUTTON_CLICKED: ButtonClickedProperties,
 }
 
 
-class IncomingEvent(BaseModel):
-    """Event payload, validated separately so it can be rejected alone.
+class _EventFields(BaseModel):
+    """Fields every event shares.
 
     Attributes:
         event_id: Client-generated event ID, reused on retries.
-        name: The event name, checked against EventName.
         occurred_at: When the event happened, with a timezone.
-        properties: Event properties, checked against the model for its name.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     event_id: UUID
-    name: Annotated[
-        str,
-        Field(min_length=1, max_length=EVENT_NAME_MAX_LENGTH),
-        WithJsonSchema({"type": "string", "enum": [e.value for e in EventName]})]
     # Naive timestamps are ambiguous, so a timezone is required.
     occurred_at: AwareDatetime
+
+
+class IncomingEvent(_EventFields):
+    """Event payload, validated separately so it can be rejected alone.
+
+    Attributes:
+        name: The event name, checked against EventName.
+        properties: Event properties, checked against the model for its name.
+    """
+
+    name: str = Field(min_length=1, max_length=EVENT_NAME_MAX_LENGTH)
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
-# Plain dicts so each event validates separately. OpenAPI still shows IncomingEvent.
+# Schema-only models, one per event, so OpenAPI shows each event's properties. Requests
+# never validate against them: that would reject the whole batch for one bad event.
+_EVENT_SCHEMAS = tuple(
+    create_model(
+        model.__name__.removesuffix("Properties") + "Event",
+        __base__=_EventFields,
+        __doc__=f"The `{name.value}` event.",
+        # A Literal built from a variable is not a static type form, so type checkers
+        # match no create_model overload without the cast. Pydantic reads it fine.
+        name=(cast(Any, Literal[name.value]), ...),
+        properties=(model, ...),
+    )
+    for name, model in EVENT_PROPERTY_MODELS.items()
+)
+
+
+def _require_object(value: Any) -> dict[str, Any]:
+    """Accept any JSON object, leaving its validation to validate_events."""
+
+    if not isinstance(value, dict):
+        raise ValueError("event must be an object")
+    return value
+
+
 _IncomingEventObject = Annotated[
     dict[str, Any],
-    WithJsonSchema(IncomingEvent.model_json_schema()),
+    PlainValidator(
+        _require_object,
+        json_schema_input_type=Annotated[
+            Union[_EVENT_SCHEMAS],
+            Field(discriminator="name"),
+        ],
+    ),
 ]
 
 

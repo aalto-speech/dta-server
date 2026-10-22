@@ -1,5 +1,6 @@
 import zlib
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from fastapi import Request, Response
 from fastapi.routing import APIRoute
@@ -96,7 +97,7 @@ class GzipRequestRoute(APIRoute):
     while reading it into a generic 400.
     """
 
-    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         handler = super().get_route_handler()
 
         async def gzip_aware_handler(request: Request) -> Response:
