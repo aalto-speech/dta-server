@@ -69,7 +69,7 @@ def _event(index: int, assessment_ids: set[int] | None = None, **overrides) -> C
     data = {
         "index": index,
         "event_id": uuid4(),
-        "name": "task_panel_toggled",
+        "name": "task_selection_panel_toggled",
         "properties_json": '{"active":true}',
         "occurred_at": "2026-10-02 12:00:00.000",
         "assessment_ids": assessment_ids or set(),
@@ -79,8 +79,8 @@ def _event(index: int, assessment_ids: set[int] | None = None, **overrides) -> C
 
 
 def _batch(guid: str, events: list[CreateEventInput],
-           session_id: UUID | None = None) -> CreateEventsInput:
-    return CreateEventsInput(guid=guid, session_id=session_id or uuid4(),
+           asa_session_id: UUID | None = None) -> CreateEventsInput:
+    return CreateEventsInput(guid=guid, asa_session_id=asa_session_id or uuid4(),
                              app_version="2.1.0", events=events)
 
 
@@ -164,7 +164,7 @@ def test_user_events_cascade_on_user_delete(db, db_path):
     assert _count(db_path, other) == 1
 
 
-# --- user_event_views -------------------------------------------------------------------
+# --- user_event_durations ---------------------------------------------------------------
 
 
 def _toggle(index: int, name: str, at: str, active: bool, **properties) -> CreateEventInput:
@@ -176,7 +176,7 @@ def _views(db_path: Path) -> list[dict]:
     with closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         return [dict(row) for row in conn.execute(
-            "SELECT * FROM user_event_views ORDER BY opened_at, name, dimension")]
+            "SELECT * FROM user_event_durations ORDER BY opened_at, name, dimension")]
 
 
 def test_views_pair_each_activation_with_its_deactivation(db, db_path):
@@ -184,25 +184,25 @@ def test_views_pair_each_activation_with_its_deactivation(db, db_path):
 
     guid = _add_user(db)
     db.create_events(_batch(guid, [
-        _toggle(0, "feedback_panel_toggled", "00:00.000", True, task_id=2, assessment_id=None),
-        _toggle(1, "dimension_toggled", "00:01.000", True, task_id=2, dimension="fluency"),
-        _toggle(2, "dimension_toggled", "00:02.000", True, task_id=2, dimension="range"),
-        _toggle(3, "dimension_toggled", "00:03.500", False, task_id=2, dimension="fluency"),
-        _toggle(4, "dimension_toggled", "00:04.000", False, task_id=2, dimension="range"),
+        _toggle(0, "feedback_panel_toggled", "00:00.000", True, task_id=2),
+        _toggle(1, "dimension_modal_toggled", "00:01.000", True, task_id=2, dimension="fluency"),
+        _toggle(2, "dimension_modal_toggled", "00:02.000", True, task_id=2, dimension="range"),
+        _toggle(3, "dimension_modal_toggled", "00:03.500", False, task_id=2, dimension="fluency"),
+        _toggle(4, "dimension_modal_toggled", "00:04.000", False, task_id=2, dimension="range"),
         _toggle(5, "feedback_panel_toggled", "01:30.250", False, task_id=2),
-        _toggle(6, "asa_panel_toggled", "02:00.000", True, task_id=3),
-        _toggle(7, "asa_panel_toggled", "02:10.000", False, task_id=3),
-        _toggle(8, "asa_panel_toggled", "03:00.000", True, task_id=3),
-        _toggle(9, "asa_panel_toggled", "03:05.000", False, task_id=3),
+        _toggle(6, "task_panel_toggled", "02:00.000", True, task_id=3),
+        _toggle(7, "task_panel_toggled", "02:10.000", False, task_id=3),
+        _toggle(8, "task_panel_toggled", "03:00.000", True, task_id=3),
+        _toggle(9, "task_panel_toggled", "03:05.000", False, task_id=3),
     ]))
 
     assert [(v["name"], v["task_id"], v["dimension"], v["duration_ms"])
             for v in _views(db_path)] == [
         ("feedback_panel_toggled", 2, None, 90_250),
-        ("dimension_toggled", 2, "fluency", 2_500),
-        ("dimension_toggled", 2, "range", 2_000),
-        ("asa_panel_toggled", 3, None, 10_000),
-        ("asa_panel_toggled", 3, None, 5_000),
+        ("dimension_modal_toggled", 2, "fluency", 2_500),
+        ("dimension_modal_toggled", 2, "range", 2_000),
+        ("task_panel_toggled", 3, None, 10_000),
+        ("task_panel_toggled", 3, None, 5_000),
     ]
 
 
@@ -214,7 +214,7 @@ def test_views_leave_an_unclosed_activation_without_a_duration(db, db_path):
         _toggle(0, "profile_panel_toggled", "00:00.000", True),
         _toggle(1, "profile_panel_toggled", "05:00.000", True),
         _toggle(2, "profile_panel_toggled", "05:01.000", False),
-        _toggle(3, "info_popup_toggled", "06:00.000", True, task_id=1),
+        _toggle(3, "info_modal_toggled", "06:00.000", True, task_id=1),
     ]))
 
     assert [(v["opened_at"], v["closed_at"], v["duration_ms"]) for v in _views(db_path)] == [
@@ -228,22 +228,24 @@ def test_views_do_not_pair_across_sessions_tasks_or_users(db, db_path):
     guid, other = _add_user(db), _add_user(db)
     session = uuid4()
     db.create_events(_batch(guid, [
-        _toggle(0, "loading_panel_toggled", "00:00.000", True, task_id=1)], session))
+        _toggle(0, "loading_modal_toggled", "00:00.000", True, task_id=1)], session))
     db.create_events(_batch(guid, [
-        _toggle(0, "loading_panel_toggled", "00:01.000", False, task_id=1)]))
+        _toggle(0, "loading_modal_toggled", "00:01.000", False, task_id=1)]))
     db.create_events(_batch(guid, [
-        _toggle(1, "loading_panel_toggled", "00:02.000", False, task_id=2)], session))
+        _toggle(1, "loading_modal_toggled", "00:02.000", False, task_id=2)], session))
     db.create_events(_batch(other, [
-        _toggle(0, "loading_panel_toggled", "00:03.000", False, task_id=1)], session))
+        _toggle(0, "loading_modal_toggled", "00:03.000", False, task_id=1)], session))
 
     assert [v["duration_ms"] for v in _views(db_path)] == [None]
 
 
-def test_views_ignore_clicks_and_scrolls(db, db_path):
+def test_views_ignore_sessions_clicks_and_scrolls(db, db_path):
     guid = _add_user(db)
     db.create_events(_batch(guid, [
-        _event(0, name="button_clicked", properties_json='{"button_id":"asa"}'),
-        _event(1, name="profile_panel_scrolled", properties_json='{"depth":0.5}'),
+        _event(0, name="asa_session_started", properties_json='{}'),
+        _event(1, name="mic_button_clicked", properties_json='{"button_id":"record","task_id":1}'),
+        _event(2, name="profile_panel_scrolled", properties_json='{"depth":0.5}'),
+        _event(3, name="asa_session_ended", properties_json='{}'),
     ]))
 
     assert _views(db_path) == []

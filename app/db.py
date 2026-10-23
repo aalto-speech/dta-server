@@ -499,7 +499,7 @@ def create_events(data: CreateEventsInput) -> CreateEventsResult:
         INSERT INTO user_events (
             guid,
             event_id,
-            session_id,
+            asa_session_id,
             name,
             properties,
             app_version,
@@ -522,7 +522,7 @@ def create_events(data: CreateEventsInput) -> CreateEventsResult:
                 (
                     guid,
                     str(e.event_id),
-                    str(data.session_id),
+                    str(data.asa_session_id),
                     e.name,
                     e.properties_json,
                     data.app_version,

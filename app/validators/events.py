@@ -47,11 +47,12 @@ def validate_events(
     for i, raw in enumerate(raw_events):
         try:
             event = IncomingEvent.model_validate(raw)
-        except ValidationError:
+        except ValidationError as err:
             rejected.append(RejectedEvent(
                 index=i,
                 event_id=_event_id_or_none(raw),
                 reason=RejectionReason.INVALID_EVENT,
+                fields=_failed_fields(err),
             ))
             continue
 
@@ -66,16 +67,17 @@ def validate_events(
         try:
             properties = EVENT_PROPERTY_MODELS[name].model_validate(
                 event.properties)
-        except ValidationError:
+        except ValidationError as err:
             rejected.append(RejectedEvent(
-                index=i, event_id=event.event_id,
-                reason=RejectionReason.INVALID_PROPERTIES))
+                index=i, event_id=event.event_id, name=name,
+                reason=RejectionReason.INVALID_PROPERTIES,
+                fields=_failed_fields(err)))
             continue
 
         occurred_at = to_utc(event.occurred_at)
         if not earliest <= occurred_at <= latest:
             rejected.append(RejectedEvent(
-                index=i, event_id=event.event_id,
+                index=i, event_id=event.event_id, name=name,
                 reason=RejectionReason.TIMESTAMP_OUT_OF_RANGE))
             continue
 
@@ -91,6 +93,24 @@ def validate_events(
         ))
 
     return accepted, rejected
+
+
+def _failed_fields(err: ValidationError) -> list[str]:
+    """Describe each failure by field and error type, for the server log.
+
+    Leaves out the values, and the names of unexpected keys, since both are free text
+    from the client.
+    """
+
+    fields = []
+    for error in err.errors(include_url=False, include_context=False, include_input=False):
+        if error["type"] == "extra_forbidden":
+            fields.append("unexpected key")
+            continue
+        loc = ".".join(str(part) for part in error["loc"]) or "event"
+        error_type = error["type"]
+        fields.append(f"{loc}: {error_type}")
+    return fields
 
 
 def _event_id_or_none(raw: dict[str, Any]) -> UUID | None:

@@ -12,7 +12,6 @@ from pydantic import (
     StrictBool,
     StrictInt,
     create_model,
-    model_validator,
 )
 
 MAX_EVENTS_PER_BATCH = 100
@@ -22,6 +21,7 @@ MAX_EVENT_AGE = timedelta(days=30)
 MAX_EVENT_CLOCK_SKEW = timedelta(minutes=5)
 
 EVENT_NAME_MAX_LENGTH = 64
+QUIT_REASON_MAX_LENGTH = 16
 
 
 class EventProperties(BaseModel):
@@ -34,8 +34,8 @@ class EventProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# StrictInt rejects "5" and booleans. 1-5 is the task table in docs/FRONTEND.md.
-TaskId = Annotated[StrictInt, Field(ge=1, le=5)]
+# StrictInt rejects "5" and booleans.
+TaskId = Annotated[StrictInt, Field(ge=1)]
 
 # Fraction of the panel scrolled past: 0 is the top, 1 the bottom. Unity's
 # verticalNormalizedPosition runs the other way, so the client sends 1 minus it.
@@ -44,42 +44,45 @@ ScrollDepth = Annotated[float, Field(
 
 
 class Button(StrEnum):
-    """Accepted `button_id` values for `button_clicked`."""
+    """Accepted `button_id` values for `mic_button_clicked`.
 
-    ASA = "asa"
-    TASK = "task"
-    PROFILE = "profile"
-    REVERT_LEVEL = "revert_level"
-    ADVANCE_LEVEL = "advance_level"
+    These are currently used only for the record button, but the enum could be extended for other buttons.
+    """
+
     RECORD = "record"
-    STOP = "stop"
     REPLAY = "replay"
-    RESULTS = "results"
-    RESULTS_NEXT = "results_next"
-    NEW_TASK = "new_task"
-
-
-# A task button carries the task it opens; buttons under the ASA and feedback panels carry
-# the task on screen. The rest are outside any task and must not carry one.
-TASK_BUTTONS = frozenset({
-    Button.TASK,
-    Button.RECORD,
-    Button.STOP,
-    Button.REPLAY,
-    Button.RESULTS,
-    Button.RESULTS_NEXT,
-    Button.NEW_TASK,
-})
+    STOP = "stop"
 
 
 class Dimension(StrEnum):
     """Accepted `dimension` values, the score keys of POST /speech/assess."""
 
     PROFICIENCY = "proficiency"
-    FLUENCY = "fluency"
     PRONUNCIATION = "pronunciation"
     RANGE = "range"
     ACCURACY = "accuracy"
+    FLUENCY = "fluency"
+
+
+class QuitReason(StrEnum):
+    """Accepted `reason` values for `asa_session_ended`."""
+
+    QUIT = "quit"
+    TIMEOUT = "timeout"
+    ERROR = "error"
+
+
+class ASASessionStartedProperties(EventProperties):
+    """Properties for `asa_session_started`, the first event of a session. None."""
+
+
+class ASASessionEndedProperties(EventProperties):
+    """Properties for `asa_session_ended`, the last event of a session. None.
+
+    Sent on quitting from any screen, so its `occurred_at` is the quit time.
+    """
+
+    reason: QuitReason = Field(default=QuitReason.QUIT)
 
 
 class PanelToggledProperties(EventProperties):
@@ -92,8 +95,8 @@ class PanelToggledProperties(EventProperties):
     active: StrictBool
 
 
-class TaskPanelToggledProperties(PanelToggledProperties):
-    """Properties for `task_panel_toggled`."""
+class TaskSelectionPanelToggledProperties(PanelToggledProperties):
+    """Properties for `task_selection_panel_toggled`. The task list shows no task."""
 
 
 class ProfilePanelToggledProperties(PanelToggledProperties):
@@ -101,7 +104,7 @@ class ProfilePanelToggledProperties(PanelToggledProperties):
 
 
 class TaskScopedPanelToggledProperties(PanelToggledProperties):
-    """Base model for toggles under the ASA and feedback panels.
+    """Base model for toggles of panels and modals that show a task.
 
     Attributes:
         task_id: The task on screen.
@@ -110,50 +113,53 @@ class TaskScopedPanelToggledProperties(PanelToggledProperties):
     task_id: TaskId
 
 
-class ASAPanelToggledProperties(TaskScopedPanelToggledProperties):
-    """Properties for `asa_panel_toggled`."""
+class TaskPanelToggledProperties(TaskScopedPanelToggledProperties):
+    """Properties for `task_panel_toggled`. The task panel shows the current task."""
 
 
-class LoadingPanelToggledProperties(TaskScopedPanelToggledProperties):
-    """Properties for `loading_panel_toggled`."""
+class LoadingModalToggledProperties(TaskScopedPanelToggledProperties):
+    """Properties for `loading_modal_toggled`."""
 
 
 class FeedbackPanelToggledProperties(TaskScopedPanelToggledProperties):
     """Properties for `feedback_panel_toggled`.
 
     Attributes:
-        assessment_id: The assessment whose results are shown. Optional, so a missing
-            ID costs the link to the scores rather than the event.
+        assessment_id: The assessment whose results are shown.
     """
 
-    assessment_id: StrictInt | None = Field(default=None, ge=1)
+    assessment_id: StrictInt = Field(ge=1)
 
 
-class InfoPopupToggledProperties(TaskScopedPanelToggledProperties):
-    """Properties for `info_popup_toggled`."""
+class InfoModalToggledProperties(TaskScopedPanelToggledProperties):
+    """Properties for `info_modal_toggled`."""
 
 
-class DimensionToggledProperties(TaskScopedPanelToggledProperties):
-    """Properties for `dimension_toggled`.
+class DimensionModalToggledProperties(TaskScopedPanelToggledProperties):
+    """Properties for `dimension_modal_toggled`.
 
     Attributes:
-        dimension: The score dimension toggled.
+        dimension: The score dimension shown.
     """
 
     dimension: Dimension
 
 
-class ProfilePanelScrolledProperties(EventProperties):
-    """Properties for `profile_panel_scrolled`, sent once a scroll comes to rest.
+class ScrollProperties(EventProperties):
+    """Base model for `*_scrolled` events.
 
     Attributes:
-        depth: Where the scroll came to rest.
+        depth: How far the scroll has gone, 0 to 1.
     """
 
     depth: ScrollDepth
 
 
-class FeedbackPanelScrolledProperties(ProfilePanelScrolledProperties):
+class ProfilePanelScrolledProperties(ScrollProperties):
+    """Properties for `profile_panel_scrolled`, sent once a scroll comes to rest."""
+
+
+class FeedbackPanelScrolledProperties(ScrollProperties):
     """Properties for `feedback_panel_scrolled`, sent once a scroll comes to rest.
 
     Attributes:
@@ -164,52 +170,55 @@ class FeedbackPanelScrolledProperties(ProfilePanelScrolledProperties):
 
 
 class ButtonClickedProperties(EventProperties):
-    """Properties for `button_clicked`.
+    """Base model for button clicks.
 
     Attributes:
         button_id: The button clicked.
-        task_id: The task. Required for `task`, `record`, `stop`, `replay`, `results`,
-            `results_next` and `new_task`; not allowed for the rest.
     """
 
     button_id: Button
-    task_id: TaskId | None = None
 
-    @model_validator(mode="after")
-    def _check_task_id(self) -> "ButtonClickedProperties":
-        scoped = self.button_id in TASK_BUTTONS
-        if (self.task_id is not None) != scoped:
-            rule = "required" if scoped else "not allowed"
-            raise ValueError(f"task_id is {rule} for button {self.button_id}")
-        return self
+
+class MicrophoneButtonClickedProperties(ButtonClickedProperties):
+    """Properties for `mic_button_clicked`: record, stop or replay on the task panel.
+
+    Attributes:
+        task_id: The task on screen.
+    """
+
+    task_id: TaskId
 
 
 class EventName(StrEnum):
     """Accepted event names."""
 
-    TASK_PANEL_TOGGLED = "task_panel_toggled"
-    PROFILE_PANEL_TOGGLED = "profile_panel_toggled"
-    ASA_PANEL_TOGGLED = "asa_panel_toggled"
-    LOADING_PANEL_TOGGLED = "loading_panel_toggled"
-    FEEDBACK_PANEL_TOGGLED = "feedback_panel_toggled"
-    INFO_POPUP_TOGGLED = "info_popup_toggled"
-    DIMENSION_TOGGLED = "dimension_toggled"
-    PROFILE_PANEL_SCROLLED = "profile_panel_scrolled"
+    ASA_SESSION_ENDED = "asa_session_ended"
+    ASA_SESSION_STARTED = "asa_session_started"
+    MIC_BUTTON_CLICKED = "mic_button_clicked"
+    DIMENSION_MODAL_TOGGLED = "dimension_modal_toggled"
     FEEDBACK_PANEL_SCROLLED = "feedback_panel_scrolled"
-    BUTTON_CLICKED = "button_clicked"
+    FEEDBACK_PANEL_TOGGLED = "feedback_panel_toggled"
+    INFO_MODAL_TOGGLED = "info_modal_toggled"
+    LOADING_MODAL_TOGGLED = "loading_modal_toggled"
+    PROFILE_PANEL_SCROLLED = "profile_panel_scrolled"
+    PROFILE_PANEL_TOGGLED = "profile_panel_toggled"
+    TASK_PANEL_TOGGLED = "task_panel_toggled"
+    TASK_SELECTION_PANEL_TOGGLED = "task_selection_panel_toggled"
 
 
 EVENT_PROPERTY_MODELS: dict[EventName, type[EventProperties]] = {
-    EventName.TASK_PANEL_TOGGLED: TaskPanelToggledProperties,
-    EventName.PROFILE_PANEL_TOGGLED: ProfilePanelToggledProperties,
-    EventName.ASA_PANEL_TOGGLED: ASAPanelToggledProperties,
-    EventName.LOADING_PANEL_TOGGLED: LoadingPanelToggledProperties,
-    EventName.FEEDBACK_PANEL_TOGGLED: FeedbackPanelToggledProperties,
-    EventName.INFO_POPUP_TOGGLED: InfoPopupToggledProperties,
-    EventName.DIMENSION_TOGGLED: DimensionToggledProperties,
-    EventName.PROFILE_PANEL_SCROLLED: ProfilePanelScrolledProperties,
+    EventName.ASA_SESSION_ENDED: ASASessionEndedProperties,
+    EventName.ASA_SESSION_STARTED: ASASessionStartedProperties,
+    EventName.MIC_BUTTON_CLICKED: MicrophoneButtonClickedProperties,
+    EventName.DIMENSION_MODAL_TOGGLED: DimensionModalToggledProperties,
     EventName.FEEDBACK_PANEL_SCROLLED: FeedbackPanelScrolledProperties,
-    EventName.BUTTON_CLICKED: ButtonClickedProperties,
+    EventName.FEEDBACK_PANEL_TOGGLED: FeedbackPanelToggledProperties,
+    EventName.INFO_MODAL_TOGGLED: InfoModalToggledProperties,
+    EventName.LOADING_MODAL_TOGGLED: LoadingModalToggledProperties,
+    EventName.PROFILE_PANEL_SCROLLED: ProfilePanelScrolledProperties,
+    EventName.PROFILE_PANEL_TOGGLED: ProfilePanelToggledProperties,
+    EventName.TASK_PANEL_TOGGLED: TaskPanelToggledProperties,
+    EventName.TASK_SELECTION_PANEL_TOGGLED: TaskSelectionPanelToggledProperties,
 }
 
 
@@ -283,7 +292,7 @@ class EventBatchRequest(BaseModel):
 
     Attributes:
         guid: The user's GUID.
-        session_id: Client-generated ID for ASA panel launch.
+        asa_session_id: Client-generated when the ASA session starts, cleared when it ends.
         app_version: The app version.
         events: The events, validated one by one.
     """
@@ -291,7 +300,7 @@ class EventBatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     guid: UUID
-    session_id: UUID
+    asa_session_id: UUID
     app_version: str = Field(min_length=1, max_length=32,
                              pattern=r"^[0-9A-Za-z.+-]+$")
     events: list[_IncomingEventObject] = Field(
@@ -299,7 +308,7 @@ class EventBatchRequest(BaseModel):
 
 
 class RejectionReason(StrEnum):
-    """Event rejection reason enumeration. Rejected events must not be retried.
+    """Event rejection reason enumeration. Logged on the server only, never sent to the client.
 
     - `INVALID_EVENT`: Malformed event (event_id, name, naive occurred_at, unknown key).
     - `UNKNOWN_EVENT`: Name not in EventName.
@@ -316,31 +325,24 @@ class RejectionReason(StrEnum):
 
 
 class RejectedEvent(BaseModel):
-    """A rejected event.
+    """Internal record of a rejected event, for the server log only.
+
+    Holds nothing the client sent as free text: names outside EventName and the values
+    that failed validation are left out.
 
     Attributes:
         index: The event's position in the request's `events`.
-        event_id: The event's ID, or null when the ID itself was invalid.
+        event_id: The event's ID, or None when the ID itself was invalid.
         reason: Why the event was rejected.
+        name: The event name, when it is a known one.
+        fields: Which fields failed and how, e.g. `task_id: missing`.
     """
 
     index: int
     event_id: UUID | None
     reason: RejectionReason
-
-
-class EventBatchResponse(BaseModel):
-    """Events response payload. The client drops all three from its buffer.
-
-    Attributes:
-        accepted: Number of events stored.
-        duplicates: Number of events skipped as already stored.
-        rejected: Events that were not stored, with the reason.
-    """
-
-    accepted: int
-    duplicates: int
-    rejected: list[RejectedEvent]
+    name: EventName | None = None
+    fields: list[str] = Field(default_factory=list)
 
 
 class ValidatedEvent(BaseModel):
@@ -370,7 +372,7 @@ class CreateEventsInput(BaseModel):
     """Internal DB input for one batch (one transaction)."""
 
     guid: UUID
-    session_id: UUID
+    asa_session_id: UUID
     app_version: str
     events: list[CreateEventInput]
 

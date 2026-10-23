@@ -2,7 +2,7 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 
-from fastapi.responses import JSONResponse
+from fastapi import Response
 
 from app.db import create_events
 from app.models.events import (
@@ -10,7 +10,6 @@ from app.models.events import (
     CreateEventsInput,
     CreateEventsResult,
     EventBatchRequest,
-    EventBatchResponse,
     RejectedEvent,
     RejectionReason,
     ValidatedEvent,
@@ -50,14 +49,17 @@ def _to_db_input(event: ValidatedEvent) -> CreateEventInput:
     )
 
 
-def record_events(data: EventBatchRequest) -> JSONResponse:
+def record_events(data: EventBatchRequest) -> Response:
     """Validate and store a batch of events, rejecting invalid ones individually.
+
+    Rejections are logged here and never sent back: the client only learns that the
+    batch arrived, and drops it from its buffer.
 
     Args:
         data: Events payload including user GUID and the raw events.
 
     Returns:
-        JSONResponse: 202 with accepted, duplicate and rejected counts.
+        Response: 202 with no body.
     """
 
     auth.validate_user_access(data.guid)
@@ -69,24 +71,33 @@ def record_events(data: EventBatchRequest) -> JSONResponse:
     if valid:
         result = create_events(CreateEventsInput(
             guid=data.guid,
-            session_id=data.session_id,
+            asa_session_id=data.asa_session_id,
             app_version=data.app_version,
             events=[_to_db_input(event) for event in valid],
         ))
 
-    event_ids = {event.index: event.event_id for event in valid}
+    by_index = {event.index: event for event in valid}
     rejected.extend(
-        RejectedEvent(index=i, event_id=event_ids[i],
+        RejectedEvent(index=i, event_id=by_index[i].event_id, name=by_index[i].name,
                       reason=RejectionReason.FOREIGN_REFERENCE)
         for i in result.foreign_reference_indices
     )
     rejected.sort(key=lambda item: item.index)
 
-    # Counts only. Never log the guid, properties or the body.
+    # Never log the guid, the session, property values or the body.
     logger.info(
-        "Stored events: accepted=%d duplicates=%d rejected=%d",
-        result.inserted, result.duplicates, len(rejected),
+        "Stored events: accepted=%d duplicates=%d rejected=%d app_version=%s",
+        result.inserted, result.duplicates, len(rejected), data.app_version,
     )
+    for item in rejected:
+        logger.warning(
+            "Rejected event: index=%d reason=%s name=%s event_id=%s fields=%s",
+            item.index,
+            item.reason.value,
+            item.name.value if item.name else "-",
+            item.event_id or "-",
+            "; ".join(item.fields) or "-",
+        )
     if rejected:
         reasons = Counter(item.reason.value for item in rejected)
         logger.info(
@@ -95,11 +106,4 @@ def record_events(data: EventBatchRequest) -> JSONResponse:
                 f"{reason}={count}" for reason, count in sorted(reasons.items())),
         )
 
-    return JSONResponse(
-        content=EventBatchResponse(
-            accepted=result.inserted,
-            duplicates=result.duplicates,
-            rejected=rejected,
-        ).model_dump(mode="json"),
-        status_code=202,
-    )
+    return Response(status_code=202)

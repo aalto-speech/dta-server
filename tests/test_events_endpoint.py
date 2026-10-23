@@ -1,6 +1,9 @@
 # pylint: disable=redefined-outer-name
 
-"""POST /events. Batch-level faults store nothing. Event-level faults reject only that event."""
+"""POST /events. Batch-level faults store nothing. Event-level faults reject only that event.
+
+Rejections are logged on the server and never returned, so tests read them from the log.
+"""
 
 import gzip
 import json
@@ -95,7 +98,7 @@ def _add_assessment(guid: str) -> int:
     ))
 
 
-def _event(name: str = "task_panel_toggled", **overrides) -> dict:
+def _event(name: str = "task_selection_panel_toggled", **overrides) -> dict:
     event = {
         "event_id": str(uuid4()),
         "name": name,
@@ -109,11 +112,11 @@ def _event(name: str = "task_panel_toggled", **overrides) -> dict:
 def _valid_event_batch(user_guid: str, **overrides) -> dict:
     data = {
         "guid": user_guid,
-        "session_id": str(uuid4()),
+        "asa_session_id": str(uuid4()),
         "app_version": "2.1.0",
         "events": [
-            _event("task_panel_toggled"),
-            _event("button_clicked", properties={"button_id": "profile"}),
+            _event("asa_session_started", properties={}),
+            _event("task_selection_panel_toggled"),
         ],
     }
     data.update(overrides)
@@ -126,15 +129,46 @@ def _rows(db_path: Path) -> list[dict]:
         return [dict(row) for row in conn.execute("SELECT * FROM user_events ORDER BY id")]
 
 
+@pytest.fixture
+def rejections(caplog: pytest.LogCaptureFixture):
+    """Read back the rejections the server logged, as (index, reason, event_id)."""
+
+    caplog.set_level(logging.INFO)
+
+    def read() -> list[tuple[int, str, str]]:
+        return [
+            (record.args[0], record.args[1], str(record.args[3]))
+            for record in caplog.records
+            if record.msg.startswith("Rejected event:")
+        ]
+
+    return read
+
+
 # --- happy path -------------------------------------------------------------------------
 
 
-def test_valid_batch_returns_202_with_counts(client: TestClient, guid: str, db_path: Path):
+def test_valid_batch_returns_202_without_a_body(
+    client: TestClient, guid: str, db_path: Path, rejections,
+):
     response = client.post("/events", json=_valid_event_batch(guid))
 
     assert response.status_code == 202
-    assert response.json() == {"accepted": 2, "duplicates": 0, "rejected": []}
+    assert response.content == b""
     assert len(_rows(db_path)) == 2
+    assert rejections() == []
+
+
+def test_rejections_are_not_sent_to_the_client(client: TestClient, guid: str, rejections):
+    """The client only learns the batch arrived, not which events were dropped."""
+
+    response = client.post("/events", json=_valid_event_batch(guid, events=[
+        _event(), _event("nope"),
+    ]))
+
+    assert response.status_code == 202
+    assert response.content == b""
+    assert [reason for _, reason, _ in rejections()] == ["UNKNOWN_EVENT"]
 
 
 def test_stored_row_holds_the_envelope_and_canonical_properties(
@@ -143,7 +177,7 @@ def test_stored_row_holds_the_envelope_and_canonical_properties(
     """Properties are stored from the validated model, not the raw request."""
 
     batch = _valid_event_batch(guid, events=[
-        _event("asa_panel_toggled", properties={"task_id": 3, "active": True}),
+        _event("task_panel_toggled", properties={"task_id": 3, "active": True}),
     ])
 
     client.post("/events", json=batch)
@@ -151,35 +185,38 @@ def test_stored_row_holds_the_envelope_and_canonical_properties(
     [row] = _rows(db_path)
     assert row["guid"] == guid
     assert row["event_id"] == batch["events"][0]["event_id"]
-    assert row["session_id"] == batch["session_id"]
-    assert row["name"] == "asa_panel_toggled"
+    assert row["asa_session_id"] == batch["asa_session_id"]
+    assert row["name"] == "task_panel_toggled"
     assert row["properties"] == '{"active":true,"task_id":3}'
     assert row["app_version"] == "2.1.0"
     assert row["received_at"]
 
 
-def test_unset_optional_properties_are_left_out_of_the_row(
+def test_session_events_need_no_properties(
     client: TestClient, guid: str, db_path: Path,
 ):
-    client.post("/events", json=_valid_event_batch(guid, events=[
-        _event("button_clicked", properties={"button_id": "asa"}),
-        _event("feedback_panel_toggled", properties={"active": False, "task_id": 2}),
-    ]))
+    """The session events need no properties; the key may be sent empty or left out."""
 
-    assert [row["properties"] for row in _rows(db_path)] == [
-        '{"button_id":"asa"}', '{"active":false,"task_id":2}']
+    started = _event("asa_session_started", properties={})
+    ended = _event("asa_session_ended")
+    del ended["properties"]
+
+    client.post("/events", json=_valid_event_batch(guid, events=[started, ended]))
+
+    # An unsent reason is stored as its default.
+    assert [(row["name"], row["properties"]) for row in _rows(db_path)] == [
+        ("asa_session_started", "{}"), ("asa_session_ended", '{"reason":"quit"}')]
 
 
-def test_event_without_properties_is_rejected(client: TestClient, guid: str):
-    """Every event has a required property, so a missing object is a fault."""
+def test_toggle_without_properties_is_rejected(client: TestClient, guid: str, rejections):
+    """A toggle has a required property, so a missing object is a fault."""
 
     event = _event()
     del event["properties"]
 
-    response = client.post(
-        "/events", json=_valid_event_batch(guid, events=[event]))
+    client.post("/events", json=_valid_event_batch(guid, events=[event]))
 
-    assert response.json()["rejected"][0]["reason"] == "INVALID_PROPERTIES"
+    assert rejections() == [(0, "INVALID_PROPERTIES", event["event_id"])]
 
 
 def test_occurred_at_is_stored_as_utc(client: TestClient, guid: str, db_path: Path):
@@ -208,13 +245,14 @@ def test_more_than_100_events_returns_422(client: TestClient, guid: str, db_path
     assert _rows(db_path) == []
 
 
-def test_exactly_100_events_are_accepted(client: TestClient, guid: str):
+def test_exactly_100_events_are_accepted(client: TestClient, guid: str, db_path: Path):
     events = [_event() for _ in range(MAX_EVENTS_PER_BATCH)]
 
     response = client.post(
         "/events", json=_valid_event_batch(guid, events=events))
 
-    assert response.json()["accepted"] == MAX_EVENTS_PER_BATCH
+    assert response.status_code == 202
+    assert len(_rows(db_path)) == MAX_EVENTS_PER_BATCH
 
 
 def test_empty_events_list_returns_422(client: TestClient, guid: str):
@@ -228,14 +266,14 @@ def test_empty_events_list_returns_422(client: TestClient, guid: str):
 
 @pytest.mark.parametrize("override", [
     {"guid": "not-a-guid"},
-    {"session_id": "not-a-uuid"},
+    {"asa_session_id": "not-a-uuid"},
     {"app_version": "1" * 33},
     {"app_version": ""},
     {"app_version": "2.1.0; DROP TABLE users"},
     {"device_model": "Pixel 8"},
     {"events": [42]},
     {"events": "task_panel_toggled"},
-], ids=["guid", "session_id", "app_version_long", "app_version_empty",
+], ids=["guid", "asa_session_id", "app_version_long", "app_version_empty",
         "app_version_chars", "unknown_key", "event_not_object", "events_not_list"])
 def test_invalid_envelope_returns_422_and_stores_nothing(
     client: TestClient, guid: str, db_path: Path, override: dict,
@@ -248,7 +286,7 @@ def test_invalid_envelope_returns_422_and_stores_nothing(
     assert _rows(db_path) == []
 
 
-@pytest.mark.parametrize("missing", ["guid", "session_id", "app_version", "events"])
+@pytest.mark.parametrize("missing", ["guid", "asa_session_id", "app_version", "events"])
 def test_missing_envelope_field_returns_422(client: TestClient, guid: str, missing: str):
     batch = _valid_event_batch(guid)
     del batch[missing]
@@ -298,21 +336,21 @@ def test_user_without_consent_returns_403(client: TestClient, db_path: Path):
 
 @pytest.mark.parametrize("bad_event, reason", [
     (_event("app_closed_forever"), "UNKNOWN_EVENT"),
-    (_event("TASK_PANEL_TOGGLED"), "UNKNOWN_EVENT"),
+    (_event("ASA_PANEL_TOGGLED"), "UNKNOWN_EVENT"),
     (_event(properties={"active": True, "note": "I hate this app"}), "INVALID_PROPERTIES"),
     (_event(properties={}), "INVALID_PROPERTIES"),
-    (_event("button_clicked", properties={"button_id": "settings"}), "INVALID_PROPERTIES"),
-    (_event("dimension_toggled", properties={
+    (_event("mic_button_clicked", properties={"button_id": "settings"}), "INVALID_PROPERTIES"),
+    (_event("dimension_modal_toggled", properties={
      "active": True, "task_id": 1, "dimension": "Fluency"}), "INVALID_PROPERTIES"),
-    (_event("asa_panel_toggled", properties={
-     "active": True, "task_id": 6}), "INVALID_PROPERTIES"),
-    (_event("asa_panel_toggled", properties={
+    (_event("task_panel_toggled", properties={
+     "active": True, "task_id": 0}), "INVALID_PROPERTIES"),
+    (_event("task_panel_toggled", properties={
      "active": True, "task_id": "1"}), "INVALID_PROPERTIES"),
-    (_event("asa_panel_toggled", properties={
+    (_event("task_panel_toggled", properties={
      "active": True, "task_id": True}), "INVALID_PROPERTIES"),
     (_event(properties={"active": 1}), "INVALID_PROPERTIES"),
-    (_event("button_clicked", properties={"button_id": "record"}), "INVALID_PROPERTIES"),
-    (_event("button_clicked", properties={
+    (_event("mic_button_clicked", properties={"button_id": "record"}), "INVALID_PROPERTIES"),
+    (_event("mic_button_clicked", properties={
      "button_id": "profile", "task_id": 1}), "INVALID_PROPERTIES"),
     (_event("profile_panel_scrolled", properties={"depth": 1.5}), "INVALID_PROPERTIES"),
     (_event(occurred_at=(NOW - timedelta(days=31)).isoformat()),
@@ -326,11 +364,11 @@ def test_user_without_consent_returns_403(client: TestClient, db_path: Path):
     (_event("x" * 65), "INVALID_EVENT"),
 ], ids=["unknown_name", "name_case", "extra_property", "missing_property", "unknown_button",
         "unknown_dimension", "number_out_of_range", "number_as_string", "bool_as_int",
-        "int_as_bool", "button_missing_task", "button_unexpected_task", "depth_out_of_range",
+        "int_as_bool", "button_missing_task", "button_not_tracked", "depth_out_of_range",
         "too_old", "too_far_ahead", "naive_datetime", "unparseable_datetime", "event_extra_key",
         "properties_not_object", "name_too_long"])
 def test_invalid_event_is_rejected_and_others_stored(
-    client: TestClient, guid: str, db_path: Path, bad_event: dict, reason: str,
+    client: TestClient, guid: str, db_path: Path, rejections, bad_event: dict, reason: str,
 ):
     good = _event()
     batch = _valid_event_batch(
@@ -339,10 +377,8 @@ def test_invalid_event_is_rejected_and_others_stored(
     response = client.post("/events", json=batch)
 
     assert response.status_code == 202
-    body = response.json()
-    assert body["accepted"] == 2
-    assert body["rejected"] == [
-        {"index": 1, "event_id": bad_event["event_id"], "reason": reason}]
+    assert rejections() == [(1, reason, bad_event["event_id"])]
+    assert len(_rows(db_path)) == 2
     stored = {row["event_id"] for row in _rows(db_path)}
     assert good["event_id"] in stored
     assert bad_event["event_id"] not in stored
@@ -350,38 +386,39 @@ def test_invalid_event_is_rejected_and_others_stored(
 
 @pytest.mark.parametrize("event_id", ["not-a-uuid", None, 7])
 def test_event_with_invalid_event_id_is_rejected_without_an_id(
-    client: TestClient, guid: str, event_id,
+    client: TestClient, guid: str, db_path: Path, rejections, event_id,
 ):
-    response = client.post("/events", json=_valid_event_batch(guid, events=[
+    client.post("/events", json=_valid_event_batch(guid, events=[
         _event(event_id=event_id), _event(),
     ]))
 
-    assert response.json()["rejected"] == [
-        {"index": 0, "event_id": None, "reason": "INVALID_EVENT"}]
-    assert response.json()["accepted"] == 1
+    assert rejections() == [(0, "INVALID_EVENT", "-")]
+    assert len(_rows(db_path)) == 1
 
 
-def test_timestamp_boundaries_are_accepted(client: TestClient, guid: str):
-    response = client.post("/events", json=_valid_event_batch(guid, events=[
+def test_timestamp_boundaries_are_accepted(
+    client: TestClient, guid: str, db_path: Path, rejections,
+):
+    client.post("/events", json=_valid_event_batch(guid, events=[
         _event(occurred_at=(
             NOW - timedelta(days=30)).isoformat()),
         _event(occurred_at=(
             NOW + timedelta(minutes=5)).isoformat()),
     ]))
 
-    assert response.json() == {"accepted": 2, "duplicates": 0, "rejected": []}
+    assert rejections() == []
+    assert len(_rows(db_path)) == 2
 
 
 def test_batch_where_every_event_is_rejected_still_returns_202(
-    client: TestClient, guid: str, db_path: Path,
+    client: TestClient, guid: str, db_path: Path, rejections,
 ):
     response = client.post("/events", json=_valid_event_batch(guid, events=[
         _event("nope"), _event("nope"),
     ]))
 
     assert response.status_code == 202
-    assert response.json()["accepted"] == 0
-    assert [item["index"] for item in response.json()["rejected"]] == [0, 1]
+    assert [index for index, _, _ in rejections()] == [0, 1]
     assert _rows(db_path) == []
 
 
@@ -389,71 +426,73 @@ def test_batch_where_every_event_is_rejected_still_returns_202(
 
 
 def test_assessment_id_of_another_user_is_rejected(
-    client: TestClient, guid: str, db_path: Path,
+    client: TestClient, guid: str, db_path: Path, rejections,
 ):
     someone_else = _onboard(client)
     their_assessment = _add_assessment(someone_else)
     event = _event("feedback_panel_toggled", properties={
                    "active": True, "task_id": 1, "assessment_id": their_assessment})
 
-    response = client.post("/events", json=_valid_event_batch(guid, events=[
+    client.post("/events", json=_valid_event_batch(guid, events=[
         _event(), event,
     ]))
 
-    assert response.json()["rejected"] == [
-        {"index": 1, "event_id": event["event_id"], "reason": "FOREIGN_REFERENCE"}]
-    assert response.json()["accepted"] == 1
+    assert rejections() == [(1, "FOREIGN_REFERENCE", event["event_id"])]
+    assert len(_rows(db_path)) == 1
     assert event["event_id"] not in {row["event_id"] for row in _rows(db_path)}
 
 
-def test_own_assessment_id_is_accepted(client: TestClient, guid: str, db_path: Path):
+def test_own_assessment_id_is_accepted(
+    client: TestClient, guid: str, db_path: Path, rejections,
+):
     mine = _add_assessment(guid)
 
-    response = client.post("/events", json=_valid_event_batch(guid, events=[
+    client.post("/events", json=_valid_event_batch(guid, events=[
         _event("feedback_panel_toggled",
                properties={"active": True, "task_id": 1, "assessment_id": mine}),
     ]))
 
-    assert response.json() == {"accepted": 1, "duplicates": 0, "rejected": []}
+    assert rejections() == []
     assert _rows(db_path)[0]["properties"] == \
         f'{{"active":true,"assessment_id":{mine},"task_id":1}}'
 
 
-def test_nonexistent_assessment_id_is_rejected(client: TestClient, guid: str):
-    response = client.post("/events", json=_valid_event_batch(guid, events=[
+def test_nonexistent_assessment_id_is_rejected(client: TestClient, guid: str, rejections):
+    client.post("/events", json=_valid_event_batch(guid, events=[
         _event("feedback_panel_toggled",
                properties={"active": True, "task_id": 1, "assessment_id": 999_999}),
     ]))
 
-    assert response.json()["rejected"][0]["reason"] == "FOREIGN_REFERENCE"
+    assert [reason for _, reason, _ in rejections()] == ["FOREIGN_REFERENCE"]
 
 
-def test_rejections_from_both_stages_come_back_in_request_order(
-    client: TestClient, guid: str,
+def test_rejections_from_both_stages_are_logged_in_request_order(
+    client: TestClient, guid: str, rejections,
 ):
-    response = client.post("/events", json=_valid_event_batch(guid, events=[
+    client.post("/events", json=_valid_event_batch(guid, events=[
         _event("feedback_panel_toggled",
                properties={"active": True, "task_id": 1, "assessment_id": 999_999}),
         _event("nope"),
         _event(),
     ]))
 
-    assert [(item["index"], item["reason"]) for item in response.json()["rejected"]] == [
+    assert [(index, reason) for index, reason, _ in rejections()] == [
         (0, "FOREIGN_REFERENCE"), (1, "UNKNOWN_EVENT")]
 
 
 # --- idempotency ------------------------------------------------------------------------
 
 
-def test_resent_batch_counts_duplicates_and_adds_no_rows(
-    client: TestClient, guid: str, db_path: Path,
+def test_resent_batch_adds_no_rows(
+    client: TestClient, guid: str, db_path: Path, rejections,
 ):
     batch = _valid_event_batch(guid)
     client.post("/events", json=batch)
 
     response = client.post("/events", json=batch)
 
-    assert response.json() == {"accepted": 0, "duplicates": 2, "rejected": []}
+    assert response.status_code == 202
+    assert rejections() == []
     assert len(_rows(db_path)) == 2
 
 
@@ -463,13 +502,9 @@ def test_same_event_id_for_two_users_is_stored_for_both(
     other = _onboard(client)
     shared = _event()
 
-    first = client.post(
-        "/events", json=_valid_event_batch(guid, events=[shared]))
-    second = client.post(
-        "/events", json=_valid_event_batch(other, events=[shared]))
+    client.post("/events", json=_valid_event_batch(guid, events=[shared]))
+    client.post("/events", json=_valid_event_batch(other, events=[shared]))
 
-    assert first.json()["accepted"] == 1
-    assert second.json()["accepted"] == 1
     assert {row["guid"] for row in _rows(db_path)} == {guid, other}
 
 
@@ -481,7 +516,7 @@ def test_duplicate_event_id_within_one_batch_is_stored_once(
     response = client.post(
         "/events", json=_valid_event_batch(guid, events=[event, event]))
 
-    assert response.json() == {"accepted": 1, "duplicates": 1, "rejected": []}
+    assert response.status_code == 202
     assert len(_rows(db_path)) == 1
 
 
@@ -524,12 +559,31 @@ def test_delete_users_removes_user_events(
     assert {row["guid"] for row in _rows(db_path)} == {survivor}
 
 
+def test_rejection_log_names_fields_but_not_what_the_client_typed(
+    client: TestClient, guid: str, caplog: pytest.LogCaptureFixture,
+):
+    caplog.set_level(logging.DEBUG)
+
+    client.post("/events", json=_valid_event_batch(guid, events=[
+        _event(properties={"active": True, "secret_key": "I hate this app"}),
+        _event("profile_panel_scrolled", properties={"depth": 7.5}),
+        _event("made_up_event_name"),
+    ]))
+
+    text = caplog.text
+    assert "fields=unexpected key" in text
+    assert "fields=depth: less_than_equal" in text
+    assert "reason=UNKNOWN_EVENT name=-" in text
+    for typed in ("secret_key", "I hate this app", "7.5", "made_up_event_name"):
+        assert typed not in text
+
+
 def test_logs_contain_counts_but_no_guid_or_property_values(
     client: TestClient, guid: str, caplog: pytest.LogCaptureFixture,
 ):
     caplog.set_level(logging.DEBUG)
     batch = _valid_event_batch(guid, events=[
-        _event("dimension_toggled",
+        _event("dimension_modal_toggled",
                properties={"active": True, "task_id": 1, "dimension": "pronunciation"}),
         _event("nope"),
     ])
@@ -542,7 +596,7 @@ def test_logs_contain_counts_but_no_guid_or_property_values(
     assert "UNKNOWN_EVENT=1" in text
     assert guid not in text
     assert "pronunciation" not in text
-    assert batch["session_id"] not in text
+    assert batch["asa_session_id"] not in text
 
 
 def test_422_logs_contain_no_payload(client: TestClient, caplog: pytest.LogCaptureFixture):
@@ -571,15 +625,17 @@ def test_gzip_batch_is_accepted(client: TestClient, guid: str, db_path: Path, en
     response = _post_raw(client, gzip.compress(body), encoding)
 
     assert response.status_code == 202
-    assert response.json() == {"accepted": 2, "duplicates": 0, "rejected": []}
     assert len(_rows(db_path)) == 2
 
 
 @pytest.mark.parametrize("encoding", [None, "identity"])
-def test_uncompressed_batch_is_still_accepted(client: TestClient, guid: str, encoding):
+def test_uncompressed_batch_is_still_accepted(
+    client: TestClient, guid: str, db_path: Path, encoding,
+):
     response = _post_raw(client, json.dumps(_valid_event_batch(guid)).encode(), encoding)
 
-    assert response.json()["accepted"] == 2
+    assert response.status_code == 202
+    assert len(_rows(db_path)) == 2
 
 
 def test_gzip_and_plain_resends_of_one_batch_are_duplicates(
@@ -590,7 +646,7 @@ def test_gzip_and_plain_resends_of_one_batch_are_duplicates(
     _post_raw(client, gzip.compress(body), "gzip")
     response = _post_raw(client, body)
 
-    assert response.json() == {"accepted": 0, "duplicates": 2, "rejected": []}
+    assert response.status_code == 202
     assert len(_rows(db_path)) == 2
 
 

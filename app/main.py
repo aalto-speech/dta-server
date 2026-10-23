@@ -15,7 +15,7 @@ from app.models.analytics import (
     NoRankAvailable,
 )
 from app.models.errors import ErrorEnvelope, ValidationErrorEnvelope
-from app.models.events import EventBatchRequest, EventBatchResponse
+from app.models.events import EventBatchRequest
 from app.models.feedback import FeedbackRequest
 from app.models.onboarding import OnboardingRequest
 from app.models.speech_assessment import (
@@ -163,23 +163,25 @@ events_router = APIRouter(route_class=GzipRequestRoute)
 @events_router.post(
     "/events",
     status_code=202,
-    response_model=EventBatchResponse,
+    response_class=Response,
     responses={
+        202: {"description": "Batch received. Drop it from the buffer; send nothing again."},
         400: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE,
         409: ERROR_RESPONSE, 413: ERROR_RESPONSE, 415: ERROR_RESPONSE,
     },
 )
-def events(data: EventBatchRequest) -> JSONResponse:
+def events(data: EventBatchRequest) -> Response:
     """Record a batch of 1-100 behaviour events.
 
     The JSON body may be sent with `Content-Encoding: gzip` or uncompressed.
-    Invalid events come back in `rejected` and must not be resent. A resent `event_id` counts as a duplicate.
+    Invalid events are dropped and logged on the server; the response does not say which.
+    A resent `event_id` is stored once.
 
     Args:
         data: Events payload including user GUID and the raw events.
 
     Returns:
-        JSONResponse: 202 with accepted, duplicate and rejected counts.
+        Response: 202 with no body.
     """
 
     return record_events(data)

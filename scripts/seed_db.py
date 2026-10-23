@@ -7,6 +7,7 @@ Usage examples:
   python3 scripts/seed_db.py --db development.db --seed 1234
   python3 scripts/seed_db.py --users 0 --fixed-guid 00000000-0000-0000-0000-000000000001 --fixed-assessments 10
   python3 scripts/seed_db.py --db development.db --users 1000 --feedback-rate 0.2 --request-rate 0.05
+  python3 scripts/seed_db.py --db development.db --event-rate 1.0
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import random
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 GENDERS = ["woman", "man", "other", "prefer_not_to_answer"]
@@ -64,6 +66,10 @@ FINNISH_LEARNING_DURATION = [
     "years_7_10",
     "years_10_plus",
 ]
+# Dropped from the onboarding form in 2026-08, so later users leave them NULL.
+BACKGROUND_FORM_DROPPED_AT = datetime(2026, 8, 1)
+APP_VERSIONS = ["1.0.0", "1.1.0", "1.2.0", "2.0.0"]
+EVENT_APP_VERSIONS = ["2.0.0", "2.1.0"]
 FEEDBACK_ASSESSMENT_TYPES = [
     "self_assessment",
     "result_accuracy",
@@ -72,11 +78,29 @@ FEEDBACK_ASSESSMENT_TYPES = [
 FEEDBACK_EXPERIENCE_TYPES = ["comparison_ui", "overall_experience"]
 REQUEST_TYPES = ["delete", "export"]
 REQUEST_STATUS = ["pending", "approved", "denied", "completed"]
-CEFR_HISTORY_SOURCE = ["self_report", "model"]
+CONTENT_RELEVANCE = ["on_topic", "partial", "off_topic"]
+# Matches Dimension in app/models/events.py.
+DIMENSIONS = ["proficiency", "fluency",
+              "pronunciation", "range", "accuracy"]
+
+UserRow = tuple[str, int, str, str, str, str, str, str,
+                str | None, str | None, str, str | None, str]
+AssessmentRow = tuple[str, int, str, str, str, float, float, float, float, float,
+                      str | None, float | None, str]
+HistoryRow = tuple[str, str, str, str]
+RequestRow = tuple[str, str, str, str, str | None, str | None]
+FeedbackRow = tuple[str, int | None, str, int, str, str, str]
+EventRow = tuple[str, str, str, str, str, str, str, str]
 
 
 def _to_sql_timestamp(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _to_event_timestamp(dt: datetime) -> str:
+    """`user_events.occurred_at` format: CURRENT_TIMESTAMP plus milliseconds."""
+
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
 def _random_timestamp(rng: random.Random, now: datetime, days_back: int) -> datetime:
@@ -84,10 +108,9 @@ def _random_timestamp(rng: random.Random, now: datetime, days_back: int) -> date
     return now - timedelta(seconds=rng.randint(0, window_seconds))
 
 
-def _random_timestamp_current_year(rng: random.Random, now: datetime) -> datetime:
-    start_of_year = datetime(now.year, 1, 1)
-    window_seconds = int((now - start_of_year).total_seconds())
-    return start_of_year + timedelta(seconds=rng.randint(0, max(window_seconds, 0)))
+def _random_timestamp_between(rng: random.Random, start: datetime, end: datetime) -> datetime:
+    window_seconds = int((end - start).total_seconds())
+    return start + timedelta(seconds=rng.randint(0, max(window_seconds, 0)))
 
 
 def _random_languages(rng: random.Random, pool: list[str], min_count: int, max_count: int) -> str:
@@ -117,6 +140,8 @@ def _parse_args() -> argparse.Namespace:
                         help="Chance of a user request per user (0-1)")
     parser.add_argument("--history-max", type=int, default=3,
                         help="Maximum CEFR history entries per user")
+    parser.add_argument("--event-rate", type=float, default=0.50,
+                        help="Chance of a recorded ASA session per assessment (0-1)")
     parser.add_argument("--days-back", type=int, default=730,
                         help="How far back timestamps may go")
     parser.add_argument("--seed", type=int, default=42,
@@ -137,6 +162,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--feedback-rate must be between 0 and 1")
     if not 0 <= args.request_rate <= 1:
         raise ValueError("--request-rate must be between 0 and 1")
+    if not 0 <= args.event_rate <= 1:
+        raise ValueError("--event-rate must be between 0 and 1")
     if args.history_max < 1:
         raise ValueError("--history-max must be >= 1")
     if args.days_back < 1:
@@ -161,17 +188,206 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def _truncate_tables(conn: sqlite3.Connection) -> None:
-    conn.execute("DELETE FROM feedback_assessment")
-    conn.execute("DELETE FROM feedback_experience")
+    conn.execute("DELETE FROM user_events")
+    conn.execute("DELETE FROM feedback")
     conn.execute("DELETE FROM user_requests")
     conn.execute("DELETE FROM user_cefr_history")
     conn.execute("DELETE FROM assessments")
     conn.execute("DELETE FROM users")
 
 
+def _build_cefr_history(  # pylint: disable=too-many-arguments
+    rng: random.Random, guid: str, *, cefr_level: str, created_at: datetime,
+    now: datetime, history_max: int,
+) -> tuple[list[HistoryRow], str | None]:
+    """Onboarding level first, then Advance/Revert steps of one level each.
+
+    Returns the history rows and `current_cefr_level`, which stays NULL until the
+    learner moves off their onboarding level, as in PATCH /users/level.
+    """
+
+    rows: list[HistoryRow] = [
+        (guid, cefr_level, "self_report", _to_sql_timestamp(created_at))]
+    level_idx = CEFR_LEVELS.index(cefr_level)
+    changed_at = created_at
+    for _ in range(rng.randint(1, history_max) - 1):
+        changed_at += timedelta(days=rng.randint(20, 120))
+        if changed_at > now:
+            break
+        step = rng.choice([-1, 1])
+        level_idx = min(max(level_idx + step, 0), len(CEFR_LEVELS) - 1)
+        rows.append((guid, CEFR_LEVELS[level_idx], "self_report",
+                     _to_sql_timestamp(changed_at)))
+
+    current = None if len(rows) == 1 else CEFR_LEVELS[level_idx]
+    return rows, current
+
+
+def _build_user(
+    rng: random.Random, guid: str, cefr_level: str, created_at: datetime,
+    current_cefr_level: str | None,
+) -> UserRow:
+    has_background_form = created_at < BACKGROUND_FORM_DROPPED_AT
+    moved_to_finland = None
+    finnish_learning_duration = None
+    if has_background_form:
+        moved_to_finland = "before_2015" if rng.random() < 0.25 else str(
+            rng.randint(2015, created_at.year))
+        finnish_learning_duration = rng.choice(FINNISH_LEARNING_DURATION)
+
+    return (
+        guid,
+        1,
+        created_at.isoformat(timespec="seconds"),
+        rng.choice(APP_VERSIONS),
+        rng.choice(GENDERS),
+        rng.choice(AGE_GROUPS),
+        _random_languages(rng, NATIVE_LANGUAGE_POOL, min_count=1, max_count=2),
+        _random_languages(rng, OTHER_LANGUAGE_POOL, min_count=0, max_count=3),
+        moved_to_finland,
+        finnish_learning_duration,
+        cefr_level,
+        current_cefr_level,
+        _to_sql_timestamp(created_at),
+    )
+
+
+def _build_assessment(  # pylint: disable=too-many-arguments
+    rng: random.Random, guid: str, *, audio_path: str, transcript: str,
+    created_at: datetime, now: datetime,
+) -> AssessmentRow:
+    # Assessments are recent, so analytics for the current year have data.
+    start_of_year = datetime(now.year, 1, 1)
+    ts = _random_timestamp_between(rng, max(created_at, start_of_year), now)
+
+    content_relevance = None
+    content_confidence = None
+    # NULL means the relevance check did not run.
+    if rng.random() < 0.85:
+        content_relevance = rng.choices(
+            CONTENT_RELEVANCE, weights=[80, 15, 5], k=1)[0]
+        content_confidence = round(rng.uniform(0.5, 1.0), 2)
+
+    return (
+        guid,
+        rng.randint(1, 5),
+        str(uuid4()),
+        audio_path,
+        transcript,
+        round(rng.uniform(0.0, 6.0), 1),
+        round(rng.uniform(0.0, 6.0), 1),
+        round(rng.uniform(0.0, 6.0), 1),
+        round(rng.uniform(0.0, 6.0), 1),
+        round(rng.uniform(0.0, 6.0), 1),
+        content_relevance,
+        content_confidence,
+        _to_sql_timestamp(ts),
+    )
+
+
+def _build_feedback(  # pylint: disable=too-many-arguments
+    rng: random.Random, guid: str, *, assessment_id: int | None, feedback_type: str,
+    created_at: datetime, now: datetime,
+) -> FeedbackRow:
+    # Some learners change their answer, which moves updated_at past created_at.
+    updated_at = created_at
+    if rng.random() < 0.2:
+        updated_at = min(
+            created_at + timedelta(seconds=rng.randint(5, 600)), now)
+
+    return (
+        guid,
+        assessment_id,
+        feedback_type,
+        rng.randint(1, 5),
+        "seeded feedback",
+        _to_sql_timestamp(created_at),
+        _to_sql_timestamp(updated_at),
+    )
+
+
+def _build_session_events(
+    rng: random.Random, guid: str, assessment_id: int, task_id: int, assessed_at: datetime,
+) -> list[EventRow]:
+    """One ASA session around an assessment, following docs/USER_EVENTS.md.
+
+    Properties follow app/models/events.py, so the rows read as if POST /events stored them.
+    """
+
+    asa_session_id = str(uuid4())
+    app_version = rng.choice(EVENT_APP_VERSIONS)
+    # Start shortly before the recording the session produced.
+    clock = assessed_at - timedelta(seconds=rng.randint(20, 90))
+    rows: list[EventRow] = []
+
+    def emit(name: str, properties: dict[str, Any], min_gap: float = 0.3,
+             max_gap: float = 4.0) -> None:
+        nonlocal clock
+        clock += timedelta(seconds=rng.uniform(min_gap, max_gap))
+        received_at = clock + timedelta(seconds=rng.uniform(1, 30))
+        rows.append((
+            guid,
+            str(uuid4()),
+            asa_session_id,
+            name,
+            json.dumps(properties, sort_keys=True, separators=(",", ":")),
+            app_version,
+            _to_event_timestamp(clock),
+            _to_sql_timestamp(received_at),
+        ))
+
+    task = {"task_id": task_id}
+    feedback = {**task, "assessment_id": assessment_id}
+
+    emit("asa_session_started", {})
+    # Task Selection stays open under every other screen until the quit.
+    emit("task_selection_panel_toggled", {"active": True})
+
+    if rng.random() < 0.3:
+        emit("profile_panel_toggled", {"active": True}, 2, 15)
+        for _ in range(rng.randint(0, 2)):
+            emit("profile_panel_scrolled",
+                 {"depth": round(rng.random(), 3)}, 1, 10)
+        emit("profile_panel_toggled", {"active": False}, 2, 30)
+
+    emit("task_panel_toggled", {"active": True, **task}, 2, 15)
+    for take in range(rng.choices([1, 2], weights=[80, 20], k=1)[0]):
+        emit("mic_button_clicked", {"button_id": "record", **task}, 1 if take else 2, 8)
+        emit("mic_button_clicked", {"button_id": "stop", **task}, 10, 60)
+        if rng.random() < 0.4:
+            emit("mic_button_clicked", {"button_id": "replay", **task})
+
+    emit("loading_modal_toggled", {"active": True, **task})
+    emit("loading_modal_toggled", {"active": False, **task}, 2, 12)
+    emit("feedback_panel_toggled", {"active": True, **feedback})
+    if rng.random() < 0.3:
+        emit("info_modal_toggled", {"active": True, **task})
+        emit("info_modal_toggled", {"active": False, **task}, 2, 20)
+    for dimension in rng.sample(DIMENSIONS, k=rng.randint(0, 3)):
+        emit("dimension_modal_toggled",
+             {"active": True, **task, "dimension": dimension})
+        emit("dimension_modal_toggled",
+             {"active": False, **task, "dimension": dimension}, 2, 25)
+    for _ in range(rng.randint(0, 3)):
+        emit("feedback_panel_scrolled",
+             {"depth": round(rng.random(), 3), **task}, 1, 10)
+    emit("feedback_panel_toggled", {"active": False, **feedback}, 3, 40)
+    # 'new_task' returns to Task Selection, closing the task.
+    emit("task_panel_toggled", {"active": False, **task})
+
+    # Quitting closes what is still open, then ends the session. A killed app loses
+    # both, which user_event_durations reports as a NULL duration.
+    if rng.random() < 0.9:
+        emit("task_selection_panel_toggled", {"active": False}, 1, 20)
+        emit("asa_session_ended", {"reason": "quit"}, 0, 0.05)
+
+    return rows
+
+
 def main() -> None:
     """Main function to seed the database with synthetic data based on provided arguments."""
 
+    # pylint: disable=too-many-locals,too-many-statements,too-many-branches
     args = _parse_args()
     _validate_args(args)
     rng = random.Random(args.seed)
@@ -180,65 +396,33 @@ def main() -> None:
     db_path = Path(args.db)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    users_rows: list[tuple[str, int, str, str, str,
-                           str, str, str, str, str, str, str]] = []
-    assessments_rows: list[tuple[str, str, str, str,
-                                 str, float, float, float, float, float, str]] = []
-    history_rows: list[tuple[str, str, str, str]] = []
-    request_rows: list[tuple[str, str, str, str, str | None, str | None]] = []
-    user_ids: list[str] = []
+    users_rows: list[UserRow] = []
+    assessments_rows: list[AssessmentRow] = []
+    history_rows: list[HistoryRow] = []
+    request_rows: list[RequestRow] = []
+    user_created_at: dict[str, datetime] = {}
 
     for _ in range(args.users):
         guid = str(uuid4())
-        user_ids.append(guid)
         cefr_level = rng.choices(CEFR_LEVELS, weights=[
                                  18, 24, 30, 20, 8], k=1)[0]
-
         created_at = _random_timestamp(rng, now, args.days_back)
-        consent_ts = created_at.isoformat(timespec="seconds")
-        moved_to_finland = "before_2015" if rng.random(
-        ) < 0.25 else str(rng.randint(2015, now.year))
+        user_created_at[guid] = created_at
 
-        users_rows.append(
-            (
-                guid,
-                1,
-                consent_ts,
-                rng.choice(["1.0.0", "1.1.0", "1.2.0", "2.0.0"]),
-                rng.choice(GENDERS),
-                rng.choice(AGE_GROUPS),
-                _random_languages(rng, NATIVE_LANGUAGE_POOL,
-                                  min_count=1, max_count=2),
-                _random_languages(rng, OTHER_LANGUAGE_POOL,
-                                  min_count=0, max_count=3),
-                moved_to_finland,
-                rng.choice(FINNISH_LEARNING_DURATION),
-                cefr_level,
-                _to_sql_timestamp(created_at),
-            )
-        )
-
-        history_count = rng.randint(1, args.history_max)
-        history_anchor = created_at
-        for idx in range(history_count):
-            change_dt = history_anchor + \
-                timedelta(days=idx * rng.randint(20, 120))
-            history_rows.append(
-                (
-                    guid,
-                    cefr_level if idx == history_count -
-                    1 else rng.choice(CEFR_LEVELS),
-                    CEFR_HISTORY_SOURCE[idx % 2],
-                    _to_sql_timestamp(change_dt),
-                )
-            )
+        user_history, current_cefr_level = _build_cefr_history(
+            rng, guid, cefr_level=cefr_level, created_at=created_at, now=now,
+            history_max=args.history_max)
+        history_rows.extend(user_history)
+        users_rows.append(_build_user(
+            rng, guid, cefr_level, created_at, current_cefr_level))
 
         if rng.random() < args.request_rate:
-            req_created = _random_timestamp(rng, now, args.days_back)
+            req_created = _random_timestamp_between(rng, created_at, now)
             status = rng.choices(REQUEST_STATUS, weights=[
                                  50, 20, 10, 20], k=1)[0]
             processed = _to_sql_timestamp(
-                req_created + timedelta(days=rng.randint(1, 30))) if status != "pending" else None
+                min(req_created + timedelta(days=rng.randint(1, 30)), now)
+            ) if status != "pending" else None
             request_rows.append(
                 (
                     guid,
@@ -253,71 +437,29 @@ def main() -> None:
         assessment_count = rng.randint(
             args.min_assessments, args.max_assessments)
         for idx in range(assessment_count):
-            ts = _random_timestamp_current_year(rng, now)
-            proficiency = round(rng.uniform(0.0, 6.0), 1)
-            assessments_rows.append(
-                (
-                    guid,
-                    rng.randint(1, 5),
-                    str(uuid4()),
-                    f"audio/{guid}/{idx}.wav",
-                    f"synthetic transcript {idx}",
-                    round(rng.uniform(0.0, 6.0), 1),
-                    round(rng.uniform(0.0, 6.0), 1),
-                    proficiency,
-                    round(rng.uniform(0.0, 6.0), 1),
-                    round(rng.uniform(0.0, 6.0), 1),
-                    _to_sql_timestamp(ts),
-                )
-            )
+            assessments_rows.append(_build_assessment(
+                rng, guid, audio_path=f"audio/{guid}/{idx}.wav",
+                transcript=f"synthetic transcript {idx}", created_at=created_at, now=now))
 
     print(f"fixed_guid: {args.fixed_guid}")
     if args.fixed_guid:
         fixed_guid = args.fixed_guid
         fixed_cefr = rng.choice(CEFR_LEVELS)
         fixed_created_at = _random_timestamp(rng, now, args.days_back)
-        fixed_consent_ts = fixed_created_at.isoformat(timespec="seconds")
-        fixed_moved_to_finland = "before_2015" if rng.random() < 0.25 else str(
-            rng.randint(2015, now.year)
-        )
+        user_created_at[fixed_guid] = fixed_created_at
 
-        users_rows.append(
-            (
-                fixed_guid,
-                1,
-                fixed_consent_ts,
-                rng.choice(["1.0.0", "1.1.0", "1.2.0", "2.0.0"]),
-                rng.choice(GENDERS),
-                rng.choice(AGE_GROUPS),
-                _random_languages(rng, NATIVE_LANGUAGE_POOL,
-                                  min_count=1, max_count=2),
-                _random_languages(rng, OTHER_LANGUAGE_POOL,
-                                  min_count=0, max_count=3),
-                fixed_moved_to_finland,
-                rng.choice(FINNISH_LEARNING_DURATION),
-                fixed_cefr,
-                _to_sql_timestamp(fixed_created_at),
-            )
-        )
-        user_ids.append(fixed_guid)
+        fixed_history, fixed_current_cefr = _build_cefr_history(
+            rng, fixed_guid, cefr_level=fixed_cefr, created_at=fixed_created_at, now=now,
+            history_max=args.history_max)
+        history_rows.extend(fixed_history)
+        users_rows.append(_build_user(
+            rng, fixed_guid, fixed_cefr, fixed_created_at, fixed_current_cefr))
 
         for idx in range(args.fixed_assessments):
-            ts = _random_timestamp_current_year(rng, now)
-            assessments_rows.append(
-                (
-                    fixed_guid,
-                    rng.randint(1, 5),
-                    str(uuid4()),
-                    f"audio/{fixed_guid}/fixed-{idx}.wav",
-                    f"fixed user synthetic transcript {idx}",
-                    round(rng.uniform(0.0, 6.0), 1),
-                    round(rng.uniform(0.0, 6.0), 1),
-                    round(rng.uniform(0.0, 6.0), 1),
-                    round(rng.uniform(0.0, 6.0), 1),
-                    round(rng.uniform(0.0, 6.0), 1),
-                    _to_sql_timestamp(ts),
-                )
-            )
+            assessments_rows.append(_build_assessment(
+                rng, fixed_guid, audio_path=f"audio/{fixed_guid}/fixed-{idx}.wav",
+                transcript=f"fixed user synthetic transcript {idx}",
+                created_at=fixed_created_at, now=now))
 
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute("PRAGMA foreign_keys = ON;")
@@ -333,8 +475,9 @@ def main() -> None:
             INSERT INTO users(
                 guid, consent_accepted, consent_timestamp, app_version,
                 gender, age_group, native_languages, other_languages,
-                moved_to_finland, finnish_learning_duration, cefr_level, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                moved_to_finland, finnish_learning_duration, cefr_level,
+                current_cefr_level, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             users_rows,
         )
@@ -343,8 +486,9 @@ def main() -> None:
             """
             INSERT INTO assessments(
                 guid, task_id, audio_id, audio_path, transcript,
-                accuracy, fluency, proficiency, pronunciation, range_score, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                accuracy, fluency, proficiency, pronunciation, range_score,
+                content_relevance, content_confidence, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             assessments_rows,
         )
@@ -366,54 +510,59 @@ def main() -> None:
                 request_rows,
             )
 
-        assessment_id_rows = conn.execute(
-            "SELECT id, guid FROM assessments").fetchall()
-        feedback_assessment_rows: list[tuple[str,
-                                             int, str, int, str, str]] = []
-        for assessment_id, assessment_guid in assessment_id_rows:
-            if rng.random() < args.feedback_rate:
-                feedback_assessment_rows.append(
-                    (
-                        assessment_guid,
-                        int(assessment_id),
-                        rng.choice(FEEDBACK_ASSESSMENT_TYPES),
-                        rng.randint(1, 5),
-                        "seeded feedback",
-                        _to_sql_timestamp(_random_timestamp(
-                            rng, now, args.days_back)),
-                    )
-                )
+        # Only the rows inserted by this run, so a run without --truncate links nothing
+        # to existing assessments.
+        audio_ids = {row[2] for row in assessments_rows}
+        assessment_id_rows = [
+            row for row in conn.execute(
+                "SELECT id, guid, task_id, audio_id, created_at FROM assessments")
+            if row[3] in audio_ids
+        ]
 
-        feedback_experience_rows: list[tuple[str, str, int, str, str]] = []
-        for guid in user_ids:
+        feedback_rows: list[FeedbackRow] = []
+        event_rows: list[EventRow] = []
+        for assessment_id, assessment_guid, task_id, _, created_at in assessment_id_rows:
+            assessed_at = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
             if rng.random() < args.feedback_rate:
-                feedback_experience_rows.append(
-                    (
-                        guid,
-                        rng.choice(FEEDBACK_EXPERIENCE_TYPES),
-                        rng.randint(1, 5),
-                        "seeded feedback",
-                        _to_sql_timestamp(_random_timestamp(
-                            rng, now, args.days_back)),
-                    )
-                )
+                # One answer per question per recording (idx_feedback_one_answer_per_question).
+                for feedback_type in rng.sample(
+                        FEEDBACK_ASSESSMENT_TYPES, k=rng.randint(1, len(FEEDBACK_ASSESSMENT_TYPES))):
+                    answered_at = min(
+                        assessed_at + timedelta(seconds=rng.randint(10, 300)), now)
+                    feedback_rows.append(_build_feedback(
+                        rng, assessment_guid, assessment_id=int(assessment_id),
+                        feedback_type=feedback_type, created_at=answered_at, now=now))
+            if rng.random() < args.event_rate:
+                event_rows.extend(_build_session_events(
+                    rng, assessment_guid, int(assessment_id), int(task_id), assessed_at))
 
-        if feedback_assessment_rows:
+        # Experience feedback carries no assessment and is not deduplicated.
+        for guid, created_at in user_created_at.items():
+            if rng.random() < args.feedback_rate:
+                feedback_rows.append(_build_feedback(
+                    rng, guid, assessment_id=None,
+                    feedback_type=rng.choice(FEEDBACK_EXPERIENCE_TYPES),
+                    created_at=_random_timestamp_between(rng, created_at, now), now=now))
+
+        if feedback_rows:
             conn.executemany(
                 """
-                INSERT INTO feedback_assessment(guid, assessment_id, type, reaction_value, comment, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO feedback(
+                    guid, assessment_id, type, reaction_value, comment, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                feedback_assessment_rows,
+                feedback_rows,
             )
 
-        if feedback_experience_rows:
+        if event_rows:
             conn.executemany(
                 """
-                INSERT INTO feedback_experience(guid, type, reaction_value, comment, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO user_events(
+                    guid, event_id, asa_session_id, name, properties, app_version,
+                    occurred_at, received_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                feedback_experience_rows,
+                event_rows,
             )
 
         conn.commit()
@@ -424,8 +573,8 @@ def main() -> None:
     print(f"  assessments: {len(assessments_rows)}")
     print(f"  user_cefr_history: {len(history_rows)}")
     print(f"  user_requests: {len(request_rows)}")
-    print(f"  feedback_assessment: {len(feedback_assessment_rows)}")
-    print(f"  feedback_experience: {len(feedback_experience_rows)}")
+    print(f"  feedback: {len(feedback_rows)}")
+    print(f"  user_events: {len(event_rows)}")
 
 
 if __name__ == "__main__":
