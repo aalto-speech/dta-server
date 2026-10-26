@@ -146,3 +146,22 @@ def validate_audio_duration(path: Path) -> None:
                 "max_duration_seconds": MAX_AUDIO_DURATION,
             },
         )
+
+
+def validate_audio_contents(path: Path) -> None:
+    """Check that the audio file is not silent."""
+    try:
+        with wave.open(str(path), "rb") as wf:
+            frames = wf.readframes(wf.getnframes())
+            if all(b == 0 for b in frames):
+                raise AppError(
+                    status_code=400,
+                    error_type=ErrorType.BAD_REQUEST,
+                    message="Audio file is silent.",
+                )
+    except wave.Error as err:
+        raise AppError(
+            status_code=400,
+            error_type=ErrorType.BAD_REQUEST,
+            message="Could not read audio data.",
+        ) from err
