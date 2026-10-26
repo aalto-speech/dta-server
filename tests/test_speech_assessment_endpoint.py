@@ -1,6 +1,8 @@
 # pylint: disable=redefined-outer-name
 
+import io
 import os
+import wave
 from uuid import UUID, uuid4
 
 import pytest
@@ -11,6 +13,12 @@ from app.error_handlers import AppError, ErrorType
 from app.main import app
 from app.models.speech_assessment import SpeechAssessmentRequest, SpeechAssessmentScores
 from app.utils.asa_client import ASAError
+from app.validators import audio
+
+
+# Captured at import: the happy-path stubs patch these on the shared module object.
+_REAL_VALIDATE_AUDIO_DURATION = audio.validate_audio_duration
+_REAL_VALIDATE_AUDIO_CONTENTS = audio.validate_audio_contents
 
 
 @pytest.fixture
@@ -95,6 +103,8 @@ def _patch_happy_path(monkeypatch: pytest.MonkeyPatch, captured: dict) -> None:
         "app.services.speech_assessment_service.audio.validate_wav_structure", _record_wav_structure)
     monkeypatch.setattr(
         "app.services.speech_assessment_service.audio.validate_audio_duration", lambda _path: None)
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.audio.validate_audio_contents", lambda _path: None)
     monkeypatch.setattr(
         "app.services.speech_assessment_service._asa.assess", _fake_assess)
 
@@ -563,4 +573,156 @@ def test_no_verdict_changes_the_scores(
     assert payload["cefr_label"] == "A2"
     assert payload["content"]["relevance"] == relevance
     assert stored["proficiency"] == 2.1
+    os.unlink(captured["temp_path"])
+
+
+def _wav_bytes(seconds: float, sample: bytes = b"\x00\x00", sample_rate: int = 16000) -> bytes:
+    """A real mono WAV of the given length, every frame set to `sample`.
+
+    The sample width is len(sample): 1 byte is 8-bit (unsigned), 2 bytes is 16-bit.
+    """
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(len(sample))
+        wf.setframerate(sample_rate)
+        wf.writeframes(sample * int(seconds * sample_rate))
+    return buf.getvalue()
+
+
+def _patch_real_audio(monkeypatch: pytest.MonkeyPatch, captured: dict, wav: bytes) -> None:
+    """Happy path, but the real duration/contents validators run against `wav`."""
+
+    _patch_happy_path(monkeypatch, captured)
+
+    async def _return_wav(_):
+        return wav
+
+    async def _must_not_score(*_args, **_kwargs):
+        captured["scored"] = True
+        return _fake_asa_result()
+
+    monkeypatch.setattr("app.services.speech_assessment_service.audio.validate_file_size",
+                        _return_wav)
+    monkeypatch.setattr("app.services.speech_assessment_service.audio.validate_audio_duration",
+                        _REAL_VALIDATE_AUDIO_DURATION)
+    monkeypatch.setattr("app.services.speech_assessment_service.audio.validate_audio_contents",
+                        _REAL_VALIDATE_AUDIO_CONTENTS)
+    monkeypatch.setattr("app.services.speech_assessment_service._asa.assess", _must_not_score)
+
+
+def test_assess_speech_rejects_silent_audio_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """An all-zero recording is a 400 and never reaches the scorer."""
+
+    captured = {}
+    _patch_real_audio(monkeypatch, captured, _wav_bytes(5))
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": {"type": "BAD_REQUEST", "message": "Audio file is silent."}}
+    assert "scored" not in captured
+    os.unlink(captured["temp_path"])
+
+
+def test_assess_speech_rejects_too_short_audio_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """A recording under the minimum duration is 400 AUDIO_TOO_SHORT with measured values."""
+
+    captured = {}
+    _patch_real_audio(monkeypatch, captured, _wav_bytes(1, sample=b"\x10\x00"))
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["type"] == "AUDIO_TOO_SHORT"
+    assert detail["duration_seconds"] == 1.0
+    assert detail["min_duration_seconds"] == 3
+    assert "scored" not in captured
+    os.unlink(captured["temp_path"])
+
+
+def test_assess_speech_accepts_real_audio_through_all_validators(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """A real, non-silent recording within the limits passes every check and is scored."""
+
+    captured = {}
+    _patch_real_audio(monkeypatch, captured, _wav_bytes(5, sample=b"\x10\x00"))
+
+    async def _score(*_args, **_kwargs):
+        captured["scored"] = True
+        return _fake_asa_result()
+
+    monkeypatch.setattr("app.services.speech_assessment_service._asa.assess", _score)
+    monkeypatch.setattr(
+        "app.services.speech_assessment_service.create_assessment", lambda _data: 11)
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    assert captured["scored"] is True
+    os.unlink(captured["temp_path"])
+
+
+def test_assess_speech_rejects_8bit_silent_audio_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """8-bit silence (0x80) is caught end to end, not only all-zero 16-bit audio."""
+
+    captured = {}
+    _patch_real_audio(monkeypatch, captured, _wav_bytes(5, sample=b"\x80"))
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["message"] == "Audio file is silent."
+    assert "scored" not in captured
+    os.unlink(captured["temp_path"])
+
+
+def test_assess_speech_reports_too_short_before_silent(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """A file that is both too short and silent reports AUDIO_TOO_SHORT: duration runs first."""
+
+    captured = {}
+    _patch_real_audio(monkeypatch, captured, _wav_bytes(1))
+
+    response = client.post(
+        "/speech/assess",
+        data=_valid_form_data(),
+        files={"file": ("sample.wav", b"ignored", "audio/wav")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["type"] == "AUDIO_TOO_SHORT"
+    assert "scored" not in captured
     os.unlink(captured["temp_path"])

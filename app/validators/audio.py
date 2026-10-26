@@ -153,7 +153,8 @@ def validate_audio_contents(path: Path) -> None:
     try:
         with wave.open(str(path), "rb") as wf:
             frames = wf.readframes(wf.getnframes())
-            if all(b == 0 for b in frames):
+            silence = 0x80 if wf.getsampwidth() == 1 else 0x00
+            if frames.count(silence) == len(frames):
                 raise AppError(
                     status_code=400,
                     error_type=ErrorType.BAD_REQUEST,

@@ -215,3 +215,115 @@ def test_validate_audio_duration_exceeds(tmp_path: Path) -> None:
         audio.validate_audio_duration(p)
 
     assert err.value.status_code == 413
+
+
+def test_validate_audio_duration_accepts_exact_minimum(tmp_path: Path) -> None:
+    """Duration exactly equal to the minimum is accepted."""
+
+    p = tmp_path / "sample.wav"
+    _write_wav(p, audio.MIN_AUDIO_DURATION * 16000)
+
+    # should not raise
+    audio.validate_audio_duration(p)
+
+
+def test_validate_audio_duration_rejects_under_minimum(tmp_path: Path) -> None:
+    """One sample short of the minimum is AUDIO_TOO_SHORT, with the measured values."""
+
+    p = tmp_path / "sample.wav"
+    _write_wav(p, audio.MIN_AUDIO_DURATION * 16000 - 1)
+
+    with pytest.raises(AppError) as err:
+        audio.validate_audio_duration(p)
+
+    assert err.value.status_code == 400
+    assert err.value.error_type == ErrorType.AUDIO_TOO_SHORT
+    assert err.value.extra == {
+        "duration_seconds": round((audio.MIN_AUDIO_DURATION * 16000 - 1) / 16000, 2),
+        "min_duration_seconds": audio.MIN_AUDIO_DURATION,
+    }
+
+
+def test_validate_audio_duration_rejects_empty_audio(tmp_path: Path) -> None:
+    """A header-only WAV with zero frames is too short, not a crash."""
+
+    p = tmp_path / "sample.wav"
+    _write_wav(p, 0)
+
+    with pytest.raises(AppError) as err:
+        audio.validate_audio_duration(p)
+
+    assert err.value.error_type == ErrorType.AUDIO_TOO_SHORT
+
+
+def test_validate_audio_contents_rejects_silence(tmp_path: Path) -> None:
+    """An all-zero recording is rejected as silent."""
+
+    p = tmp_path / "sample.wav"
+    _write_wav(p, 5 * 16000)
+
+    with pytest.raises(AppError) as err:
+        audio.validate_audio_contents(p)
+
+    assert err.value.status_code == 400
+    assert err.value.error_type == ErrorType.BAD_REQUEST
+    assert err.value.message == "Audio file is silent."
+
+
+def test_validate_audio_contents_accepts_single_nonzero_sample(tmp_path: Path) -> None:
+    """One non-zero sample anywhere is enough to count as not silent."""
+
+    p = tmp_path / "sample.wav"
+    with wave.open(str(p), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * 16000 + b"\x01\x00" + b"\x00\x00" * 16000)
+
+    # should not raise
+    audio.validate_audio_contents(p)
+
+
+def test_validate_audio_contents_raises_on_corrupt_file(tmp_path: Path) -> None:
+    """Unparseable audio maps to a 400 read error, not a 500."""
+
+    p = tmp_path / "bad.wav"
+    p.write_bytes(b"not a wav")
+
+    with pytest.raises(AppError) as err:
+        audio.validate_audio_contents(p)
+
+    assert err.value.status_code == 400
+    assert err.value.message == "Could not read audio data."
+
+
+def _write_8bit_wav(path: Path, frames: bytes) -> None:
+    """Write a mono 8-bit (unsigned) WAV with the given raw frames."""
+
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(1)
+        wf.setframerate(16000)
+        wf.writeframes(frames)
+
+
+def test_validate_audio_contents_rejects_8bit_silence(tmp_path: Path) -> None:
+    """8-bit WAV is unsigned, so silence is 0x80 rather than 0x00."""
+
+    p = tmp_path / "sample.wav"
+    _write_8bit_wav(p, b"\x80" * 5 * 16000)
+
+    with pytest.raises(AppError) as err:
+        audio.validate_audio_contents(p)
+
+    assert err.value.message == "Audio file is silent."
+
+
+def test_validate_audio_contents_accepts_8bit_zero_bytes(tmp_path: Path) -> None:
+    """In 8-bit WAV, 0x00 is full negative amplitude, not silence."""
+
+    p = tmp_path / "sample.wav"
+    _write_8bit_wav(p, b"\x00" * 5 * 16000)
+
+    # should not raise
+    audio.validate_audio_contents(p)
