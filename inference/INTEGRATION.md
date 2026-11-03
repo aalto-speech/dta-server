@@ -108,7 +108,8 @@ whether to delete or flag them; they are not comparable to real scores.
 ## 5. Map your integer task ids — DONE
 
 `assessments.task_id` is an INTEGER; this package uses strings (`"03_m"`). The map in
-`assets/task_id_map.json` was confirmed against the app on 2026-08-01:
+`assets/task_id_map.json` was confirmed against the app on 2026-08-01, and task 6 was added
+on 2026-11-03:
 
 | your task_id | package task_id | task |
 |---|---|---|
@@ -117,6 +118,7 @@ whether to delete or flag them; they are not comparable to real scores.
 | 3 | `04_h` | what you normally do at home (1 min monologue) |
 | 4 | `04_i` | which languages you use and where (1 min monologue) |
 | 5 | `04_test` | describe the shopping picture (dta-task5) |
+| 6 | `04_a` | an important place (1 min monologue; experimental, DigiTala autumn-task2) |
 
 `04_dev` (dta-task3) is unused by the app: a development-phase version of the same picture
 task. It stays reachable by string id, but has no integer mapping, so it cannot be hit by
