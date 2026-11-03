@@ -108,17 +108,17 @@ This repository is licensed under the GNU Affero General Public License, version
                 </a>
             </td>
             <td align="center">
-                <a href="https://github.com/tontsa28">
-                    <img src="https://avatars.githubusercontent.com/u/70319189?v=4" width="100;" alt="tontsa28"/>
-                    <br />
-                    <sub><b>tontsa28</b></sub>
-                </a>
-            </td>
-            <td align="center">
                 <a href="https://github.com/Usin2705">
                     <img src="https://avatars.githubusercontent.com/u/8575412?v=4" width="100;" alt="Usin2705"/>
                     <br />
                     <sub><b>Chi Nhan, Phan</b></sub>
+                </a>
+            </td>
+            <td align="center">
+                <a href="https://github.com/tontsa28">
+                    <img src="https://avatars.githubusercontent.com/u/70319189?v=4" width="100;" alt="tontsa28"/>
+                    <br />
+                    <sub><b>tontsa28</b></sub>
                 </a>
             </td>
 		</tr>
