@@ -1,0 +1,221 @@
+-- Two tiers of user fields (see docs/FRONTEND.md "Onboarding"):
+--   Required:  guid, consent_accepted, consent_timestamp, cefr_level. Without these
+--              there is no user, no lawful basis, or no cohort for analytics.
+--   Metadata:  everything else. Research questions come and go over the life of the
+--              study, so a dropped question must never block account creation --
+--              these columns are nullable and NULL simply means "not collected".
+--              (moved_to_finland and finnish_learning_duration were dropped from the
+--              app's background form in 2026-08; historical rows keep their values.)
+CREATE TABLE
+  IF NOT EXISTS users (
+    guid TEXT PRIMARY KEY, -- pseudonymous user ID (GUID)
+    consent_accepted INTEGER NOT NULL CHECK (consent_accepted IN (0, 1)),
+    consent_timestamp TEXT NOT NULL, -- ISO 8601 timestamp
+    app_version TEXT, -- app version shown during consent
+    gender TEXT CHECK (
+      gender IS NULL
+      OR gender IN ('woman', 'man', 'other', 'prefer_not_to_answer')
+    ),
+    age_group TEXT CHECK (
+      age_group IS NULL
+      OR age_group IN (
+        'age_18_28',
+        'age_29_39',
+        'age_40_50',
+        'age_51_61',
+        'age_62_plus'
+      )
+    ),
+    -- Store multi-select fields as JSON text arrays, e.g. '["Vietnamese","English"]'
+    native_languages TEXT CHECK (
+      native_languages IS NULL
+      OR (
+        json_valid (native_languages)
+        AND json_type (native_languages) = 'array'
+        AND json_array_length (native_languages) > 0
+      )
+    ),
+    other_languages TEXT CHECK (
+      other_languages IS NULL
+      OR (
+        json_valid (other_languages)
+        AND json_type (other_languages) = 'array'
+      )
+    ),
+    moved_to_finland TEXT CHECK (
+      moved_to_finland IS NULL
+      OR moved_to_finland = 'before_2015'
+      OR (
+        length (moved_to_finland) = 4
+        AND moved_to_finland GLOB '[0-9][0-9][0-9][0-9]'
+        AND CAST(moved_to_finland AS INTEGER) >= 2015
+        AND CAST(moved_to_finland AS INTEGER) <= 2100 -- * make sure it's a reasonable year
+      )
+    ), -- e.g. '2025', '2024', ... '2015', 'before_2015'
+    finnish_learning_duration TEXT CHECK (
+      finnish_learning_duration IS NULL
+      OR finnish_learning_duration IN (
+        'months_0_3',
+        'months_3_6',
+        'months_6_9',
+        'months_9_12',
+        'years_1_1.5',
+        'years_1.5_2',
+        'years_2_2.5',
+        'years_2.5_3',
+        'years_3_5',
+        'years_5_7',
+        'years_7_10',
+        'years_10_plus'
+      )
+    ),
+    -- The ONBOARDING SELF-ASSESSMENT. Written once, at sign-up, and never updated by any
+    -- code path. It is the only record of what a learner believed about their own Finnish
+    -- before the app told them anything, which makes it the evidence for the one question
+    -- nobody can ask twice: how well do people judge themselves? Overwriting it to track
+    -- the profile screen's Advance/Revert buttons would destroy that silently -- so those
+    -- buttons write current_cefr_level below instead.
+    cefr_level TEXT NOT NULL CHECK (cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')),
+    -- The level the learner is CURRENTLY working at, moved by PATCH /users/level from the
+    -- profile screen. NULL means they have never touched the buttons, so every read is
+    -- COALESCE(current_cefr_level, cefr_level) -- a new column on an existing database
+    -- starts NULL, and that is exactly "unchanged". Cohort ranking follows this value: the
+    -- profile screen promises "your rank among other B1 learners", so a learner who moved
+    -- themselves to B1 expects to be measured against B1.
+    current_cefr_level TEXT CHECK (
+      current_cefr_level IS NULL
+      OR current_cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')
+    ),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+CREATE TABLE
+  IF NOT EXISTS assessments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, -- assessment_id
+    guid TEXT NOT NULL,
+    task_id INTEGER NOT NULL, -- speaking task ID
+    audio_id TEXT NOT NULL UNIQUE, -- unique ID for audio file
+    audio_path TEXT NOT NULL, -- persistent storage path / object key
+    transcript TEXT, -- optional ASR transcript
+    -- ASA model outputs
+    accuracy REAL CHECK (
+      accuracy IS NULL
+      OR (accuracy BETWEEN 0 AND 6)
+    ),
+    fluency REAL CHECK (
+      fluency IS NULL
+      OR (fluency BETWEEN 0 AND 6)
+    ),
+    proficiency REAL CHECK (
+      proficiency IS NULL
+      OR (proficiency BETWEEN 0 AND 6)
+    ),
+    pronunciation REAL CHECK (
+      pronunciation IS NULL
+      OR (pronunciation BETWEEN 0 AND 6)
+    ),
+    range_score REAL CHECK (
+      range_score IS NULL
+      OR (range_score BETWEEN 0 AND 6)
+    ),
+    -- Topical relevance of the transcript to the task, from the inference container's
+    -- content judge. NULL means the check did not run (scored before it existed, disabled,
+    -- or it failed open) -- analysis must read NULL as unknown, NOT as on_topic.
+    content_relevance TEXT CHECK (
+      content_relevance IS NULL
+      OR (
+        content_relevance IN ('on_topic', 'partial', 'off_topic')
+      )
+    ),
+    content_confidence REAL CHECK (
+      content_confidence IS NULL
+      OR (content_confidence BETWEEN 0 AND 1)
+    ),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
+  );
+
+CREATE TABLE
+  IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guid TEXT NOT NULL,
+    assessment_id INTEGER,
+    type TEXT NOT NULL CHECK (
+      type IN (
+        'self_assessment',
+        'result_accuracy',
+        'result_understanding',
+        'comparison_ui',
+        'overall_experience'
+      )
+    ),
+    reaction_value INTEGER NOT NULL CHECK (reaction_value BETWEEN 1 AND 5),
+    comment TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- When the learner last changed this answer. Equal to created_at until they do.
+    -- Both are kept because they answer different questions: created_at is when the
+    -- question was first answered, updated_at is when they settled on it.
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE,
+    FOREIGN KEY (assessment_id) REFERENCES assessments (id) ON DELETE CASCADE
+  );
+
+CREATE TABLE
+  IF NOT EXISTS user_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, -- request_id
+    guid TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('delete', 'export')), -- type of user request
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (
+      status IN ('pending', 'approved', 'denied', 'completed')
+    ), -- request processing status
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processed_at TEXT, -- timestamp when admin processed the request
+    admin_notes TEXT, -- optional notes from admin
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
+  );
+
+-- Append-only trail of every level a user has been at, including the one they started
+-- from. The profile buttons are gated client-side only and Revert is deliberately not
+-- gated at all, so nothing stops a learner stepping repeatedly -- if the movement matters
+-- to the analysis, this table is the record, not the client's restraint.
+CREATE TABLE
+  IF NOT EXISTS user_cefr_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guid TEXT NOT NULL,
+    cefr_level TEXT NOT NULL CHECK (cefr_level IN ('A1', 'A2', 'B1', 'B2', 'C1_plus')),
+    -- 'self_report' is the learner choosing their own level: at onboarding, and again on
+    -- every Advance/Revert. 'model' is reserved for a future automatic placement; nothing
+    -- writes it today.
+    source TEXT NOT NULL CHECK (source IN ('self_report', 'model')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
+  );
+
+-- Indexes to optimize queries by guid and created_at for assessments and feedback tables
+CREATE INDEX IF NOT EXISTS idx_assessments_guid_created_at ON assessments (guid, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_task_id ON assessments (task_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_guid_created_at ON feedback (guid, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_assessment_id ON feedback (assessment_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_type_guid_created_at ON feedback (type, guid, created_at);
+
+-- One learner answering one question about one recording is ONE row, however many times
+-- they change their mind. The 2.0.0 client posts each answer as it is given (emoji on tap,
+-- comment on leaving the box), so repeat posts are the normal case, not an anomaly -- see
+-- create_feedback() in app/db.py, which upserts onto this index.
+--
+-- SQLite treats NULLs as distinct in a unique index, so this constrains only the three
+-- assessment-scoped types. `comparison_ui` and `overall_experience` carry no assessment_id
+-- and are deliberately left un-deduplicated: they are sent once, on a button.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_one_answer_per_question ON feedback (guid, assessment_id, type);
+
+CREATE INDEX IF NOT EXISTS idx_user_cefr_history_guid_created_at_id ON user_cefr_history (guid, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_guid_proficiency_not_null ON assessments (guid, proficiency)
+WHERE
+  proficiency IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_cefr_level ON users (cefr_level);

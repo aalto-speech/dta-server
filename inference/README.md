@@ -176,7 +176,12 @@ or the app's integer id (via `assets/task_id_map.json`):
 | 3 | `04_h` | `dta-task4_a` | monologue: what you do at home |
 | 4 | `04_i` | `dta-task4_b` | monologue: which languages you use and where |
 | 5 | `04_test` | `dta-task5` | picture: shopping habits |
+| 6 | `04_a` | `autumn-task2` | monologue: an important place; **experimental**, a DigiTala task |
 | — | `04_dev` | `dta-task3` | development-phase version of the picture task; **not used** |
+
+App id 6 is the one mapped task outside the DTA corpus, so `?corpus=dta` does not list it.
+The app's "Tärkeä paikka" task asks `04_a`'s five questions word for word; the scorer still
+gets `04_a`'s own prompt text, as it was trained.
 
 `04_dev` and `04_test` are the *same picture* — the suffix marks development vs the real DTA
 test, and the prompt text cannot tell them apart (only `04_dev`'s wording happens to say

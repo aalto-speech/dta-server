@@ -166,7 +166,7 @@ The main endpoint: uploads a recording, returns scores and the transcript.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `guid` | UUID | Must be an onboarded user |
-| `task_id` | int | **1–5**, see the task table below |
+| `task_id` | int | **1–6**, see the task table below |
 | `file` | file | WAV, `Content-Type: audio/wav` (or `application/octet-stream`), filename ending `.wav` |
 | `description` | string, optional | ≤ 512 characters |
 
@@ -185,11 +185,16 @@ considered by the model, which the 90 s limit already stays under.
 | 3 | Monologue: what you normally do at home | 1 min |
 | 4 | Monologue: which languages you use and where | 1 min |
 | 5 | Picture: shopping habits | ~1 min |
+| 6 | Monologue: an important place (**experimental**) | 1 min |
 
 The task ID selects the task embedding the model scores against, so **sending the wrong
 one silently produces a plausible but wrong score** — there is no error. Make sure the
-ID travels with the recording through your UI code. IDs outside 1–5 are rejected with
+ID travels with the recording through your UI code. IDs outside 1–6 are rejected with
 400 `BAD_REQUEST`.
+
+Task 6 is not one of the DTA test tasks. The model did learn the same task, with the same
+five questions, but from DigiTala learners rather than DTA learners, so treat its scores as
+experimental. The response has the same shape as for tasks 1–5.
 
 ### Response (200)
 

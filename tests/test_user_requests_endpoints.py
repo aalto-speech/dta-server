@@ -1,6 +1,8 @@
 # pylint: disable=redefined-outer-name
 
 import asyncio
+import sqlite3
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -42,6 +44,21 @@ def test_request_user_route_is_gone(client: TestClient):
                    for route in app.routes)
 
 
+def _record_nothing(recorded: dict):
+    """Stand in for create_user_request, capturing the row it would have written."""
+
+    def _record(data):
+        recorded.update(
+            guid=str(data.guid),
+            type=str(data.type),
+            status=str(data.status),
+            admin_notes=data.admin_notes,
+        )
+        return 99
+
+    return _record
+
+
 def test_delete_users_handler_calls_delete_user_data(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -61,6 +78,8 @@ def test_delete_users_handler_calls_delete_user_data(
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
     monkeypatch.setattr(
+        "app.services.admin_service.create_user_request", _record_nothing({}))
+    monkeypatch.setattr(
         "app.services.admin_service.logger.info",
         lambda message, *args: logged.append((message, args)),
     )
@@ -74,8 +93,9 @@ def test_delete_users_handler_calls_delete_user_data(
     }
     assert logged == [
         (
-            "Admin deleted all data for user: %s (%d recording(s) removed)",
-            (request_model.guid, 0),
+            "Admin deleted all data for user: %s "
+            "(%d recording(s) removed, user_requests.id=%s)",
+            (request_model.guid, 0, 99),
         ),
     ]
 
@@ -100,6 +120,8 @@ def test_delete_users_endpoint_accepts_valid_payload(
     monkeypatch.setattr(
         "app.services.admin_service.delete_user_data", _fake_delete_user_data)
     monkeypatch.setattr(
+        "app.services.admin_service.create_user_request", _record_nothing({}))
+    monkeypatch.setattr(
         "app.services.admin_service.logger.info",
         lambda message, *args: logged.append((message, args)),
     )
@@ -118,8 +140,9 @@ def test_delete_users_endpoint_accepts_valid_payload(
     }
     assert logged == [
         (
-            "Admin deleted all data for user: %s (%d recording(s) removed)",
-            (UUID(payload["guid"]), 0),
+            "Admin deleted all data for user: %s "
+            "(%d recording(s) removed, user_requests.id=%s)",
+            (UUID(payload["guid"]), 0, 99),
         ),
     ]
 
@@ -286,6 +309,115 @@ def test_failed_recording_delete_is_recorded_and_leaves_the_user_row(
     # Recordings are deleted before rows, so the user row survives a failure and the
     # outstanding deletion stays discoverable.
     assert called["delete_user_data"] is False
+
+
+def test_successful_deletion_is_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """A deletion that WORKS must leave a row behind. The whole point of the table.
+
+    Until v1.4.0 only a failed deletion was recorded, so the database could not answer
+    "whose data is void?" -- the only trace of a completed erase was an INFO log line, and
+    the row it referred to was gone. Data exported before the request still sits in archive
+    copies the server cannot reach, and this row is what identifies it there.
+    """
+
+    recorded = {}
+
+    monkeypatch.setattr(
+        "app.services.admin_service.auth.validate_delete_access", lambda _key: None)
+    monkeypatch.setattr(
+        "app.services.admin_service.delete_user_audio", lambda _guid: 3)
+    monkeypatch.setattr(
+        "app.services.admin_service.create_user_request", _record_nothing(recorded))
+    monkeypatch.setattr(
+        "app.services.admin_service.delete_user_data", lambda _data: None)
+
+    payload = _valid_delete_users_form_data()
+    response = client.request(
+        "DELETE",
+        "/users",
+        headers={"X-Delete-Key": "valid-admin-key"},
+        data=payload,
+    )
+
+    assert response.status_code == 204
+    assert recorded == {
+        "guid": payload["guid"],
+        "type": "delete",
+        "status": "completed",
+        # The recording count travels with the row: it is what tells whoever holds an
+        # archive copy whether audio was part of what is now void.
+        "admin_notes": "3 recording(s) removed",
+    }
+
+
+def test_deletion_is_abandoned_when_it_cannot_be_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """If the record cannot be written, the user row stays and the deletion is retried.
+
+    The alternative -- delete anyway -- produces the one outcome nothing can recover from:
+    a user erased with nothing anywhere saying it happened, no guid left to look them up
+    by, and archive copies that can never be reconciled. Leaving the row costs a retry.
+    """
+
+    called = {"delete_user_data": False}
+
+    def _cannot_record(_data):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(
+        "app.services.admin_service.auth.validate_delete_access", lambda _key: None)
+    monkeypatch.setattr(
+        "app.services.admin_service.delete_user_audio", lambda _guid: 1)
+    monkeypatch.setattr(
+        "app.services.admin_service.create_user_request", _cannot_record)
+    monkeypatch.setattr(
+        "app.services.admin_service.delete_user_data",
+        lambda _data: called.update(delete_user_data=True),
+    )
+
+    response = client.request(
+        "DELETE",
+        "/users",
+        headers={"X-Delete-Key": "valid-admin-key"},
+        data=_valid_delete_users_form_data(),
+    )
+
+    assert response.status_code == 500
+    assert called["delete_user_data"] is False
+
+
+def test_the_recorded_deletion_survives_the_user_row(tmp_path: Path):
+    """End to end against a real database: the row outlives what it describes.
+
+    The service tests above stub the database out, so this is what actually proves the
+    cascade is gone -- under the v1.3.0 schema this row vanished with the user.
+    """
+
+    db_path = tmp_path / "dta.db"
+    db = sqlite3.connect(db_path)
+    db.executescript(
+        (Path(__file__).resolve().parents[1] / "app" / "schema.sql")
+        .read_text(encoding="utf-8"))
+    db.execute("PRAGMA foreign_keys = ON")
+
+    guid = str(uuid4())
+    db.execute(
+        "INSERT INTO users (guid, consent_accepted, consent_timestamp, cefr_level) "
+        "VALUES (?, 1, '2026-01-01T00:00:00Z', 'A2')", (guid,))
+    db.execute(
+        "INSERT INTO user_requests (guid, type, status, processed_at) "
+        "VALUES (?, 'delete', 'completed', CURRENT_TIMESTAMP)", (guid,))
+    db.execute("DELETE FROM users WHERE guid = ?", (guid,))
+    db.commit()
+
+    assert db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+    assert db.execute(
+        "SELECT guid, status FROM user_requests").fetchall() == [(guid, "completed")]
 
 
 def test_rejected_delete_is_logged_with_the_guid(

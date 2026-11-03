@@ -60,6 +60,10 @@ def main() -> int:
     check("task resolves by id and name",
           cat.get("dta-task2_a").task_id == "03_m" and t.model_task_id == 23,
           f"03_m -> {t.task_name}, embedding row {t.model_task_id}")
+    t6 = cat.get(6)
+    check("app task 6 resolves to the important-place task",
+          t6.task_id == "04_a" and t6.model_task_id == 25,
+          f"6 -> {t6.task_name}, embedding row {t6.model_task_id}")
 
     # ---- model load + forward ----------------------------------------------------------
     print(f"\nloading model on {DEVICE} (first load is slow: ~9 GB) ...", flush=True)

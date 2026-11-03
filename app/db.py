@@ -22,6 +22,7 @@ from app.models.user_requests import (
     DeleteUserDataInput,
     GetUserConsentInput,
     GetUserInput,
+    RequestStatus,
 )
 from app.models.users import SetUserCEFRLevelInput
 from app.utils.ranking import build_display
@@ -325,21 +326,48 @@ def set_user_cefr_level(data: SetUserCEFRLevelInput) -> bool:
     return True
 
 
-def create_user_request(data: CreateUserRequestInput) -> None:
-    """Insert a user data request row."""
+# Two static statements rather than one built at runtime, so no part of an INSERT is
+# assembled from a value. They differ only in `processed_at`: a request that is already
+# finished is stamped by SQLite, on the same clock and in the same UTC format as every
+# other timestamp in the schema, while an unfinished one leaves it NULL for whoever
+# eventually deals with it.
+_INSERT_OPEN_REQUEST = """
+    INSERT INTO user_requests (guid, type, status, admin_notes)
+    VALUES (?, ?, ?, ?)
+"""
 
-    query = """
-        INSERT INTO user_requests (guid, type)
-        VALUES (?, ?)
+_INSERT_PROCESSED_REQUEST = """
+    INSERT INTO user_requests (guid, type, status, processed_at, admin_notes)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
+"""
+
+_PROCESSED_STATUSES = (RequestStatus.COMPLETED, RequestStatus.DENIED)
+
+
+def create_user_request(data: CreateUserRequestInput) -> int | None:
+    """Insert a user data request row and return its ID.
+
+    The ID is returned rather than discarded because it is the only handle anything outside
+    this database has on the record. A deletion erases the user, so the guid stops being
+    resolvable the moment the request succeeds; the row id is what a log line, a support
+    thread or an archive audit can still refer to afterwards.
     """
+
+    query = (_INSERT_PROCESSED_REQUEST if data.status in _PROCESSED_STATUSES
+             else _INSERT_OPEN_REQUEST)
 
     params = (
         str(data.guid),
-        data.type
+        data.type,
+        data.status,
+        data.admin_notes,
     )
 
     with database() as db:
-        db.execute(query, params)
+        cur = db.execute(query, params)
+        request_id = cur.lastrowid
+
+    return request_id
 
 
 def delete_user_data(data: DeleteUserDataInput) -> None:
