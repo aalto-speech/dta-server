@@ -120,7 +120,7 @@ Response fields and what to do with them:
   See `inference/dta_scorer/relevance.py` for what the judge does and does not catch.
 - Requests fail with `503 SCORING_UNAVAILABLE` while the scorer is starting
   (~20 s on GPU, ~10 min on CPU staging) or unreachable, and with
-  `400 BAD_REQUEST` for a `task_id` with no mapped speaking task (valid ids: 1–5).
+  `400 BAD_REQUEST` for a `task_id` with no mapped speaking task (valid ids: 1–6).
 
 ### How long a learner waits
 

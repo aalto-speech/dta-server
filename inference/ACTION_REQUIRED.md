@@ -20,9 +20,10 @@ against the app's five tasks by prompt text:
 | 3 | `04_h` | what you do at home |
 | 4 | `04_i` | which languages you use and where |
 | 5 | `04_test` | describe the shopping picture (dta-task5) |
+| 6 | `04_a` | an important place (added 2026-11-03; experimental, DigiTala autumn-task2) |
 
 The sixth DTA task `04_dev` is a development-phase version of the same picture task, not used
-in the DTA test or in production, so it is intentionally unmapped. Integer ids outside 1–5
+in the DTA test or in production, so it is intentionally unmapped. Integer ids outside 1–6
 raise `UnknownTask` → HTTP 404.
 
 Worth recording: the pre-confirmation guess had ids 3, 4 and 5 **all wrong**, and a first

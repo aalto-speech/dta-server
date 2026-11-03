@@ -210,8 +210,8 @@ Full detail in `inference/INTEGRATION.md`. Order matters.
 ## 2.1 [LOCAL] Task-id map — already confirmed, just sanity-check it
 
 Confirmed 2026-08-01 against the app's five tasks (1 borrow money, 2 can't come to work,
-3 at home, 4 languages, 5 shopping picture). Nothing to do unless the app's task list has
-changed since:
+3 at home, 4 languages, 5 shopping picture). Task 6 (an important place, `04_a`) was added on
+2026-11-03. Nothing to do unless the app's task list has changed since:
 
 ```bash
 cat inference/assets/task_id_map.json      # confirmed_by_deployer: true
