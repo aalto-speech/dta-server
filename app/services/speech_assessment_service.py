@@ -1,6 +1,6 @@
 import os
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi.encoders import jsonable_encoder
@@ -20,7 +20,6 @@ from app.utils.asa_client import ASAClient, ASAError
 from app.utils.logger import get_logger
 from app.utils.storage import user_audio_dir
 from app.validators import audio, auth
-
 
 logger = get_logger(__name__)
 
@@ -146,6 +145,7 @@ async def assess_speech_request(
     os.chmod(audio_path, 0o600)
     audio.validate_wav_structure(audio_path)
     audio.validate_audio_duration(audio_path)
+    audio.validate_audio_contents(audio_path)
 
     result = await _score(content, data)
 
@@ -159,7 +159,8 @@ async def assess_speech_request(
     # Always last, so the labels can never disagree with the numbers they sit next to.
     result = _apply_production_labels(result)
 
-    scores = result["scores"]  # keys match the DB columns, except range -> range_score
+    # keys match the DB columns, except range -> range_score
+    scores = result["scores"]
 
     assessment_id = create_assessment(AssessmentCreateInput(
         guid=data.guid,

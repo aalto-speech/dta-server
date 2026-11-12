@@ -133,7 +133,7 @@ podman exec dta-inference curl -s http://localhost:8000/health          # "devic
 
 ```bash
 curl -s https://<production-domain>/api/v1/ping
-# score one real recording end-to-end (valid user guid + task_id 1-5):
+# score one real recording end-to-end (valid user guid + task_id 1-6):
 curl -s -F "file=@test.wav" -F "guid=<uuid>" -F "task_id=1" \
      https://<production-domain>/api/v1/speech/assess
 ```

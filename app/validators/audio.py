@@ -1,6 +1,6 @@
-from pathlib import Path
 import os
 import wave
+from pathlib import Path
 
 from fastapi import UploadFile
 
@@ -10,6 +10,7 @@ from app.error_handlers import AppError, ErrorType
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
 # Maximum allowed audio duration in seconds
+MIN_AUDIO_DURATION = 3
 MAX_AUDIO_DURATION = 90
 
 # MIME type accepted for WAV audio uploads
@@ -58,7 +59,8 @@ async def validate_file_size(file: UploadFile) -> bytes:
                 status_code=413,
                 error_type=ErrorType.FILE_TOO_LARGE,
                 message="File exceeds the 10 MB size limit.",
-                extra={"size_bytes": total_size, "max_size_bytes": MAX_FILE_SIZE},
+                extra={"size_bytes": total_size,
+                       "max_size_bytes": MAX_FILE_SIZE},
             )
         chunks.append(chunk)
 
@@ -103,7 +105,7 @@ def validate_wav_structure(path: Path) -> None:
 
 
 def validate_audio_duration(path: Path) -> None:
-    """Reject audio files longer than the configured maximum."""
+    """Reject audio files shorter than the configured minimum or longer than the configured maximum."""
     try:
         with wave.open(str(path), "rb") as wf:
             frames = wf.getnframes()
@@ -123,10 +125,18 @@ def validate_audio_duration(path: Path) -> None:
         )
 
     duration = frames / sample_rate
+    if duration < MIN_AUDIO_DURATION:
+        raise AppError(
+            status_code=400,
+            error_type=ErrorType.AUDIO_TOO_SHORT,
+            message=f"Audio is shorter than the {MIN_AUDIO_DURATION}s minimum duration.",
+            extra={
+                "duration_seconds": round(duration, 2),
+                "min_duration_seconds": MIN_AUDIO_DURATION,
+            },
+        )
+
     if duration > MAX_AUDIO_DURATION:
-        # Distinct from FILE_TOO_LARGE on purpose: the client caps duration before
-        # upload, so this arriving at all means the two sides disagree about the
-        # recording's length -- a client bug to surface, not a user error to soften.
         raise AppError(
             status_code=413,
             error_type=ErrorType.AUDIO_TOO_LONG,
@@ -136,3 +146,23 @@ def validate_audio_duration(path: Path) -> None:
                 "max_duration_seconds": MAX_AUDIO_DURATION,
             },
         )
+
+
+def validate_audio_contents(path: Path) -> None:
+    """Check that the audio file is not silent."""
+    try:
+        with wave.open(str(path), "rb") as wf:
+            frames = wf.readframes(wf.getnframes())
+            silence = 0x80 if wf.getsampwidth() == 1 else 0x00
+            if frames.count(silence) == len(frames):
+                raise AppError(
+                    status_code=400,
+                    error_type=ErrorType.BAD_REQUEST,
+                    message="Audio file is silent.",
+                )
+    except wave.Error as err:
+        raise AppError(
+            status_code=400,
+            error_type=ErrorType.BAD_REQUEST,
+            message="Could not read audio data.",
+        ) from err

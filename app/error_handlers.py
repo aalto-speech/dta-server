@@ -24,6 +24,7 @@ class ErrorType(str, Enum):
     FILE_TOO_LARGE = "FILE_TOO_LARGE"
     # 413 for a gzip body that inflates past the limit. FILE_TOO_LARGE is for recordings.
     PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
+    AUDIO_TOO_SHORT = "AUDIO_TOO_SHORT"
     AUDIO_TOO_LONG = "AUDIO_TOO_LONG"
     SCORING_UNAVAILABLE = "SCORING_UNAVAILABLE"
     NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
