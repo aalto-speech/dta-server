@@ -15,9 +15,7 @@ from app.models.events import (
     MAX_EVENTS_PER_BATCH,
     EventBatchRequest,
     EventName,
-    TASK_BUTTONS,
     Button,
-    ButtonClickedProperties,
     Dimension,
     EventProperties,
     RejectionReason,
@@ -27,21 +25,25 @@ from app.validators.events import validate_events
 
 # At least one valid and one invalid payload per EventName.
 VALID_PROPERTIES: dict[EventName, dict] = {
-    EventName.TASK_PANEL_TOGGLED: {"active": True},
+    EventName.ASA_SESSION_STARTED: {},
+    EventName.ASA_SESSION_ENDED: {"reason": "timeout"},
+    EventName.TASK_SELECTION_PANEL_TOGGLED: {"active": True},
     EventName.PROFILE_PANEL_TOGGLED: {"active": False},
-    EventName.ASA_PANEL_TOGGLED: {"active": True, "task_id": 1},
-    EventName.LOADING_PANEL_TOGGLED: {"active": False, "task_id": 5},
+    EventName.TASK_PANEL_TOGGLED: {"active": True, "task_id": 1},
+    EventName.LOADING_MODAL_TOGGLED: {"active": False, "task_id": 6},
     EventName.FEEDBACK_PANEL_TOGGLED: {"active": True, "task_id": 2, "assessment_id": 12},
-    EventName.INFO_POPUP_TOGGLED: {"active": True, "task_id": 3},
-    EventName.DIMENSION_TOGGLED: {"active": True, "task_id": 4, "dimension": "fluency"},
+    EventName.INFO_MODAL_TOGGLED: {"active": True, "task_id": 3},
+    EventName.DIMENSION_MODAL_TOGGLED: {"active": True, "task_id": 4, "dimension": "fluency"},
     EventName.PROFILE_PANEL_SCROLLED: {"depth": 0.25},
     EventName.FEEDBACK_PANEL_SCROLLED: {"depth": 1, "task_id": 2},
-    EventName.BUTTON_CLICKED: {"button_id": "record", "task_id": 3},
+    EventName.MIC_BUTTON_CLICKED: {"button_id": "record", "task_id": 3},
 }
 
 _TOGGLE_FAULTS = [{}, {"active": 1}, {"active": "true"}, {"active": None}]
-_TASK_FAULTS = [{"task_id": 0}, {"task_id": 6}, {"task_id": "1"}, {"task_id": True},
+_TASK_FAULTS = [{"task_id": 0}, {"task_id": -1}, {"task_id": "1"}, {"task_id": True},
                 {"task_id": 1.5}, {"task_id": None}]
+_FEEDBACK_PANEL = {"active": True, "task_id": 1, "assessment_id": 4}
+_DIMENSION_MODAL = {"active": True, "task_id": 1, "dimension": "range"}
 
 
 def _task_scoped_faults(valid: dict) -> list[dict]:
@@ -49,27 +51,33 @@ def _task_scoped_faults(valid: dict) -> list[dict]:
 
     return (
         [{**valid, **fault} for fault in _TOGGLE_FAULTS[1:] + _TASK_FAULTS]
-        + [{"active": True}, {**valid, "title": "Results"}]
+        + [{k: v for k, v in valid.items() if k != "task_id"},
+           {**valid, "title": "Results"}]
     )
 
 
 INVALID_PROPERTIES: dict[EventName, list[dict]] = {
-    EventName.TASK_PANEL_TOGGLED: _TOGGLE_FAULTS + [{"active": True, "task_id": 1}],
-    EventName.PROFILE_PANEL_TOGGLED: _TOGGLE_FAULTS + [{"active": True, "anything": 1}],
-    EventName.ASA_PANEL_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}),
-    EventName.LOADING_PANEL_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}),
-    EventName.FEEDBACK_PANEL_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}) + [
-        {"active": True, "task_id": 1, "assessment_id": 0},
-        {"active": True, "task_id": 1, "assessment_id": "12"},
-        {"active": True, "task_id": 1, "assessment_id": False},
+    EventName.ASA_SESSION_STARTED: [{"reason": "quit"}, {"anything": 1}],
+    EventName.ASA_SESSION_ENDED: [
+        {"reason": "Quit"}, {"reason": ""}, {"reason": "crashed"}, {"reason": 1},
+        {"reason": None}, {"reason": "quit", "screen": "profile"},
     ],
-    EventName.INFO_POPUP_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}),
-    EventName.DIMENSION_TOGGLED: _task_scoped_faults(
-        {"active": True, "task_id": 1, "dimension": "range"}) + [
+    EventName.TASK_SELECTION_PANEL_TOGGLED: _TOGGLE_FAULTS + [{"active": True, "task_id": 1}],
+    EventName.PROFILE_PANEL_TOGGLED: _TOGGLE_FAULTS + [{"active": True, "anything": 1}],
+    EventName.TASK_PANEL_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}),
+    EventName.LOADING_MODAL_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}),
+    EventName.FEEDBACK_PANEL_TOGGLED: _task_scoped_faults(_FEEDBACK_PANEL) + [
         {"active": True, "task_id": 1},
-        {"active": True, "task_id": 1, "dimension": "Fluency"},
-        {"active": True, "task_id": 1, "dimension": "range_score"},
-        {"active": True, "task_id": 1, "dimension": 1},
+        {**_FEEDBACK_PANEL, "assessment_id": 0},
+        {**_FEEDBACK_PANEL, "assessment_id": "12"},
+        {**_FEEDBACK_PANEL, "assessment_id": False},
+    ],
+    EventName.INFO_MODAL_TOGGLED: _task_scoped_faults({"active": True, "task_id": 1}),
+    EventName.DIMENSION_MODAL_TOGGLED: _task_scoped_faults(_DIMENSION_MODAL) + [
+        {"active": True, "task_id": 1},
+        {**_DIMENSION_MODAL, "dimension": "Fluency"},
+        {**_DIMENSION_MODAL, "dimension": "range_score"},
+        {**_DIMENSION_MODAL, "dimension": 1},
     ],
     EventName.PROFILE_PANEL_SCROLLED: [
         {}, {"depth": -0.01}, {"depth": 1.01}, {"depth": "0.5"}, {"depth": True},
@@ -79,35 +87,35 @@ INVALID_PROPERTIES: dict[EventName, list[dict]] = {
         {"depth": 0.5}, {"task_id": 1}, {"depth": 2, "task_id": 1},
         {"depth": 0.5, "task_id": 0}, {"depth": 0.5, "task_id": "1"},
     ],
-    EventName.BUTTON_CLICKED: [
+    EventName.MIC_BUTTON_CLICKED: [
         {},
-        {"button_id": ""},
-        {"button_id": "settings"},
+        {"task_id": 1},
+        {"button_id": "", "task_id": 1},
+        {"button_id": "settings", "task_id": 1},
         {"button_id": "Record", "task_id": 1},
-        {"button_id": "task_1"},
-        {"button_id": 1},
-        {"button_id": "record"},
-        {"button_id": "task"},
-        {"button_id": "profile", "task_id": 1},
-        {"button_id": "asa", "task_id": 1},
-        {"button_id": "record", "task_id": 6},
+        {"button_id": 1, "task_id": 1},
+        {"button_id": "record", "task_id": 0},
+        {"button_id": "record", "task_id": "1"},
         {"button_id": "record", "task_id": 1, "label": "Record"},
     ],
 }
 
 
 @pytest.mark.parametrize("button", list(Button))
-def test_every_button_parses_with_or_without_a_task_as_scoped(button: Button):
-    """Task buttons need a task_id, the others refuse one: the mirror image fails."""
+def test_every_mic_button_needs_a_task(button: Button):
+    """Record, stop and replay all happen on a task, so each needs its task_id."""
 
-    with_task = {"button_id": button.value, "task_id": 2}
-    without_task = {"button_id": button.value}
-    valid, invalid = ((with_task, without_task) if button in TASK_BUTTONS
-                      else (without_task, with_task))
+    model = EVENT_PROPERTY_MODELS[EventName.MIC_BUTTON_CLICKED]
 
-    ButtonClickedProperties.model_validate(valid)
+    model.model_validate({"button_id": button.value, "task_id": 2})
     with pytest.raises(ValidationError):
-        ButtonClickedProperties.model_validate(invalid)
+        model.model_validate({"button_id": button.value})
+
+
+def test_asa_session_ended_defaults_to_a_quit():
+    model = EVENT_PROPERTY_MODELS[EventName.ASA_SESSION_ENDED]
+
+    assert model.model_validate({}).model_dump() == {"reason": "quit"}
 
 
 def test_dimensions_match_the_score_keys_of_speech_assess():
@@ -177,7 +185,7 @@ def test_property_models_have_no_nested_free_form_values(model: type[BaseModel])
 def _batch(**overrides) -> dict:
     data = {
         "guid": str(uuid4()),
-        "session_id": str(uuid4()),
+        "asa_session_id": str(uuid4()),
         "app_version": "2.1.0+build.7",
         "events": [{}],
     }
@@ -212,7 +220,7 @@ def test_batch_request_bounds_the_event_count(count: int, ok: bool):
 NOW = datetime(2026, 10, 2, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def _raw(name: str = "task_panel_toggled", **overrides) -> dict:
+def _raw(name: str = "task_selection_panel_toggled", **overrides) -> dict:
     event = {"event_id": str(uuid4()), "name": name, "occurred_at": NOW.isoformat(),
              "properties": {"active": True}}
     event.update(overrides)
@@ -245,7 +253,7 @@ def test_validate_events_keeps_request_indices():
 
 def test_validate_events_without_assessment_reference_has_no_refs():
     valid, _ = validate_events([
-        _raw("feedback_panel_toggled", properties={"active": True, "task_id": 1}),
+        _raw("task_panel_toggled", properties={"active": True, "task_id": 1}),
     ], now=NOW)
 
     assert valid[0].assessment_ids == set()
