@@ -14,7 +14,7 @@ from pydantic import (
     create_model,
 )
 
-MAX_EVENTS_PER_BATCH = 100
+MAX_EVENTS_PER_BATCH = 200
 
 # Outside this window: a device clock fault or a stale buffer.
 MAX_EVENT_AGE = timedelta(days=30)
