@@ -171,7 +171,7 @@ events_router = APIRouter(route_class=GzipRequestRoute)
     },
 )
 def events(data: EventBatchRequest) -> Response:
-    """Record a batch of 1-100 behaviour events.
+    """Record a batch of 1-200 behaviour events.
 
     The JSON body may be sent with `Content-Encoding: gzip` or uncompressed.
     Invalid events are dropped and logged on the server; the response does not say which.

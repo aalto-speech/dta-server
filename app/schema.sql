@@ -233,8 +233,9 @@ CREATE TABLE
 
 -- How long each panel and modal stayed open, paired from its *_toggled events.
 -- An activation pairs with the next toggle of the same thing (name, task, dimension) in
--- the same session. When that toggle is not a deactivation, one was lost -- the app was
--- killed, or the event was rejected -- so closed_at and duration_ms are NULL, not a guess.
+-- the same session. When that toggle is not a deactivation, or no later toggle has
+-- arrived, one was lost -- the app was killed, or the event was rejected -- so closed_at
+-- and duration_ms are NULL, not a guess.
 -- Durations come from the device clock: see user_events.occurred_at.
 CREATE VIEW IF NOT EXISTS user_event_durations AS
 WITH

@@ -21,7 +21,6 @@ MAX_EVENT_AGE = timedelta(days=30)
 MAX_EVENT_CLOCK_SKEW = timedelta(minutes=5)
 
 EVENT_NAME_MAX_LENGTH = 64
-QUIT_REASON_MAX_LENGTH = 16
 
 
 class EventProperties(BaseModel):
@@ -44,10 +43,7 @@ ScrollDepth = Annotated[float, Field(
 
 
 class Button(StrEnum):
-    """Accepted `button_id` values for `mic_button_clicked`.
-
-    These are currently used only for the record button, but the enum could be extended for other buttons.
-    """
+    """Accepted `button_id` values for `mic_button_clicked`."""
 
     RECORD = "record"
     REPLAY = "replay"
@@ -77,9 +73,12 @@ class ASASessionStartedProperties(EventProperties):
 
 
 class ASASessionEndedProperties(EventProperties):
-    """Properties for `asa_session_ended`, the last event of a session. None.
+    """Properties for `asa_session_ended`, the last event of a session.
 
     Sent on quitting from any screen, so its `occurred_at` is the quit time.
+
+    Attributes:
+        reason: Why the session ended. Defaults to quit.
     """
 
     reason: QuitReason = Field(default=QuitReason.QUIT)

@@ -47,6 +47,7 @@ The deployment consists of **two images that move together**: the app
      ```
    - Wait for the scorer to come up (`~20 s` on GPU, `~10 min` on CPU staging),
      then run its self-test:
+
      ```bash
      podman logs -f dta-inference        # until "ready: finnish-v3_..."
      podman exec dta-inference python selftest.py    # must end with PASS
@@ -55,6 +56,7 @@ The deployment consists of **two images that move together**: the app
      On a CPU staging host, do **not** run selftest next to the serving container —
      it loads a second ~10 GB model copy and can OOM the box. See the memory
      warning in [../inference/docs/DEPLOY_STAGING.md](../inference/docs/DEPLOY_STAGING.md).
+
    - Test the main endpoints (e.g., `/ping`, `/status`) and score one recording.
 
 ## Updating the model weights
@@ -82,17 +84,27 @@ with the stack stopped; it is idempotent, backs up first, and verifies afterward
 ```bash
 systemctl --user stop dta-compose.service
 DB=$(podman volume inspect -f '{{.Mountpoint}}' dta_database)/dta.db
-python3 scripts/dta_production/migrate_v1_3_0.py --db "$DB"           # dry run first
-python3 scripts/dta_production/migrate_v1_3_0.py --db "$DB" --apply
+python3 scripts/dta_production/migrate_v1_5_0.py --db "$DB"           # dry run first
+python3 scripts/dta_production/migrate_v1_5_0.py --db "$DB" --apply
 systemctl --user start dta-compose.service
 ```
 
-The v1.3.0 migration adds `users.current_cefr_level` and `feedback.updated_at`, collapses
-duplicate feedback answers, and backfills `user_cefr_history`. **Collected assessments and
-audio survive** — that is the point of migrating rather than recreating.
+Each script migrates from the release before it, so a database several releases behind
+runs them in version order (`migrate_v1_3_0.py`, then `migrate_v1_4_0.py`, then
+`migrate_v1_5_0.py`). A script that has nothing to do says so and exits.
 
-`tests/test_migration_v1_3_0.py` asserts a migrated database ends up the same shape as one
-built fresh from `schema.sql`, so the two paths cannot drift apart silently.
+- **v1.3.0** adds `users.current_cefr_level` and `feedback.updated_at`, collapses duplicate
+  feedback answers, and backfills `user_cefr_history`.
+- **v1.4.0** rebuilds `user_requests` without its foreign key to `users`, so a deletion
+  record outlives the user it records.
+- **v1.5.0** adds the `user_events` table, the `user_event_durations` view and their
+  indexes, for `POST /events`.
+
+**Collected assessments and audio survive** — that is the point of migrating rather than
+recreating.
+
+Each `tests/test_migration_v*.py` asserts a migrated database ends up the same shape as
+one built fresh from `schema.sql`, so the two paths cannot drift apart silently.
 
 ### Recreating the database (last resort)
 
