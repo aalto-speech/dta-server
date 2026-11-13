@@ -2,7 +2,8 @@
 
 What the client sends to `POST /events` while a learner is in the Automatic Speaking
 Assessment (ASA). Rules: [`app/models/events.py`](../app/models/events.py). Storage:
-`user_events` and `user_event_durations` in [`app/schema.sql`](../app/schema.sql).
+`user_events` and `user_event_durations` in [`app/schema.sql`](../app/schema.sql). Getting
+the data off the server, and what to watch for when analysing it: [DATA.md](./DATA.md).
 
 ## Request
 
@@ -22,7 +23,7 @@ Assessment (ASA). Rules: [`app/models/events.py`](../app/models/events.py). Stor
 }
 ```
 
-- 1–100 events, one session per batch. Gzip allowed, 10 MB max uncompressed.
+- 1–200 events, one session per batch. Gzip allowed, 10 MB max uncompressed.
 - `occurred_at` needs a timezone; at most 30 days old, 5 minutes ahead.
 - Properties must match the chart exactly, or the event is dropped.
 

@@ -10,6 +10,8 @@ These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the a
   `percentile`/`rank` for analysis plus a `display` object holding the bucketed position
   the app is meant to render — see [Cohort position](#cohort-position).
 - `POST /feedback`: feedback submission (upserts on `guid` + `assessment_id` + type).
+- `POST /events`: in-app behaviour events, 1–200 per batch, plain or gzip JSON
+  (since v1.5.0) — see [USER_EVENTS.md](./USER_EVENTS.md).
 - `POST /speech/assess`: WAV upload and speech scoring.
 - `POST /onboarding`: create a user from onboarding data.
 - `PATCH /users/level`: move the CEFR level a user is working at.

@@ -13,7 +13,9 @@ DEFAULT_AUDIO_DIR="$(dirname "$DB_PATH")/audio"
 AUDIO_DIR="${AUDIO_DIR:-$DEFAULT_AUDIO_DIR}"
 OUT_DIR=""
 TABLES=()
-DEFAULT_TABLES=(users assessments feedback user_requests user_cefr_history)
+DEFAULT_TABLES=(users assessments feedback user_requests user_cefr_history user_events)
+USING_DEFAULT_TABLES=0
+SKIPPED_TABLES=()
 WITH_AUDIO=1
 PRUNE_AUDIO=0
 
@@ -41,7 +43,9 @@ Options:
   -h, --help         Show this help.
 
 Default tables:
-  users, assessments, feedback, user_requests, user_cefr_history
+  users, assessments, feedback, user_requests, user_cefr_history, user_events
+  A default table the database does not have yet (a backup from before v1.5.0 has no
+  user_events) is skipped with a note. A table named with --table/--tables must exist.
 
 Examples:
   export_server_data.sh
@@ -119,6 +123,12 @@ export_table() {
   local exists
   exists="$(sqlite3 -readonly -noheader "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '$table';")"
   if [[ "$exists" != "1" ]]; then
+    # An older schema, not a typo: still export the rest, and say what was left out.
+    if [[ "$USING_DEFAULT_TABLES" -eq 1 ]]; then
+      echo "Skipped table: $table is not in this database (older schema, see docs/UPDATING.md)" >&2
+      SKIPPED_TABLES+=("$table")
+      return
+    fi
     local available
     available="$(sqlite3 -readonly -noheader "$DB_PATH" "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;")"
     echo "Missing table: $table" >&2
@@ -317,6 +327,7 @@ mkdir -p "$OUT_DIR"
 
 if [[ ${#TABLES[@]} -eq 0 ]]; then
   TABLES=("${DEFAULT_TABLES[@]}")
+  USING_DEFAULT_TABLES=1
 fi
 
 for TABLE in "${TABLES[@]}"; do
@@ -341,5 +352,8 @@ fi
 
 echo ""
 echo "Done. Exported $EXPORTED_TABLE_COUNT table(s), $EXPORTED_ROW_COUNT row(s), $EXPORTED_AUDIO_COUNT recording(s)."
+if [[ ${#SKIPPED_TABLES[@]} -gt 0 ]]; then
+  echo "Skipped, not in this database: ${SKIPPED_TABLES[*]}"
+fi
 
 report_compliance
