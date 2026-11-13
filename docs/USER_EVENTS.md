@@ -43,23 +43,24 @@ the data off the server, and what to watch for when analysing it: [DATA.md](./DA
 - `*_toggled` is sent on open (`active: true`) and close (`active: false`).
 - Dotted edges: the learner can quit from any screen. `asa_session_ended` marks the quit
   time.
+- `language_changed` comes from the language dropdowns: see [Language changes](#language-changes).
 
 ```mermaid
 flowchart TD
     App([Application]) --> Advanced
-    Advanced([Advanced panel]) --> |"tap on 'Automatic Speaking Assessment'"| Open
+    Advanced(["Advanced panel<br/>language dropdown: nothing sent here"]) --> |"tap on 'Automatic Speaking Assessment'"| Open
 
     subgraph Session["User events are only saved within this session."]
-        Open{{"client generates a new asa_session_id (UUID)<br/>asa_session_started "}}
+        Open{{"client generates a new asa_session_id (UUID)<br/>asa_session_started {language}<br/>language_changed {from_language, to_language}, only if changed since the last session"}}
         Open --> TaskSelection
-        TaskSelection["Task Selection: task list<br/>task_selection_panel_toggled {active}"]
+        TaskSelection["Task Selection: task list<br/>task_selection_panel_toggled {active}<br/>language_changed {from_language, to_language}"]
 
         TaskSelection -->|"tap on 'profile'"| Profile
         Profile["Profile panel<br/>profile_panel_toggled {active}<br/>profile_panel_scrolled {depth}"]
         Profile -->|close| TaskSelection
 
         TaskSelection -->|"tap on a 'task'"| CurrentTask
-        CurrentTask["Task: current task<br/>task_panel_toggled {active, task_id}"]
+        CurrentTask["Task: current task<br/>task_panel_toggled {active, task_id}<br/>language_changed {from_language, to_language}"]
         CurrentTask -->|close| TaskSelection
 
         CurrentTask -->|"mic_button_clicked: record {task_id}"| Recording(("Recording"))
@@ -86,3 +87,25 @@ flowchart TD
 
     Close --> App
 ```
+
+## Language changes
+
+`asa_session_started {language}` records the app language a session starts in, and
+`language_changed {from_language, to_language}` records the learner picking another one.
+Together they give a session's language at every point. The values are the app's Unity
+locale codes: `bn`, `en`, `et`, `fa`, `fi`, `ru`, `sv`, `uk`, `vi`, `zh`. Any other value is
+dropped, so **a language added to the app must also be added to `Language` in
+`app/models/events.py`, and that server release must ship first.**
+
+`language` on `asa_session_started` is optional. A client that leaves it out still has its
+session start stored, with `language` as `null`, which means "not reported", not a
+language.
+
+- **Inside a session** (the dropdown on the task list or a task screen), it is sent at the
+  moment of the pick.
+- **Outside a session** (the dropdown on the Advanced panel), the client cannot send it.
+  The next session sends one `language_changed` right after `asa_session_started`, from
+  the language the server last heard about to the current one. Its `occurred_at` is the
+  session start, not the pick. Switching away and back again in between sends nothing.
+- A learner who never changes language sends no `language_changed`. Their language is
+  the one on `asa_session_started`.
