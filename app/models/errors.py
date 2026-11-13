@@ -21,6 +21,7 @@ class ErrorDetail(BaseModel):
     # SCORING_UNAVAILABLE adds `reason` (starting_up | busy | unreachable);
     # FILE_TOO_LARGE adds size_bytes/max_size_bytes; AUDIO_TOO_LONG adds
     # duration_seconds/max_duration_seconds.
+    # PAYLOAD_TOO_LARGE adds max_size_bytes.
     model_config = {"extra": "allow"}
 
 

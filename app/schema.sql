@@ -205,6 +205,92 @@ CREATE TABLE
     FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
   );
 
+-- In-app behaviour events for POST /events. Only validated values are stored.
+-- No CHECK on `name`: it is validated in app/models/events.py, so new events need no
+-- migration. Erased with the user by the cascade.
+CREATE TABLE
+  IF NOT EXISTS user_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guid TEXT NOT NULL,
+    -- Client-generated, so retries are stored once. Unique per guid, not globally.
+    event_id TEXT NOT NULL,
+    -- Client-generated when the ASA session starts (asa_session_started), cleared when it
+    -- ends (asa_session_ended).
+    asa_session_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    properties TEXT NOT NULL CHECK (
+      json_valid (properties)
+      AND json_type (properties) = 'object'
+    ),
+    app_version TEXT NOT NULL,
+    -- Device clock in UTC, CURRENT_TIMESTAMP format plus ms. Devices drift: compare with
+    -- received_at before trusting fine-grained timing.
+    occurred_at TEXT NOT NULL,
+    received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, -- the server clock
+    UNIQUE (guid, event_id),
+    FOREIGN KEY (guid) REFERENCES users (guid) ON DELETE CASCADE
+  );
+
+-- How long each panel and modal stayed open, paired from its *_toggled events.
+-- An activation pairs with the next toggle of the same thing (name, task, dimension) in
+-- the same session. When that toggle is not a deactivation, or no later toggle has
+-- arrived, one was lost -- the app was killed, or the event was rejected -- so closed_at
+-- and duration_ms are NULL, not a guess.
+-- Durations come from the device clock: see user_events.occurred_at.
+CREATE VIEW IF NOT EXISTS user_event_durations AS
+WITH
+  toggles AS (
+    SELECT
+      guid,
+      asa_session_id,
+      name,
+      json_extract (properties, '$.task_id') AS task_id,
+      json_extract (properties, '$.dimension') AS dimension,
+      json_extract (properties, '$.assessment_id') AS assessment_id,
+      json_extract (properties, '$.active') AS active,
+      occurred_at,
+      LEAD (json_extract (properties, '$.active')) OVER w AS next_active,
+      LEAD (occurred_at) OVER w AS next_occurred_at
+    FROM
+      user_events
+    WHERE
+      name LIKE '%\_toggled' ESCAPE '\'
+    WINDOW
+      w AS (
+        PARTITION BY
+          guid,
+          asa_session_id,
+          name,
+          json_extract (properties, '$.task_id'),
+          json_extract (properties, '$.dimension')
+        ORDER BY
+          occurred_at,
+          id
+      )
+  )
+SELECT
+  guid,
+  asa_session_id,
+  name,
+  task_id,
+  dimension,
+  assessment_id,
+  occurred_at AS opened_at,
+  CASE
+    WHEN next_active = 0 THEN next_occurred_at
+  END AS closed_at,
+  CASE
+    WHEN next_active = 0 THEN CAST(
+      ROUND(
+        (julianday (next_occurred_at) - julianday (occurred_at)) * 86400000
+      ) AS INTEGER
+    )
+  END AS duration_ms
+FROM
+  toggles
+WHERE
+  active = 1;
+
 -- Indexes to optimize queries by guid and created_at for assessments and feedback tables
 CREATE INDEX IF NOT EXISTS idx_assessments_guid_created_at ON assessments (guid, created_at);
 
@@ -233,3 +319,7 @@ WHERE
   proficiency IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_users_cefr_level ON users (cefr_level);
+
+CREATE INDEX IF NOT EXISTS idx_user_events_guid_occurred_at ON user_events (guid, occurred_at);
+
+CREATE INDEX IF NOT EXISTS idx_user_events_name_occurred_at ON user_events (name, occurred_at);

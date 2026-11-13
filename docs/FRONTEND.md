@@ -50,7 +50,8 @@ Every error returns the same envelope with an HTTP status:
 
 Branch on `detail.type`, never on the message text. Types you can receive:
 `BAD_REQUEST`, `INVALID_API_KEY`, `USER_NOT_FOUND`, `USER_CONSENT_MISSING`,
-`UNSUPPORTED_MEDIA_TYPE`, `FILE_TOO_LARGE`, `AUDIO_TOO_LONG`, `SCORING_UNAVAILABLE`,
+`UNSUPPORTED_MEDIA_TYPE`, `FILE_TOO_LARGE`, `AUDIO_TOO_SHORT`, `AUDIO_TOO_LONG`,
+`SCORING_UNAVAILABLE`,
 `NOT_IMPLEMENTED`, `GUID_ALREADY_REGISTERED`, `DATABASE_CONSTRAINT_ERROR`,
 `DATABASE_UNAVAILABLE`, `DATABASE_ERROR`, `INTERNAL_SERVER_ERROR`, `HTTP_ERROR`,
 `VALIDATION_ERROR`.
@@ -171,7 +172,8 @@ The main endpoint: uploads a recording, returns scores and the transcript.
 | `description` | string, optional | ≤ 512 characters |
 
 Audio requirements — validated server-side, so enforce them client-side to avoid a
-wasted upload: **WAV (PCM)**, **≤ 90 seconds**, **≤ 10 MB**. The model works from
+wasted upload: **WAV (PCM)**, **3–90 seconds**, **≤ 10 MB**, and **not completely
+silent** (both since v1.4.0, see Errors below). The model works from
 16 kHz mono; anything else is resampled, so recording 16 kHz mono directly keeps
 uploads small (~1.9 MB per minute). Only the first 120 s of audio would ever be
 considered by the model, which the 90 s limit already stays under.
@@ -367,9 +369,12 @@ Four rules, all load-bearing:
    worst genuine answer, so `off_topic` should be rare and mostly means silence or an
    answer given in another language. Do not add a threshold of your own on `confidence`;
    branch on `relevance` alone.
-4. **An empty or silent recording also returns `off_topic`**, with `reason` naming the
-   no-speech case. That is the most common way a learner will meet this — 11 of the first
-   14 production recordings were silence that the ASR hallucinated words for.
+4. **A recording with no recognisable speech also returns `off_topic`**, with `reason`
+   naming the no-speech case. That is the most common way a learner will meet this — 11
+   of the first 14 production recordings were silence that the ASR hallucinated words for.
+   Since v1.4.0 a file that is *completely* silent (every sample at zero, e.g. a muted
+   microphone) never gets this far: it is rejected with `400 BAD_REQUEST` before scoring
+   (see Errors below). Room noise without speech still comes back `off_topic`.
 
 On `partial` specifically: a short, plain prompt — *"Remember to answer the question in
 the task"* — is the right register. Measured on the production GPU, an A1-level answer
@@ -419,7 +424,8 @@ the 503 they could act on. If this number ever changes it changes here first.
 | 404 | `USER_NOT_FOUND` | Not onboarded — send the user through onboarding |
 | 403 | `USER_CONSENT_MISSING` | Consent was not accepted |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Wrong `Content-Type` on the file part |
-| 400 | `BAD_REQUEST` | Not a `.wav` filename, corrupt WAV, or unmapped `task_id` |
+| 400 | `BAD_REQUEST` | Not a `.wav` filename, corrupt or unreadable WAV, unmapped `task_id`, or (v1.4.0) a completely silent recording, message `"Audio file is silent."` — often a muted or blocked microphone, so check mic permission before asking for a retry |
+| 400 | `AUDIO_TOO_SHORT` | Under 3 s (v1.4.0). `detail` carries `duration_seconds` and `min_duration_seconds` — often a recording stopped by accident; ask the learner to record again |
 | 413 | `FILE_TOO_LARGE` | Over 10 MB. `detail` carries `size_bytes` and `max_size_bytes` — a short recording landing here means the client wrote the WAV at the wrong rate or depth |
 | 413 | `AUDIO_TOO_LONG` | Over 90 s (v1.2.0; was `FILE_TOO_LARGE` before). `detail` carries `duration_seconds` and `max_duration_seconds` — arriving here at all means client and server disagree about the recording's length |
 | 503 | `SCORING_UNAVAILABLE` | See below — `detail.reason` says which case you are in |

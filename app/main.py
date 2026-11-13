@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from time import monotonic
 
-from fastapi import Depends, FastAPI, Form
+from fastapi import APIRouter, Depends, FastAPI, Form
 from fastapi.responses import JSONResponse, Response
 
 from app.config import SETTINGS
@@ -15,6 +15,7 @@ from app.models.analytics import (
     NoRankAvailable,
 )
 from app.models.errors import ErrorEnvelope, ValidationErrorEnvelope
+from app.models.events import EventBatchRequest
 from app.models.feedback import FeedbackRequest
 from app.models.onboarding import OnboardingRequest
 from app.models.speech_assessment import (
@@ -25,10 +26,12 @@ from app.models.user_requests import DeleteUserRequest
 from app.models.users import SetUserCEFRLevelRequest, SetUserCEFRLevelResponse
 from app.services.admin_service import delete_user
 from app.services.analytics_service import get_comparison
+from app.services.event_service import record_events
 from app.services.feedback_service import record_feedback
 from app.services.onboarding_service import create_onboarding_user
 from app.services.speech_assessment_service import assess_speech_request
 from app.services.user_service import update_user_cefr_level
+from app.utils.gzip_request import GzipRequestRoute
 from app.utils.logger import configure_app_logging, get_logger
 
 configure_app_logging(SETTINGS.logs_save_dir, SETTINGS.log_level)
@@ -151,6 +154,40 @@ async def feedback(data: FeedbackRequest = Form()) -> JSONResponse:
     """
 
     return record_feedback(data)
+
+
+# Own router so the route can use GzipRequestRoute, since @app.post cannot set a route class.
+events_router = APIRouter(route_class=GzipRequestRoute)
+
+
+@events_router.post(
+    "/events",
+    status_code=202,
+    response_class=Response,
+    responses={
+        202: {"description": "Batch received. Drop it from the buffer; send nothing again."},
+        400: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE,
+        409: ERROR_RESPONSE, 413: ERROR_RESPONSE, 415: ERROR_RESPONSE,
+    },
+)
+def events(data: EventBatchRequest) -> Response:
+    """Record a batch of 1-200 behaviour events.
+
+    The JSON body may be sent with `Content-Encoding: gzip` or uncompressed.
+    Invalid events are dropped and logged on the server; the response does not say which.
+    A resent `event_id` is stored once.
+
+    Args:
+        data: Events payload including user GUID and the raw events.
+
+    Returns:
+        Response: 202 with no body.
+    """
+
+    return record_events(data)
+
+
+app.include_router(events_router)
 
 
 @app.post(

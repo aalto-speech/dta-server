@@ -10,6 +10,8 @@ These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the a
   `percentile`/`rank` for analysis plus a `display` object holding the bucketed position
   the app is meant to render — see [Cohort position](#cohort-position).
 - `POST /feedback`: feedback submission (upserts on `guid` + `assessment_id` + type).
+- `POST /events`: in-app behaviour events, 1–200 per batch, plain or gzip JSON
+  (since v1.5.0) — see [USER_EVENTS.md](./USER_EVENTS.md).
 - `POST /speech/assess`: WAV upload and speech scoring.
 - `POST /onboarding`: create a user from onboarding data.
 - `PATCH /users/level`: move the CEFR level a user is working at.
@@ -146,4 +148,6 @@ ceiling; on CPU staging the same calls take 30–60 s, which is why staging sets
 
 Uploads are rejected above **90 s** of audio (`413 AUDIO_TOO_LONG` since v1.2.0, with
 the measured `duration_seconds` in `detail`) or 10 MB (`413 FILE_TOO_LARGE`, with
-`size_bytes`; Caddy also enforces 10 MB at the proxy).
+`size_bytes`; Caddy also enforces 10 MB at the proxy). Since v1.4.0 they are also
+rejected under **3 s** (`400 AUDIO_TOO_SHORT`, with `duration_seconds`) and when every
+sample is silent (`400 BAD_REQUEST`, "Audio file is silent.").

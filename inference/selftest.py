@@ -124,6 +124,13 @@ def main() -> int:
         # Supplied transcripts, so this tests the judge and not the ASR. The task asks what
         # the candidate normally does at home; the second answer is about a nuclear reactor,
         # which is the research repo's own attack shape.
+        #
+        # The wrong-subject answer must not pass as on_topic, but `partial` is a pass. Since
+        # v1.3.0 `off_topic` needs p(bad) >= OFF_TOPIC_MIN_CONFIDENCE (0.70), and a fluent
+        # wrong-subject answer lands below that on purpose -- warned, not accused (see
+        # relevance.py). This check demanded `off_topic` until v1.4.0 and so failed on every
+        # v1.3.0+ image, with the same numbers on v1.3.0 and v1.4.0 (on_topic 0.93 /
+        # partial 0.89 on the production P100).
         home = cat.get("04_h")
         t2 = time.perf_counter()
         on = pipe.judge.judge(home, "Kotona minä teen ruokaa ja siivoan melkein joka päivä. "
@@ -133,7 +140,7 @@ def main() -> int:
                                      "tärkeää turvallisuuden takia.")
         judge_ms = (time.perf_counter() - t2) * 500  # two calls
         check("judge separates on-topic from off-topic",
-              on["relevance"] == "on_topic" and off["relevance"] == "off_topic",
+              on["relevance"] == "on_topic" and off["relevance"] in ("partial", "off_topic"),
               f"on={on['relevance']} {on['confidence']:.2f} / "
               f"off={off['relevance']} {off['confidence']:.2f}, ~{judge_ms:.0f} ms each")
         check("silence is not sent to the judge",
