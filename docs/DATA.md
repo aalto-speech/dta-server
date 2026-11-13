@@ -66,6 +66,25 @@ rather than a keystroke log. `created_at` is when they first answered, `updated_
 they settled. Rows for `comparison_ui` / `overall_experience` carry no `assessment_id` and
 are not deduplicated.
 
+`user_events` arrived in v1.5.0: one row per in-app behaviour event from `POST /events`,
+such as a panel or modal opened or closed, a mic button tap, how far a panel was scrolled,
+or an assessment session starting or ending. [USER_EVENTS.md](./USER_EVENTS.md) lists every
+event and its properties. The export script writes it as `user_events.csv`. Before
+analysing it:
+
+- `properties` is a JSON object stored as text, so that CSV column holds JSON. Parse it.
+- `occurred_at` is the **device** clock and `received_at` the server's. Phones drift, so
+  compare the two before trusting fine-grained timing.
+- No rows for a user means nothing was recorded, not that they did nothing. Only app
+  versions that send events produce rows, and only from v1.5.0 on. Events that fail
+  validation are dropped and logged on the server.
+- How long each panel stayed open is the `user_event_durations` view. A `NULL`
+  `closed_at` / `duration_ms` means the closing event never arrived (the app was killed,
+  or the event was dropped), not a zero duration. A view is not a table, so it is not in
+  the CSV export: query it on a database snapshot (below), for example
+  `sqlite3 -header -csv dta-snapshot.db "SELECT * FROM user_event_durations"`.
+- Deleting a user deletes their events with them, like their assessments.
+
 The portable way to find any volume's host path (works on every server, staging or
 production, migrated or not):
 
