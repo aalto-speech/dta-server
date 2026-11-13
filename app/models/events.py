@@ -68,8 +68,35 @@ class QuitReason(StrEnum):
     ERROR = "error"
 
 
+class Language(StrEnum):
+    """Accepted app language codes, the app's Unity locale codes.
+
+    Used by `asa_session_started` and `language_changed`.
+
+    A language added to the app must be added here too, or its changes are rejected.
+    """
+
+    BN = "bn"
+    EN = "en"
+    ET = "et"
+    FA = "fa"
+    FI = "fi"
+    RU = "ru"
+    SV = "sv"
+    UK = "uk"
+    VI = "vi"
+    ZH = "zh"
+
+
 class ASASessionStartedProperties(EventProperties):
-    """Properties for `asa_session_started`, the first event of a session. None."""
+    """Properties for `asa_session_started`, the first event of a session.
+
+    Attributes:
+        language: The app language the session starts in. Optional, so sessions from a
+            client that does not send it are still recorded; it is stored as null then.
+    """
+
+    language: Language | None = None
 
 
 class ASASessionEndedProperties(EventProperties):
@@ -188,6 +215,22 @@ class MicrophoneButtonClickedProperties(ButtonClickedProperties):
     task_id: TaskId
 
 
+class LanguageChangedProperties(EventProperties):
+    """Properties for `language_changed`: the learner picked another app language.
+
+    Sent at the pick when it happens inside a session. A pick made outside one is sent
+    right after the next `asa_session_started`, at the session start, from the language
+    the server last heard about.
+
+    Attributes:
+        from_language: The language before the change.
+        to_language: The language picked.
+    """
+
+    from_language: Language
+    to_language: Language
+
+
 class EventName(StrEnum):
     """Accepted event names."""
 
@@ -198,6 +241,7 @@ class EventName(StrEnum):
     FEEDBACK_PANEL_SCROLLED = "feedback_panel_scrolled"
     FEEDBACK_PANEL_TOGGLED = "feedback_panel_toggled"
     INFO_MODAL_TOGGLED = "info_modal_toggled"
+    LANGUAGE_CHANGED = "language_changed"
     LOADING_MODAL_TOGGLED = "loading_modal_toggled"
     PROFILE_PANEL_SCROLLED = "profile_panel_scrolled"
     PROFILE_PANEL_TOGGLED = "profile_panel_toggled"
@@ -213,6 +257,7 @@ EVENT_PROPERTY_MODELS: dict[EventName, type[EventProperties]] = {
     EventName.FEEDBACK_PANEL_SCROLLED: FeedbackPanelScrolledProperties,
     EventName.FEEDBACK_PANEL_TOGGLED: FeedbackPanelToggledProperties,
     EventName.INFO_MODAL_TOGGLED: InfoModalToggledProperties,
+    EventName.LANGUAGE_CHANGED: LanguageChangedProperties,
     EventName.LOADING_MODAL_TOGGLED: LoadingModalToggledProperties,
     EventName.PROFILE_PANEL_SCROLLED: ProfilePanelScrolledProperties,
     EventName.PROFILE_PANEL_TOGGLED: ProfilePanelToggledProperties,

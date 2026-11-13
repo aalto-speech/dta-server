@@ -203,9 +203,33 @@ def test_session_events_need_no_properties(
 
     client.post("/events", json=_valid_event_batch(guid, events=[started, ended]))
 
-    # An unsent reason is stored as its default.
+    # An unsent language is stored as null, an unsent reason as its default.
     assert [(row["name"], row["properties"]) for row in _rows(db_path)] == [
-        ("asa_session_started", "{}"), ("asa_session_ended", '{"reason":"quit"}')]
+        ("asa_session_started", '{"language":null}'),
+        ("asa_session_ended", '{"reason":"quit"}')]
+
+
+def test_session_start_stores_its_language(client: TestClient, guid: str, db_path: Path):
+    client.post("/events", json=_valid_event_batch(guid, events=[
+        _event("asa_session_started", properties={"language": "uk"}),
+    ]))
+
+    assert _rows(db_path)[0]["properties"] == '{"language":"uk"}'
+
+
+def test_language_change_is_stored(client: TestClient, guid: str, db_path: Path, rejections):
+    """A language the app does not have is rejected; the change in the same batch is kept."""
+
+    unknown = _event("language_changed", properties={"from_language": "fa", "to_language": "de"})
+
+    client.post("/events", json=_valid_event_batch(guid, events=[
+        _event("language_changed", properties={"to_language": "fa", "from_language": "fi"}),
+        unknown,
+    ]))
+
+    assert [(row["name"], row["properties"]) for row in _rows(db_path)] == [
+        ("language_changed", '{"from_language":"fi","to_language":"fa"}')]
+    assert rejections() == [(1, "INVALID_PROPERTIES", unknown["event_id"])]
 
 
 def test_toggle_without_properties_is_rejected(client: TestClient, guid: str, rejections):
