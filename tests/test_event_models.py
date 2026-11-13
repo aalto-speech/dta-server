@@ -18,6 +18,7 @@ from app.models.events import (
     Button,
     Dimension,
     EventProperties,
+    Language,
     RejectionReason,
 )
 from app.models.speech_assessment import SpeechAssessmentScores
@@ -25,7 +26,7 @@ from app.validators.events import validate_events
 
 # At least one valid and one invalid payload per EventName.
 VALID_PROPERTIES: dict[EventName, dict] = {
-    EventName.ASA_SESSION_STARTED: {},
+    EventName.ASA_SESSION_STARTED: {"language": "fi"},
     EventName.ASA_SESSION_ENDED: {"reason": "timeout"},
     EventName.TASK_SELECTION_PANEL_TOGGLED: {"active": True},
     EventName.PROFILE_PANEL_TOGGLED: {"active": False},
@@ -37,6 +38,7 @@ VALID_PROPERTIES: dict[EventName, dict] = {
     EventName.PROFILE_PANEL_SCROLLED: {"depth": 0.25},
     EventName.FEEDBACK_PANEL_SCROLLED: {"depth": 1, "task_id": 2},
     EventName.MIC_BUTTON_CLICKED: {"button_id": "record", "task_id": 3},
+    EventName.LANGUAGE_CHANGED: {"from_language": "fi", "to_language": "fa"},
 }
 
 _TOGGLE_FAULTS = [{}, {"active": 1}, {"active": "true"}, {"active": None}]
@@ -57,7 +59,10 @@ def _task_scoped_faults(valid: dict) -> list[dict]:
 
 
 INVALID_PROPERTIES: dict[EventName, list[dict]] = {
-    EventName.ASA_SESSION_STARTED: [{"reason": "quit"}, {"anything": 1}],
+    EventName.ASA_SESSION_STARTED: [
+        {"reason": "quit"}, {"anything": 1}, {"language": "FI"}, {"language": "de"},
+        {"language": ""}, {"language": 1}, {"language": "fi", "anything": 1},
+    ],
     EventName.ASA_SESSION_ENDED: [
         {"reason": "Quit"}, {"reason": ""}, {"reason": "crashed"}, {"reason": 1},
         {"reason": None}, {"reason": "quit", "screen": "profile"},
@@ -98,6 +103,18 @@ INVALID_PROPERTIES: dict[EventName, list[dict]] = {
         {"button_id": "record", "task_id": "1"},
         {"button_id": "record", "task_id": 1, "label": "Record"},
     ],
+    EventName.LANGUAGE_CHANGED: [
+        {},
+        {"from_language": "en"},
+        {"to_language": "fi"},
+        {"from_language": "EN", "to_language": "fi"},
+        {"from_language": "en", "to_language": "de"},
+        {"from_language": "en", "to_language": "fi-FI"},
+        {"from_language": "en", "to_language": ""},
+        {"from_language": "en", "to_language": 1},
+        {"from_language": None, "to_language": "fi"},
+        {"from_language": "en", "to_language": "fi", "screen": "advanced"},
+    ],
 }
 
 
@@ -112,6 +129,16 @@ def test_every_mic_button_needs_a_task(button: Button):
         model.model_validate({"button_id": button.value})
 
 
+def test_asa_session_started_language_is_optional():
+    """A client that does not send the language still has its session start recorded."""
+
+    model = EVENT_PROPERTY_MODELS[EventName.ASA_SESSION_STARTED]
+
+    assert model.model_validate({}).model_dump(mode="json") == {"language": None}
+    assert model.model_validate({"language": "fa"}).model_dump(mode="json") == {
+        "language": "fa"}
+
+
 def test_asa_session_ended_defaults_to_a_quit():
     model = EVENT_PROPERTY_MODELS[EventName.ASA_SESSION_ENDED]
 
@@ -120,6 +147,13 @@ def test_asa_session_ended_defaults_to_a_quit():
 
 def test_dimensions_match_the_score_keys_of_speech_assess():
     assert {d.value for d in Dimension} == set(SpeechAssessmentScores.model_fields)
+
+
+def test_languages_match_the_apps_locale_codes():
+    """The client's Unity locale codes. A new app language must be added on both sides."""
+
+    assert {language.value for language in Language} == {
+        "bn", "en", "et", "fa", "fi", "ru", "sv", "uk", "vi", "zh"}
 
 
 def test_every_event_name_has_a_property_model():
