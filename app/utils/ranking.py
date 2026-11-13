@@ -20,12 +20,17 @@ rather than a verdict against their peers. See FUTURE_PLAN.md for why.
 """
 
 # Percent rungs, in "top N%" terms. Reached by ratio, not by even steps.
+#
+# Not finer near the top (2%, 3%, ...) on purpose: next to an exact place, a fine percent
+# gives the cohort size away. "#1, top 9%" can only mean 12 learners.
 _PERCENT_RUNGS = (1, 5, 10, 25, 50)
 
-# Rank rungs, in "top N" terms. The podium and "top ten" are categories learners already
-# carry, so those rungs are the finest ones. Past 100 a rank number stops carrying
-# information -- "#340" reads as "a lot" -- and only the percent bucket is shown.
-_RANK_RUNGS = (1, 2, 3, 5, 10, 25, 50, 100)
+# Rank rungs, in "top N" terms. Places 1-10 are exact, because a top-ten
+# place is a category learners already think in: "#7" says more than "Top 10". The app
+# relies on that, rendering any value up to 10 as "#N", so no value up to 10 may ever be a
+# rounded-up bucket again. Past 10 the rungs are buckets. Past 100 a rank number stops
+# carrying information -- "#340" reads as "a lot" -- and only the percent bucket is shown.
+_RANK_RUNGS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 25, 50, 100)
 
 # Below this, no position is displayed at all.
 _DISPLAY_CUTOFF_PERCENT = 50.0

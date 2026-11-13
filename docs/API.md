@@ -56,7 +56,9 @@ two forms. `percentile` (0–1) and `rank` are the raw values, kept for research
 ```
 
 - `top_percent` ∈ `{1, 5, 10, 25, 50, null}` — "top N %"
-- `top_rank` ∈ `{1, 2, 3, 5, 10, 25, 50, 100, null}` — "top N"
+- `top_rank` ∈ `{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 25, 50, 100, null}`. 1–10 are the exact
+  place, "#N" (since v1.6.0; before that 5 and 10 were rounded-up buckets). 25, 50 and
+  100 are buckets, "top N".
 - `null` on either means **display nothing** for that form. Both are `null` below the
   50th percentile; `top_rank` is `null` past #100.
 

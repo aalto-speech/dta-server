@@ -62,7 +62,8 @@ class ComparisonDisplay(BaseModel):
 
     Attributes:
         top_percent: "Top N%" bucket, or null when nothing should be shown.
-        top_rank: "Top N" bucket, or null past the last rank rung / below the cutoff.
+        top_rank: The exact place for 1-10 ("#N"), then a "Top N" bucket (25, 50, 100),
+            or null past the last rank rung / below the cutoff.
     """
 
     top_percent: int | None = None

@@ -519,12 +519,17 @@ a learner should see.
 | Field | Meaning |
 | --- | --- |
 | `top_percent` | Render as "top N %". One of `1`, `5`, `10`, `25`, `50`, or `null` |
-| `top_rank` | Render as "top N" / "#N". One of `1`, `2`, `3`, `5`, `10`, `25`, `50`, `100`, or `null` |
+| `top_rank` | One of `1` to `10`, `25`, `50`, `100`, or `null`. `1` to `10` are the learner's exact place: render as "#N". `25`, `50` and `100` are buckets: render as "top N" |
 
 **`null` means show nothing** — no position, no placeholder, no "unranked". The learner
 still sees their score and CEFR band, which is the information that matters. Both fields
 are `null` for anyone in the bottom half of their cohort, and `top_rank` alone is `null`
 past #100, where a rank number stops carrying meaning.
+
+**Exact places 1–10 are new in v1.6.0.** Before that, `top_rank` was one of `1`, `2`, `3`,
+`5`, `10`, ..., and `5` and `10` were rounded-up buckets: a learner in 4th place got `5`.
+Render `4` to `10` as "#N" only against a v1.6.0 or later server (`/status` `version`).
+Against an older one, render anything above 3 as "top N".
 
 The server owns these ladders for the same reason it owns the CEFR label: they will be
 revised as cohorts grow, and a revision has to reach every installed app without a client
