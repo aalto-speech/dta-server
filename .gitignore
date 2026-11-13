@@ -162,3 +162,12 @@ audio/
 
 # Logs directory
 logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Local development container configuration files
+.devcontainer/*local*
