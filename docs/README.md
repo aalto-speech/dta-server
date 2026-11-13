@@ -101,17 +101,17 @@ This repository is licensed under the GNU Affero General Public License, version
                 </a>
             </td>
             <td align="center">
-                <a href="https://github.com/kimtakala">
-                    <img src="https://avatars.githubusercontent.com/u/144361787?v=4" width="100;" alt="kimtakala"/>
-                    <br />
-                    <sub><b>Kim Takala</b></sub>
-                </a>
-            </td>
-            <td align="center">
                 <a href="https://github.com/Usin2705">
                     <img src="https://avatars.githubusercontent.com/u/8575412?v=4" width="100;" alt="Usin2705"/>
                     <br />
                     <sub><b>Chi Nhan, Phan</b></sub>
+                </a>
+            </td>
+            <td align="center">
+                <a href="https://github.com/kimtakala">
+                    <img src="https://avatars.githubusercontent.com/u/144361787?v=4" width="100;" alt="kimtakala"/>
+                    <br />
+                    <sub><b>Kim Takala</b></sub>
                 </a>
             </td>
             <td align="center">
