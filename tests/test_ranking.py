@@ -22,13 +22,27 @@ def test_percent_rungs_round_up(rank: int, cohort_size: int, expected_percent: i
 
 
 @pytest.mark.parametrize("rank, expected_rank", [
-    (1, 1), (2, 2), (3, 3), (4, 5), (5, 5), (9, 10), (10, 10),
+    (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (9, 9), (10, 10),
     (11, 25), (25, 25), (26, 50), (50, 50), (51, 100), (100, 100),
 ])
 def test_rank_rungs_round_up(rank: int, expected_rank: int):
-    """Rank buckets round up too: #46 is shown as "top 50", never "top 45"."""
+    """Places 1-10 are exact; past them, rank buckets round up: #46 is "top 50"."""
 
     assert build_display(rank, 1000)["top_rank"] == expected_rank
+
+
+def test_a_place_up_to_ten_is_always_exact():
+    """The app renders any `top_rank` up to 10 as "#N", so it must be the real place.
+
+    A rounded-up 5 for a learner in 4th would be shown as "#5": a place they do not hold.
+    """
+
+    for cohort_size in range(1, 201):
+        for rank in range(1, cohort_size + 1):
+            top_rank = build_display(rank, cohort_size)["top_rank"]
+
+            if top_rank is not None and top_rank <= 10:
+                assert top_rank == rank
 
 
 def test_rank_is_dropped_past_the_last_rung():
@@ -49,8 +63,8 @@ def test_nothing_is_displayed_below_the_halfway_mark():
 def test_bottom_half_hides_the_rank_even_when_the_number_is_small():
     """A small cohort must not leak a flattering rank to a bottom-half learner.
 
-    #6 of 10 is bottom-half, and #6 would round to the "top 10" rung. The cutoff is
-    evaluated first precisely so that cannot happen.
+    #6 of 10 is bottom-half, yet #6 is a top-ten place. The cutoff is evaluated first
+    precisely so that it is not shown.
     """
 
     assert build_display(6, 10) == {"top_percent": None, "top_rank": None}
