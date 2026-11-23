@@ -76,6 +76,13 @@ def _fake_asa_result() -> dict:
     }
 
 
+def _assert_recording_discarded(captured: dict) -> None:
+    """The upload was written, then deleted because the request failed."""
+
+    assert "temp_path" in captured, "the recording was never written"
+    assert not os.path.exists(captured["temp_path"])
+
+
 def _patch_happy_path(monkeypatch: pytest.MonkeyPatch, captured: dict) -> None:
     """Stub auth, audio validators and the ASA client for a successful request."""
 
@@ -277,8 +284,7 @@ def test_assess_speech_returns_503_when_scoring_unavailable(
     monkeypatch: pytest.MonkeyPatch,
     client: TestClient,
 ):
-    """An unreachable/failed inference service maps to 503 SCORING_UNAVAILABLE,
-    and the persisted audio file is kept for later inspection."""
+    """A failed inference service maps to 503 SCORING_UNAVAILABLE; the recording is deleted."""
 
     captured = {}
     _patch_happy_path(monkeypatch, captured)
@@ -297,9 +303,7 @@ def test_assess_speech_returns_503_when_scoring_unavailable(
 
     assert response.status_code == 503
     assert response.json()["detail"]["type"] == "SCORING_UNAVAILABLE"
-    assert "temp_path" in captured
-    assert os.path.exists(captured["temp_path"])
-    os.unlink(captured["temp_path"])
+    _assert_recording_discarded(captured)
 
 
 def test_assess_speech_returns_400_for_unmapped_task_id(
@@ -326,7 +330,7 @@ def test_assess_speech_returns_400_for_unmapped_task_id(
     assert response.status_code == 400
     assert response.json()["detail"]["type"] == "BAD_REQUEST"
     assert "99" in response.json()["detail"]["message"]
-    os.unlink(captured["temp_path"])
+    _assert_recording_discarded(captured)
 
 
 def test_assess_speech_returns_database_error_when_assessment_insert_fails(
@@ -355,9 +359,7 @@ def test_assess_speech_returns_database_error_when_assessment_insert_fails(
             "message": "Database error",
         }
     }
-    assert "temp_path" in captured
-    assert os.path.exists(captured["temp_path"])
-    os.unlink(captured["temp_path"])
+    _assert_recording_discarded(captured)
 
 
 def test_assess_speech_rejects_too_long_description(
@@ -631,7 +633,7 @@ def test_assess_speech_rejects_silent_audio_before_scoring(
     assert response.json() == {
         "detail": {"type": "BAD_REQUEST", "message": "Audio file is silent."}}
     assert "scored" not in captured
-    os.unlink(captured["temp_path"])
+    _assert_recording_discarded(captured)
 
 
 def test_assess_speech_rejects_too_short_audio_before_scoring(
@@ -655,7 +657,7 @@ def test_assess_speech_rejects_too_short_audio_before_scoring(
     assert detail["duration_seconds"] == 1.0
     assert detail["min_duration_seconds"] == 3
     assert "scored" not in captured
-    os.unlink(captured["temp_path"])
+    _assert_recording_discarded(captured)
 
 
 def test_assess_speech_accepts_real_audio_through_all_validators(
@@ -704,7 +706,7 @@ def test_assess_speech_rejects_8bit_silent_audio_before_scoring(
     assert response.status_code == 400
     assert response.json()["detail"]["message"] == "Audio file is silent."
     assert "scored" not in captured
-    os.unlink(captured["temp_path"])
+    _assert_recording_discarded(captured)
 
 
 def test_assess_speech_reports_too_short_before_silent(
@@ -725,4 +727,54 @@ def test_assess_speech_reports_too_short_before_silent(
     assert response.status_code == 400
     assert response.json()["detail"]["type"] == "AUDIO_TOO_SHORT"
     assert "scored" not in captured
-    os.unlink(captured["temp_path"])
+    _assert_recording_discarded(captured)
+
+
+def test_rejected_recordings_leave_no_files_behind(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    """Repeated rejected uploads must not accumulate on disk (security finding F3)."""
+
+    captured = {}
+    form_data = _valid_form_data()
+    _patch_real_audio(monkeypatch, captured, _wav_bytes(1, sample=b"\x10\x00"))
+
+    for _ in range(3):
+        response = client.post(
+            "/speech/assess",
+            data=form_data,
+            files={"file": ("sample.wav", b"ignored", "audio/wav")},
+        )
+        assert response.status_code == 400
+
+    user_dir = os.path.dirname(captured["temp_path"])
+    assert os.listdir(user_dir) == []
+
+
+def test_recording_is_deleted_when_the_request_is_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A client that disconnects mid-scoring cancels the task; the file must still go."""
+
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.services.speech_assessment_service import assess_speech_request
+
+    captured = {}
+    _patch_happy_path(monkeypatch, captured)
+
+    async def _cancelled(*_args, **_kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr("app.services.speech_assessment_service._asa.assess", _cancelled)
+
+    upload = SpeechAssessmentRequest.model_construct(
+        guid=uuid4(), task_id=1, file=SimpleNamespace(filename="sample.wav"),
+        description=None)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(assess_speech_request(upload))
+
+    _assert_recording_discarded(captured)

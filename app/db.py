@@ -3,6 +3,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import UUID
 
 from app.config import SETTINGS
 from app.models.analytics import (
@@ -482,6 +483,13 @@ def _get_owned_assessment_ids(
     ).fetchall()
 
     return {row[0] for row in rows}
+
+
+def user_owns_assessment(guid: UUID, assessment_id: int) -> bool:
+    """Check whether `assessment_id` exists and belongs to `guid`."""
+
+    with database() as db:
+        return bool(_get_owned_assessment_ids(db, str(guid), {assessment_id}))
 
 
 def create_events(data: CreateEventsInput) -> CreateEventsResult:

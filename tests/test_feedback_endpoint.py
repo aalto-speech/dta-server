@@ -14,6 +14,16 @@ from app.models.feedback import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _grant_access(monkeypatch: pytest.MonkeyPatch):
+    """These tests exercise payload handling; access checks are in test_feedback_access.py."""
+
+    monkeypatch.setattr(
+        "app.services.feedback_service.auth.validate_user_access", lambda _guid: None)
+    monkeypatch.setattr(
+        "app.services.feedback_service.user_owns_assessment", lambda _guid, _id: True)
+
+
 @pytest.fixture
 def client():
     """Provide a FastAPI test client."""
@@ -275,3 +285,11 @@ def test_feedback_rejects_assessment_id_for_app_scoped_types(client: TestClient)
 
         assert response.status_code == 422, classification
         assert response.json()["detail"]["type"] == "VALIDATION_ERROR"
+
+
+def test_feedback_rejects_assessment_id_zero(client: TestClient):
+    """Assessment ids start at 1, so 0 is a validation error, not a lookup."""
+
+    response = client.post("/feedback", data=_valid_feedback_form_data(assessment_id="0"))
+
+    assert response.status_code == 422

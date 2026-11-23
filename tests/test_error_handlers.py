@@ -234,3 +234,18 @@ def test_request_validation_error_mapping(client: TestClient) -> None:
     assert payload["detail"]["message"] == "Invalid request payload"
     assert isinstance(payload["detail"]["errors"], list)
     assert payload["detail"]["errors"]
+
+
+def test_request_validation_error_does_not_echo_the_input(client: TestClient) -> None:
+    """A 422 names the field and the problem, never the value the client sent."""
+
+    sent = "x" * 10_000
+    response = client.post("/validation-error", json={"count": sent})
+
+    assert response.status_code == 422
+    errors = response.json()["detail"]["errors"]
+    assert errors
+    for error in errors:
+        assert "input" not in error
+        assert "loc" in error and "type" in error
+    assert sent not in response.text

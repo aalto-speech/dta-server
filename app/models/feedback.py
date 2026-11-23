@@ -34,7 +34,7 @@ class FeedbackRequest(BaseModel):
         feedback_classification: Type of feedback being submitted.
     """
 
-    assessment_id: int | None = Field(default=None, ge=0)
+    assessment_id: int | None = Field(default=None, ge=1)
     comment: str | None = None
     guid: UUID
     reaction_value: int = Field(ge=1, le=5)
@@ -88,7 +88,7 @@ class CreateFeedbackInput(BaseModel):
     """Internal DB input for inserting feedback."""
 
     guid: UUID
-    assessment_id: int | None = Field(default=None, ge=0)
+    assessment_id: int | None = Field(default=None, ge=1)
     feedback_classification: FeedbackClassification
     reaction_value: int = Field(ge=1, le=5)
     comment: str | None = None

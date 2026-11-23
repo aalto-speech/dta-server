@@ -6,6 +6,17 @@ Servers report their version in `GET /status` (`version`) and in OpenAPI `info.v
 feature-detect against that instead of guessing (both were added in v1.2.0; on older
 servers the `version` key is simply absent).
 
+**Changed in v1.6.0** (security hardening), each explained at its endpoint below:
+
+| Change | Where |
+| --- | --- |
+| Any endpoint can return **429 `RATE_LIMITED`** with a `Retry-After` header | [Rate limits](#rate-limits) |
+| A user without consent now gets **404 `USER_NOT_FOUND`**, not 403 `USER_CONSENT_MISSING` | [Error format](#error-format) |
+| Onboarding with `consent_accepted=false`, or an impossible `consent_timestamp`, is a 422 | [`/onboarding`](#post-onboarding) |
+| Feedback checks the user, and that `assessment_id` is one of **their own** recordings (404 `ASSESSMENT_NOT_FOUND`) | [`/feedback`](#post-feedback) |
+| 422 `errors` entries no longer echo the submitted value (`input`) | [Error format](#error-format) |
+| Production no longer serves `/docs`, `/redoc` or `/openapi.json`; use staging | below |
+
 **Changed in v1.3.0**, each explained at its endpoint below:
 
 | Change | Where |
@@ -16,11 +27,12 @@ servers the `version` key is simply absent).
 | `POST /request/user` removed; deletion is `DELETE /users` | [User deletion](#user-deletion) |
 | 409 on onboarding now says `GUID_ALREADY_REGISTERED` | [`/onboarding`](#post-onboarding) |
 
-**The live contract is also machine-readable.** FastAPI publishes it and the server
-serves it:
+**The live contract is also machine-readable.** FastAPI publishes it, and development
+and staging servers serve it (production does not, since v1.6.0, because the docs map the
+whole API for anyone who asks):
 
-- Interactive docs: `https://<domain>/api/v1/docs`
-- OpenAPI schema: `https://<domain>/api/v1/openapi.json`
+- Interactive docs: `https://<staging-domain>/api/v1/docs`
+- OpenAPI schema: `https://<staging-domain>/api/v1/openapi.json`
 
 Use the schema to generate a typed client if your toolchain can (`openapi-generator`,
 `NSwag` for C#/Unity, …). This page exists because the schema alone does not tell you
@@ -51,12 +63,18 @@ Every error returns the same envelope with an HTTP status:
 ```
 
 Branch on `detail.type`, never on the message text. Types you can receive:
-`BAD_REQUEST`, `INVALID_API_KEY`, `USER_NOT_FOUND`, `USER_CONSENT_MISSING`,
+`BAD_REQUEST`, `INVALID_API_KEY`, `USER_NOT_FOUND`, `ASSESSMENT_NOT_FOUND`,
 `UNSUPPORTED_MEDIA_TYPE`, `FILE_TOO_LARGE`, `AUDIO_TOO_SHORT`, `AUDIO_TOO_LONG`,
-`SCORING_UNAVAILABLE`,
+`SCORING_UNAVAILABLE`, `RATE_LIMITED`,
 `NOT_IMPLEMENTED`, `GUID_ALREADY_REGISTERED`, `DATABASE_CONSTRAINT_ERROR`,
 `DATABASE_UNAVAILABLE`, `DATABASE_ERROR`, `INTERNAL_SERVER_ERROR`, `HTTP_ERROR`,
 `VALIDATION_ERROR`.
+
+`USER_CONSENT_MISSING` (403) is **no longer sent since v1.6.0**. A user who has not
+consented gets the same 404 `USER_NOT_FOUND` as an unknown guid, so a response never
+reveals whether a guid is registered. Onboarding refuses to create a user without consent,
+so only accounts created before v1.6.0 can be in that state, and sending them through
+onboarding again is the right response. Keep any existing 403 handling for older servers.
 
 Since v1.2.0 this envelope is **published in the OpenAPI schema** (`ErrorEnvelope`,
 referenced from every endpoint's error responses), so generated clients can parse it.
@@ -66,7 +84,7 @@ same object plus an `errors` array; every other status is the plain object.**
 
 FastAPI's own request validation (a missing field, a malformed UUID) returns **422**
 with `type: VALIDATION_ERROR` plus an extra `detail.errors` array naming the offending
-fields:
+fields. Since v1.6.0 the entries do not include the submitted value (`input`):
 
 ```json
 {"detail": {"type": "VALIDATION_ERROR", "message": "Invalid request payload",
@@ -76,6 +94,29 @@ fields:
 
 A 422 means the client is wrong, not the user — surface `detail.errors` in your logs
 during development, it names the exact field.
+
+### Rate limits
+
+Since v1.6.0 the server limits how fast one client can call it. Over a limit, any endpoint
+returns **429** `RATE_LIMITED` with a `Retry-After` header and the same number in
+`detail.retry_after_seconds`. Wait that long before retrying; do not retry in a loop.
+
+The limits are far above what one learner does in normal use, and several learners on the
+same network (a classroom, a mobile carrier) share only the per-address limits:
+
+| What | Limit |
+| --- | --- |
+| Any request, per IP address | 600 per minute |
+| `POST /onboarding`, per IP address | 60 per hour |
+| `POST /speech/assess`, per IP address | 120 per 10 minutes |
+| `POST /speech/assess`, per user | 20 per 10 minutes |
+| `POST /feedback`, per user | 120 per 10 minutes |
+| `POST /events`, per user | 120 per 10 minutes |
+| `POST /analytics/comparison`, per user | 120 per 10 minutes |
+| `PATCH /users/level`, per user | 20 per hour |
+
+For `/events`, a 429 means the batch was not stored: keep it in the buffer and send it
+after `Retry-After`.
 
 ## The call sequence
 
@@ -114,8 +155,8 @@ life of the study without breaking account creation:
 | Field | Type | Values |
 | --- | --- | --- |
 | `guid` | UUID | Generated and stored by your app |
-| `consent_accepted` | bool | Must be `true`; without consent there is no user |
-| `consent_timestamp` | ISO 8601 datetime | e.g. `2026-08-02T10:15:00Z` |
+| `consent_accepted` | bool | Must be `true`; without consent there is no user. Since v1.6.0 `false` is a 422 and nothing is stored |
+| `consent_timestamp` | ISO 8601 datetime | e.g. `2026-08-02T10:15:00Z`. Send it with a timezone; one without is read as UTC. Since v1.6.0 a value before 2025-01-01 or more than a day in the future is a 422 |
 | `finnish_self_assessment` | enum | `A1`, `A2`, `B1`, `B2`, `C1_plus` — defines the cohort `/analytics/comparison` ranks against, which is why it is required. Dropping or renaming it needs a coordinated release. |
 
 **Research metadata — optional. Omitted or sent empty stores null; never a 422:**
@@ -423,14 +464,17 @@ the 503 they could act on. If this number ever changes it changes here first.
 
 | Status | `type` | Meaning and what to do |
 | --- | --- | --- |
-| 404 | `USER_NOT_FOUND` | Not onboarded — send the user through onboarding |
-| 403 | `USER_CONSENT_MISSING` | Consent was not accepted |
+| 404 | `USER_NOT_FOUND` | Not onboarded, or (before v1.6.0 onboarding) onboarded without consent — send the user through onboarding |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Wrong `Content-Type` on the file part |
 | 400 | `BAD_REQUEST` | Not a `.wav` filename, corrupt or unreadable WAV, unmapped `task_id`, or (v1.4.0) a completely silent recording, message `"Audio file is silent."` — often a muted or blocked microphone, so check mic permission before asking for a retry |
 | 400 | `AUDIO_TOO_SHORT` | Under 3 s (v1.4.0). `detail` carries `duration_seconds` and `min_duration_seconds` — often a recording stopped by accident; ask the learner to record again |
 | 413 | `FILE_TOO_LARGE` | Over 10 MB. `detail` carries `size_bytes` and `max_size_bytes` — a short recording landing here means the client wrote the WAV at the wrong rate or depth |
 | 413 | `AUDIO_TOO_LONG` | Over 90 s (v1.2.0; was `FILE_TOO_LARGE` before). `detail` carries `duration_seconds` and `max_duration_seconds` — arriving here at all means client and server disagree about the recording's length |
 | 503 | `SCORING_UNAVAILABLE` | See below — `detail.reason` says which case you are in |
+| 429 | `RATE_LIMITED` | Too many recordings; wait `Retry-After` seconds. See [Rate limits](#rate-limits) |
+
+A rejected recording is not kept on the server (since v1.6.0). After any error, including
+a 503, retry by sending the recording again.
 
 **503 carries a `reason` since v1.2.0**, plus a `Retry-After` header when a retry makes
 sense:
@@ -460,6 +504,12 @@ second direction was unenforced: a stray id either tripped a 409 foreign-key err
 was silently stored as a link to an unrelated assessment.) Rows for `comparison_ui` /
 `overall_experience` carry the `guid`, so they are attributable and queryable per user
 without an assessment link.
+
+**Since v1.6.0 feedback makes the same checks as the other endpoints.** An unknown or
+not-consented guid is 404 `USER_NOT_FOUND`. An `assessment_id` that does not exist, or
+belongs to another user, is 404 `ASSESSMENT_NOT_FOUND`; only the `assessment_id` returned
+by this user's own `/speech/assess` can be rated. (Before v1.6.0 an unknown guid or id was
+a 409 `DATABASE_CONSTRAINT_ERROR`.)
 
 > [!IMPORTANT]
 > **Posting the same answer again updates it — it does not add a row (v1.3.0).** One

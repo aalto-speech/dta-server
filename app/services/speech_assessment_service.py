@@ -16,6 +16,7 @@ from app.models.speech_assessment import (
     SpeechAssessmentScores,
 )
 from app.utils import cefr
+from app.utils import rate_limit
 from app.utils.asa_client import ASAClient, ASAError
 from app.utils.logger import get_logger
 from app.utils.storage import user_audio_dir
@@ -33,6 +34,15 @@ def _create_audio_path(guid: UUID) -> tuple[UUID, Path]:
     audio_id = uuid4()
     audio_path = output_dir / f"{audio_id}.wav"
     return audio_id, audio_path
+
+
+def _discard_recording(audio_path: Path) -> None:
+    """Delete a recording that will not get an assessment row. Never raises."""
+
+    try:
+        audio_path.unlink(missing_ok=True)
+    except OSError as err:
+        logger.error("Could not delete rejected recording %s: %s", audio_path, err)
 
 
 async def _score(content: bytes, data: SpeechAssessmentRequest) -> dict:
@@ -134,53 +144,62 @@ async def assess_speech_request(
     """
 
     auth.validate_user_access(data.guid)
+    rate_limit.enforce_for_user(rate_limit.SPEECH_PER_USER, data.guid)
     content = await audio.validate_file_size(data.file)
     audio.validate_wav_headers(content)
 
     audio_id, audio_path = _create_audio_path(data.guid)
 
-    with open(audio_path, "wb") as f:
-        f.write(content)
+    # Delete the recording on any failure before its assessment row exists, so rejected
+    # uploads don't pile up on disk unreferenced. Clients resend on retry.
+    try:
+        with open(audio_path, "wb") as f:
+            f.write(content)
 
-    os.chmod(audio_path, 0o600)
-    audio.validate_wav_structure(audio_path)
-    audio.validate_audio_duration(audio_path)
-    audio.validate_audio_contents(audio_path)
+        os.chmod(audio_path, 0o600)
+        audio.validate_wav_structure(audio_path)
+        audio.validate_audio_duration(audio_path)
+        audio.validate_audio_contents(audio_path)
 
-    result = await _score(content, data)
+        result = await _score(content, data)
 
-    relevance = result.get("content")
-    if relevance:
-        # Recorded, never acted on: the verdict annotates the result, it does not change
-        # it. See the note above _apply_production_labels for why the zeroing was removed.
-        logger.info("Content relevance for user %s: %s (%.2f)",
-                    data.guid, relevance["relevance"], relevance["confidence"])
+        relevance = result.get("content")
+        if relevance:
+            # Recorded, never acted on: the verdict annotates the result, it does not
+            # change it. See the note above _apply_production_labels for why the zeroing
+            # was removed.
+            logger.info("Content relevance for user %s: %s (%.2f)",
+                        data.guid, relevance["relevance"], relevance["confidence"])
 
-    # Always last, so the labels can never disagree with the numbers they sit next to.
-    result = _apply_production_labels(result)
+        # Always last, so the labels can never disagree with the numbers they sit next to.
+        result = _apply_production_labels(result)
 
-    # keys match the DB columns, except range -> range_score
-    scores = result["scores"]
+        # keys match the DB columns, except range -> range_score
+        scores = result["scores"]
 
-    assessment_id = create_assessment(AssessmentCreateInput(
-        guid=data.guid,
-        task_id=data.task_id,
-        audio_id=audio_id,
-        audio_path=audio_path,
-        transcript=result["transcript"],
-        accuracy=scores["accuracy"],
-        fluency=scores["fluency"],
-        proficiency=scores["proficiency"],
-        pronunciation=scores["pronunciation"],
-        range_score=scores["range"],
-        content_relevance=relevance["relevance"] if relevance else None,
-        content_confidence=relevance["confidence"] if relevance else None,
-    ))
+        assessment_id = create_assessment(AssessmentCreateInput(
+            guid=data.guid,
+            task_id=data.task_id,
+            audio_id=audio_id,
+            audio_path=audio_path,
+            transcript=result["transcript"],
+            accuracy=scores["accuracy"],
+            fluency=scores["fluency"],
+            proficiency=scores["proficiency"],
+            pronunciation=scores["pronunciation"],
+            range_score=scores["range"],
+            content_relevance=relevance["relevance"] if relevance else None,
+            content_confidence=relevance["confidence"] if relevance else None,
+        ))
 
-    # ? Enhance error handling?
-    if not assessment_id:
-        raise sqlite3.DatabaseError(
-            "Failed to create assessment record in the database")
+        # ? Enhance error handling?
+        if not assessment_id:
+            raise sqlite3.DatabaseError(
+                "Failed to create assessment record in the database")
+    except BaseException:
+        # BaseException also covers a cancelled request (client disconnected).
+        _discard_recording(audio_path)
+        raise
 
     logger.info("Stored speech assessment %s for user %s",
                 assessment_id, data.guid)

@@ -266,6 +266,8 @@ when the line is left empty.
 | `SERVER_DELETE_KEY`    | empty             | Authorises `DELETE /users` — the only thing it opens. Required in production; when empty, `DELETE /users` always returns 403. Renamed from `ADMIN_API_KEY` in v1.2.0; the old name is still read, with a startup warning. |
 | `MIN_COHORT_SIZE`      | `100`             | Minimum cohort size for analytics or assessments.                    |
 | `MIN_USER_ASSESSMENTS` | `3`               | Minimum number of user assessments required.                         |
+| `RATE_LIMIT_ENABLED`   | `true`            | Enforce request rate limits (429 `RATE_LIMITED`). Set `false` only for load tests. Off by default when `APP_ENV=test`. |
+| `FORWARDED_ALLOW_IPS`  | `*`               | Addresses uvicorn trusts for `X-Forwarded-For`. Must include Caddy, or every client shares one rate-limit bucket. `*` is safe while the app container publishes no port. |
 | `DTA_TAG`              | `latest`          | Image tag both containers run (`staging` on staging servers).        |
 | `DTA_DEVICE`           | `cuda`            | Device for the speech scorer (`cpu` on staging without GPU).         |
 | `DTA_AUTOCAST_DTYPE`   | `bfloat16`        | Scorer autocast dtype. Production sets `float16`: its P100 (Pascal) has no bf16, and fp32 halves throughput. |

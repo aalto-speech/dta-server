@@ -7,6 +7,7 @@ from app.models.users import (
     SetUserCEFRLevelRequest,
     SetUserCEFRLevelResponse,
 )
+from app.utils import rate_limit
 from app.utils.logger import get_logger
 from app.validators import auth
 
@@ -28,6 +29,7 @@ def update_user_cefr_level(data: SetUserCEFRLevelRequest) -> JSONResponse:
     """
 
     auth.validate_user_access(data.guid)
+    rate_limit.enforce_for_user(rate_limit.LEVEL_PER_USER, data.guid)
 
     if not set_user_cefr_level(SetUserCEFRLevelInput(
             guid=data.guid, cefr_level=data.cefr_level)):

@@ -63,11 +63,7 @@ def test_validate_delete_access_rejects_non_ascii_key(monkeypatch: pytest.Monkey
 def test_validate_user_access_rejects_unknown_user(monkeypatch: pytest.MonkeyPatch) -> None:
     """User access should fail with USER_NOT_FOUND when the user does not exist."""
 
-    def _fake_get_user(_):
-        return None
-
-    monkeypatch.setattr("app.validators.auth.get_user", _fake_get_user)
-    monkeypatch.setattr("app.validators.auth.get_user_consent", lambda _: True)
+    monkeypatch.setattr("app.validators.auth.get_user_consent", lambda _: False)
 
     with pytest.raises(AppError) as err:
         validate_user_access(uuid4())
@@ -77,41 +73,35 @@ def test_validate_user_access_rejects_unknown_user(monkeypatch: pytest.MonkeyPat
     assert err.value.message == "User not found"
 
 
-def test_validate_user_access_rejects_missing_consent(monkeypatch: pytest.MonkeyPatch) -> None:
-    """User access should fail with USER_CONSENT_MISSING when consent is missing."""
+def test_validate_user_access_hides_missing_consent_behind_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registered user without consent gets the same 404 as an unknown guid."""
 
-    monkeypatch.setattr("app.validators.auth.get_user", lambda _: True)
-    monkeypatch.setattr("app.validators.auth.get_user_consent", lambda _: None)
+    monkeypatch.setattr("app.validators.auth.get_user_consent", lambda _: False)
 
     with pytest.raises(AppError) as err:
         validate_user_access(uuid4())
 
-    assert err.value.status_code == 403
-    assert err.value.error_type == ErrorType.USER_CONSENT_MISSING
-    assert err.value.message == "User consent missing"
+    assert err.value.status_code == 404
+    assert err.value.error_type == ErrorType.USER_NOT_FOUND
 
 
 def test_validate_user_access_accepts_existing_user_with_consent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """User access should pass when both user and consent records are present."""
+    """User access should pass when the user exists and has consented."""
 
-    captured = {"user_guid": None, "consent_guid": None}
-
-    def _fake_get_user(payload):
-        captured["user_guid"] = payload.guid
-        return True
+    captured = {"consent_guid": None}
 
     def _fake_get_user_consent(payload):
         captured["consent_guid"] = payload.guid
         return True
 
     guid = uuid4()
-    monkeypatch.setattr("app.validators.auth.get_user", _fake_get_user)
     monkeypatch.setattr(
         "app.validators.auth.get_user_consent", _fake_get_user_consent)
 
     validate_user_access(guid)
 
-    assert captured["user_guid"] == guid
     assert captured["consent_guid"] == guid

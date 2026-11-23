@@ -1,6 +1,6 @@
 # API reference
 
-These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the app is running. See [Development guide](/docs/DEVELOPMENT.md) for local setup and running instructions.
+These endpoints can be accessed at `http://<host>:<port>/api/v1/docs` when the app is running in development or staging (production does not serve the docs). See [Development guide](/docs/DEVELOPMENT.md) for local setup and running instructions.
 
 ## Endpoints
 
@@ -23,7 +23,7 @@ this app does not export user data, and deletion is `DELETE /users`.
 > [!TIP]
 > Building a client app? [FRONTEND.md](./FRONTEND.md) documents every field, error and
 > call order in one place. The live contract is served at `/api/v1/docs` (Swagger UI)
-> and `/api/v1/openapi.json`.
+> and `/api/v1/openapi.json` on development and staging servers.
 
 ## Request notes
 

@@ -4,7 +4,7 @@ from time import monotonic
 from fastapi import APIRouter, Depends, FastAPI, Form
 from fastapi.responses import JSONResponse, Response
 
-from app.config import SETTINGS
+from app.config import SETTINGS, api_docs_urls
 from app.db import initialize_database
 from app.error_handlers import register_error_handlers
 from app.models.analytics import (
@@ -31,6 +31,7 @@ from app.services.feedback_service import record_feedback
 from app.services.onboarding_service import create_onboarding_user
 from app.services.speech_assessment_service import assess_speech_request
 from app.services.user_service import update_user_cefr_level
+from app.utils import rate_limit
 from app.utils.gzip_request import GzipRequestRoute
 from app.utils.logger import configure_app_logging, get_logger
 
@@ -57,15 +58,19 @@ async def lifespan(_: FastAPI):
 ERROR_RESPONSE = {"model": ErrorEnvelope}
 VALIDATION_RESPONSE = {"model": ValidationErrorEnvelope}
 
+
 # Set root_path to /api/v1 to ensure correct routing when behind a reverse proxy with a base path.
 app = FastAPI(
     lifespan=lifespan,
     root_path="/api/v1",
+    **api_docs_urls(SETTINGS.env),
+    # Per-IP safety net on every route but the docs; stricter limits are set per route.
+    dependencies=[Depends(rate_limit.per_ip(rate_limit.GLOBAL_PER_IP))],
     title="DTA Server",
     # The release version, baked into the image by CI. Clients feature-detect
     # against /status's `version`, which serves the same value.
     version=SETTINGS.server_version,
-    responses={422: VALIDATION_RESPONSE},
+    responses={422: VALIDATION_RESPONSE, 429: ERROR_RESPONSE},
 )
 register_error_handlers(app, logger)
 
@@ -107,7 +112,7 @@ async def status() -> JSONResponse:
     "/analytics/comparison",
     response_model=(ComparisonResponse | AssessmentUnavailable
                     | CohortSizeTooLow | NoRankAvailable),
-    responses={403: ERROR_RESPONSE, 404: ERROR_RESPONSE},
+    responses={404: ERROR_RESPONSE},
 )
 async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse:
     """Return cohort comparison stats for the requesting user.
@@ -136,7 +141,7 @@ async def analytics_comparison(data: ComparisonRequest = Form()) -> JSONResponse
 @app.post(
     "/feedback",
     status_code=201,
-    responses={403: ERROR_RESPONSE, 404: ERROR_RESPONSE, 409: ERROR_RESPONSE},
+    responses={404: ERROR_RESPONSE, 409: ERROR_RESPONSE},
 )
 async def feedback(data: FeedbackRequest = Form()) -> JSONResponse:
     """Submit assessment or experience feedback.
@@ -166,7 +171,7 @@ events_router = APIRouter(route_class=GzipRequestRoute)
     response_class=Response,
     responses={
         202: {"description": "Batch received. Drop it from the buffer; send nothing again."},
-        400: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE,
+        400: ERROR_RESPONSE, 404: ERROR_RESPONSE,
         409: ERROR_RESPONSE, 413: ERROR_RESPONSE, 415: ERROR_RESPONSE,
     },
 )
@@ -194,9 +199,10 @@ app.include_router(events_router)
     "/speech/assess",
     response_model=SpeechAssessmentResponse,
     responses={
-        400: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE,
+        400: ERROR_RESPONSE, 404: ERROR_RESPONSE,
         413: ERROR_RESPONSE, 415: ERROR_RESPONSE, 503: ERROR_RESPONSE,
     },
+    dependencies=[Depends(rate_limit.per_ip(rate_limit.SPEECH_PER_IP))],
 )
 async def assess_speech(
     data: SpeechAssessmentRequest = Depends(SpeechAssessmentRequest.as_form)
@@ -217,6 +223,7 @@ async def assess_speech(
     "/onboarding",
     status_code=201,
     responses={409: ERROR_RESPONSE},
+    dependencies=[Depends(rate_limit.per_ip(rate_limit.ONBOARDING_PER_IP))],
 )
 async def onboarding(data: OnboardingRequest = Form()) -> Response:
     """Create a new user from onboarding form data.
@@ -241,7 +248,7 @@ async def onboarding(data: OnboardingRequest = Form()) -> Response:
     "/users/level",
     status_code=200,
     response_model=SetUserCEFRLevelResponse,
-    responses={403: ERROR_RESPONSE, 404: ERROR_RESPONSE},
+    responses={404: ERROR_RESPONSE},
 )
 async def set_user_level(
     data: SetUserCEFRLevelRequest = Depends(SetUserCEFRLevelRequest.as_form)
@@ -271,6 +278,7 @@ async def set_user_level(
     "/users",
     status_code=204,
     responses={403: ERROR_RESPONSE, 500: ERROR_RESPONSE},
+    dependencies=[Depends(rate_limit.per_ip(rate_limit.DELETE_PER_IP))],
 )
 async def delete_users(
     data: DeleteUserRequest = Depends(

@@ -19,7 +19,12 @@ class ErrorType(str, Enum):
     BAD_REQUEST = "BAD_REQUEST"
     INVALID_API_KEY = "INVALID_API_KEY"
     USER_NOT_FOUND = "USER_NOT_FOUND"
+    # Unused since v1.6.0 (missing consent returns USER_NOT_FOUND); kept for old clients.
     USER_CONSENT_MISSING = "USER_CONSENT_MISSING"
+    # 404 on /feedback: assessment missing or not the user's (deliberately the same).
+    ASSESSMENT_NOT_FOUND = "ASSESSMENT_NOT_FOUND"
+    # 429: per-IP or per-user rate limit hit; sets Retry-After.
+    RATE_LIMITED = "RATE_LIMITED"
     UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE"
     FILE_TOO_LARGE = "FILE_TOO_LARGE"
     # 413 for a gzip body that inflates past the limit. FILE_TOO_LARGE is for recordings.
@@ -190,8 +195,11 @@ async def _validation_exception_handler(
         ErrorType.VALIDATION_ERROR,
         "Invalid request payload",
     )
-    encoded_errors = cast(list[dict[str, object]],
-                          jsonable_encoder(validation_err.errors()))
+    # Drop `input` so errors never echo the client's value (up to 1 MB) back.
+    encoded_errors = cast(list[dict[str, object]], jsonable_encoder([
+        {key: value for key, value in error.items() if key != "input"}
+        for error in validation_err.errors()
+    ]))
 
     return JSONResponse(
         content={"detail": {

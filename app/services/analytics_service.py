@@ -8,6 +8,7 @@ from app.models.analytics import (
     ComparisonResponse,
     GetCohortStatsInput,
 )
+from app.utils import rate_limit
 from app.utils.logger import get_logger
 from app.validators import auth
 
@@ -26,6 +27,7 @@ def get_comparison(data: ComparisonRequest) -> JSONResponse:
     """
 
     auth.validate_user_access(data.guid)
+    rate_limit.enforce_for_user(rate_limit.COMPARISON_PER_USER, data.guid)
     stats = get_cohort_stats(GetCohortStatsInput(
         guid=data.guid, days=data.days))
 

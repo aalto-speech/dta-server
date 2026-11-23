@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -54,6 +54,11 @@ class CEFRLevel(StrEnum):
 
 MovedToFinland = Literal["before_2015"] | str | int
 
+# Plausible consent_timestamp range: not before the app existed, at most a day ahead
+# (naive timestamps are read as UTC, and devices can be up to UTC+14).
+CONSENT_TIMESTAMP_EARLIEST = datetime(2025, 1, 1, tzinfo=timezone.utc)
+CONSENT_TIMESTAMP_MAX_AHEAD = timedelta(days=1)
+
 
 class OnboardingRequest(BaseModel):
     """Onboarding request payload.
@@ -93,6 +98,29 @@ class OnboardingRequest(BaseModel):
     other_languages: str | list[str] | None = None
     background_form_completed: bool | None = None
     background_form_timestamp: datetime | None = None
+
+    @field_validator("consent_accepted")
+    @classmethod
+    def consent_must_be_accepted(cls, value: bool) -> bool:
+        """Refuse onboarding without consent, so nothing about the person is stored."""
+
+        if value is not True:
+            raise ValueError(
+                "consent_accepted must be true: without consent no user is created.")
+        return value
+
+    @field_validator("consent_timestamp")
+    @classmethod
+    def consent_timestamp_must_be_plausible(cls, value: datetime) -> datetime:
+        """Reject consent times before the app existed or more than a day ahead."""
+
+        aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        latest = datetime.now(timezone.utc) + CONSENT_TIMESTAMP_MAX_AHEAD
+        if not CONSENT_TIMESTAMP_EARLIEST <= aware <= latest:
+            raise ValueError(
+                "consent_timestamp must be the time consent was given: not before "
+                f"{CONSENT_TIMESTAMP_EARLIEST.date().isoformat()} and not in the future.")
+        return value
 
     @field_validator("age_group", "finnish_learning_duration", "gender",
                      "moved_to_finland", "background_form_completed",

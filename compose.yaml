@@ -38,6 +38,11 @@ services:
       # How many scored recordings the REQUESTING user needs before their own average is
       # stable enough to rank.
       MIN_USER_ASSESSMENTS: ${MIN_USER_ASSESSMENTS:-3}
+      # Trust Caddy's X-Forwarded-For so rate limits see real client IPs. "*" is safe:
+      # no port is published, and Caddy overwrites any client-sent X-Forwarded-For.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-*}
+      # Set to false to disable rate limiting (e.g. load tests).
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
 
   # M-CASA speech scorer. No `ports:` on purpose - the /score endpoint is
   # unauthenticated and must stay reachable only from the compose network.

@@ -3,6 +3,7 @@ import os
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import TypedDict
 
 from dotenv import load_dotenv
 
@@ -40,6 +41,7 @@ class Settings:  # pylint: disable=too-many-instance-attributes
         server_delete_key: Key that authorises DELETE /users, required in production.
         min_cohort_size: Minimum number of users required in a cohort for analytics to be returned.
         min_user_assessments: Minimum number of assessments a user must have for comparison analytics.
+        rate_limit_enabled: Whether rate limits are enforced. Off by default in tests.
     """
 
     env: AppEnv
@@ -53,6 +55,25 @@ class Settings:  # pylint: disable=too-many-instance-attributes
     asa_url: str
     asa_timeout: float
     server_version: str
+    rate_limit_enabled: bool
+
+
+def _parse_bool_env(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+
+    logger.warning(
+        "Environment variable %s has invalid value %r (not a boolean). Using default %s.",
+        name, raw_value, default,
+    )
+    return default
 
 
 def _parse_app_env() -> AppEnv:
@@ -183,6 +204,9 @@ def _build_settings() -> Settings:
     # staging-<sha> on dev pushes). The default marks a build outside CI.
     server_version = os.getenv("DTA_SERVER_VERSION", "0.0.0-dev").strip() or "0.0.0-dev"
 
+    rate_limit_enabled = _parse_bool_env(
+        "RATE_LIMIT_ENABLED", default=env != AppEnv.TEST)
+
     return Settings(
         env=env,
         database=database,
@@ -195,7 +219,27 @@ def _build_settings() -> Settings:
         asa_url=asa_url,
         asa_timeout=asa_timeout,
         server_version=server_version,
+        rate_limit_enabled=rate_limit_enabled,
     )
 
 
 SETTINGS = _build_settings()
+
+
+class ApiDocsUrls(TypedDict):
+    """FastAPI's docs and schema URL arguments."""
+
+    docs_url: str | None
+    redoc_url: str | None
+    openapi_url: str | None
+
+
+def api_docs_urls(env: AppEnv) -> ApiDocsUrls:
+    """Docs and schema URLs; None in production so the API map is not public."""
+
+    public = env != AppEnv.PRODUCTION
+    return {
+        "docs_url": "/docs" if public else None,
+        "redoc_url": "/redoc" if public else None,
+        "openapi_url": "/openapi.json" if public else None,
+    }

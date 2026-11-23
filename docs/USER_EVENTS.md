@@ -34,6 +34,7 @@ the data off the server, and what to watch for when analysing it: [DATA.md](./DA
 | `202`, no body             | Received. Invalid events are dropped and logged on the server only. | Drop the batch. |
 | `400`, `413`, `415`, `422` | Malformed batch. Nothing stored.                                    | Fix the client. |
 | `403`, `404`, `409`        | No consent, no user, or user deleted. Nothing stored.               | Drop the batch. |
+| `429`                      | Rate limited. Nothing stored.                                       | Keep the batch; resend after `Retry-After` seconds. |
 | `5xx`                      | Server fault. Nothing stored.                                       | Resend later.   |
 
 ## Chart

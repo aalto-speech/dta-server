@@ -64,11 +64,11 @@ def client(db_path):  # pylint: disable=unused-argument
         yield test_client
 
 
-def _onboard(client: TestClient, consent: bool = True) -> str:
+def _onboard(client: TestClient) -> str:
     guid = str(uuid4())
     response = client.post("/onboarding", data={
         "guid": guid,
-        "consent_accepted": "true" if consent else "false",
+        "consent_accepted": "true",
         "consent_timestamp": "2026-01-01T00:00:00Z",
         "finnish_self_assessment": "A1",
     })
@@ -345,13 +345,22 @@ def test_unknown_guid_returns_404(client: TestClient, db_path: Path):
     assert _rows(db_path) == []
 
 
-def test_user_without_consent_returns_403(client: TestClient, db_path: Path):
-    guid = _onboard(client, consent=False)
+def test_user_without_consent_returns_404(client: TestClient, db_path: Path):
+    """A user row from before onboarding required consent is treated as unknown."""
+
+    guid = str(uuid4())
+    with closing(sqlite3.connect(db_path)) as conn:
+        with conn:
+            conn.execute(
+                "INSERT INTO users (guid, consent_accepted, consent_timestamp, cefr_level) "
+                "VALUES (?, 0, '2026-01-01T00:00:00+00:00', 'A1')",
+                (guid,),
+            )
 
     response = client.post("/events", json=_valid_event_batch(guid))
 
-    assert response.status_code == 403
-    assert response.json()["detail"]["type"] == "USER_CONSENT_MISSING"
+    assert response.status_code == 404
+    assert response.json()["detail"]["type"] == "USER_NOT_FOUND"
     assert _rows(db_path) == []
 
 
@@ -744,7 +753,7 @@ def test_gzip_is_only_handled_on_events(client: TestClient):
 def test_events_route_documents_error_responses():
     operation = app.openapi()["paths"]["/events"]["post"]
 
-    for status in ("400", "403", "404", "409", "413", "415"):
+    for status in ("400", "404", "409", "413", "415", "429"):
         schema = operation["responses"][status]["content"]["application/json"]["schema"]
         assert schema == {"$ref": "#/components/schemas/ErrorEnvelope"}
     assert "202" in operation["responses"]

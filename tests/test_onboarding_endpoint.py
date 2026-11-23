@@ -328,3 +328,58 @@ def test_duplicate_guid_gets_its_own_error_type(
         "type": "GUID_ALREADY_REGISTERED",
         "message": "This guid is already registered.",
     }
+
+
+def _rows_for(guid: str) -> list:
+    from app.config import SETTINGS
+
+    with sqlite3.connect(SETTINGS.database) as conn:
+        return conn.execute("SELECT guid FROM users WHERE guid = ?", (guid,)).fetchall()
+
+
+@pytest.mark.parametrize("value", ["false", "0", "no"])
+def test_onboarding_refuses_declined_consent_and_stores_nothing(
+    client: TestClient, value: str,
+):
+    """Without consent there is no lawful basis to keep the demographic answers."""
+
+    data = _valid_onboarding_form_data(consent_accepted=value)
+
+    response = client.post("/onboarding", data=data)
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["errors"][0]["loc"] == ["body", "consent_accepted"]
+    assert _rows_for(data["guid"]) == []
+
+
+@pytest.mark.parametrize("timestamp", [
+    "9999-12-31T23:59:59",           # far future
+    "2099-01-01T00:00:00Z",
+    "1970-01-01T00:00:00Z",          # reset device clock
+    "2024-12-31T23:59:59Z",          # before the app existed
+])
+def test_onboarding_refuses_impossible_consent_timestamps(
+    client: TestClient, timestamp: str,
+):
+    data = _valid_onboarding_form_data(consent_timestamp=timestamp)
+
+    response = client.post("/onboarding", data=data)
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["errors"][0]["loc"] == ["body", "consent_timestamp"]
+    assert _rows_for(data["guid"]) == []
+
+
+def test_onboarding_accepts_a_naive_local_time_ahead_of_utc(client: TestClient):
+    """A naive timestamp from a UTC+14 device looks 14 hours ahead but is accepted."""
+
+    from datetime import timedelta, timezone
+
+    ahead = (datetime.now(timezone.utc) + timedelta(hours=14)).replace(tzinfo=None)
+
+    response = client.post(
+        "/onboarding",
+        data=_valid_onboarding_form_data(consent_timestamp=ahead.isoformat()),
+    )
+
+    assert response.status_code == 201

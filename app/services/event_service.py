@@ -14,6 +14,7 @@ from app.models.events import (
     RejectionReason,
     ValidatedEvent,
 )
+from app.utils import rate_limit
 from app.utils.logger import get_logger
 from app.validators import auth
 from app.validators.events import validate_events
@@ -62,6 +63,7 @@ def record_events(data: EventBatchRequest) -> Response:
     """
 
     auth.validate_user_access(data.guid)
+    rate_limit.enforce_for_user(rate_limit.EVENTS_PER_USER, data.guid)
 
     valid, rejected = validate_events(data.events, now=_utcnow())
 
