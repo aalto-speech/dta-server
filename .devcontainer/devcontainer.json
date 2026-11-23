@@ -6,6 +6,9 @@
     "context": "..",
     "dockerfile": "Containerfile"
   },
+  "features": {
+    "ghcr.io/devcontainers-extra/features/caddy:1": {}
+  },
   "forwardPorts": [8000],
   "postCreateCommand": "python --version && conda --version",
   "customizations": {

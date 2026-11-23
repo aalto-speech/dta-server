@@ -1,3 +1,4 @@
+import dataclasses
 from uuid import uuid4
 
 import pytest
@@ -7,21 +8,56 @@ from app.error_handlers import AppError, ErrorType
 from app.validators.auth import validate_delete_access, validate_user_access
 
 
-def test_validate_delete_access_accepts_matching_key() -> None:
+DELETE_KEY = "test-delete-key"
+
+
+def _set_delete_key(monkeypatch: pytest.MonkeyPatch, key: str) -> None:
+    monkeypatch.setattr("app.validators.auth.SETTINGS",
+                        dataclasses.replace(SETTINGS, server_delete_key=key))
+
+
+def test_validate_delete_access_accepts_matching_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Admin access should pass when the provided API key matches settings."""
 
-    validate_delete_access(delete_key=SETTINGS.server_delete_key)
+    _set_delete_key(monkeypatch, DELETE_KEY)
+    validate_delete_access(delete_key=DELETE_KEY)
 
 
-def test_validate_delete_access_rejects_invalid_key() -> None:
+def test_validate_delete_access_rejects_invalid_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Admin access should raise a typed error for an invalid API key."""
 
+    _set_delete_key(monkeypatch, DELETE_KEY)
     with pytest.raises(AppError) as err:
-        validate_delete_access(delete_key=f"{SETTINGS.server_delete_key}-invalid")
+        validate_delete_access(delete_key=f"{DELETE_KEY}-invalid")
 
     assert err.value.status_code == 403
     assert err.value.error_type == ErrorType.INVALID_API_KEY
     assert err.value.message == "Invalid API key"
+
+
+@pytest.mark.parametrize("delete_key", ["", "anything"])
+def test_validate_delete_access_rejects_all_keys_when_unset(
+    monkeypatch: pytest.MonkeyPatch, delete_key: str,
+) -> None:
+    """With no SERVER_DELETE_KEY configured, no key -- not even an empty one -- passes."""
+
+    _set_delete_key(monkeypatch, "")
+
+    with pytest.raises(AppError) as err:
+        validate_delete_access(delete_key=delete_key)
+
+    assert err.value.status_code == 403
+    assert err.value.error_type == ErrorType.INVALID_API_KEY
+
+
+def test_validate_delete_access_rejects_non_ascii_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-ASCII header value is a 403, not a TypeError from compare_digest."""
+
+    _set_delete_key(monkeypatch, DELETE_KEY)
+    with pytest.raises(AppError) as err:
+        validate_delete_access(delete_key="kéy")
+
+    assert err.value.status_code == 403
 
 
 def test_validate_user_access_rejects_unknown_user(monkeypatch: pytest.MonkeyPatch) -> None:

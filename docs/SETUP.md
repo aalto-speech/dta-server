@@ -263,7 +263,7 @@ when the line is left empty.
 | `AUDIO_SAVE_DIR`       | `/data/audio`     | Directory for saving audio files.                                    |
 | `LOGS_SAVE_DIR`        | `/data/logs`      | Directory for saving log files.                                      |
 | `LOG_LEVEL`            | `INFO`            | Logging level (compose default; the app alone defaults to WARNING).  |
-| `SERVER_DELETE_KEY`    | empty             | Authorises `DELETE /users` — the only thing it opens. Required in production. Renamed from `ADMIN_API_KEY` in v1.2.0; the old name is still read, with a startup warning. |
+| `SERVER_DELETE_KEY`    | empty             | Authorises `DELETE /users` — the only thing it opens. Required in production; when empty, `DELETE /users` always returns 403. Renamed from `ADMIN_API_KEY` in v1.2.0; the old name is still read, with a startup warning. |
 | `MIN_COHORT_SIZE`      | `100`             | Minimum cohort size for analytics or assessments.                    |
 | `MIN_USER_ASSESSMENTS` | `3`               | Minimum number of user assessments required.                         |
 | `DTA_TAG`              | `latest`          | Image tag both containers run (`staging` on staging servers).        |

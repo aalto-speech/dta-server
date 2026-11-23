@@ -38,7 +38,9 @@ scores — and those are where integrations actually go wrong.
   if it is lost, their history is unreachable.
 - No authentication on user endpoints. `DELETE /users` is maintainer-only (`X-Delete-Key`) and
   is not for the app to call — see [User deletion](#user-deletion).
-- Request body limit is 10 MB (enforced by the proxy and again by the app).
+- Request body limit is 10 MB (enforced by the proxy and again by the app). The proxy's
+  413 is `FILE_TOO_LARGE` with `max_size_bytes` only (no `size_bytes`); its other errors,
+  such as a 502 while the server restarts, are `HTTP_ERROR`. Both use the envelope below.
 
 ### Error format
 

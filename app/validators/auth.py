@@ -1,3 +1,4 @@
+import hmac
 from uuid import UUID
 
 from fastapi import Header
@@ -9,9 +10,15 @@ from app.models.user_requests import GetUserConsentInput, GetUserInput
 
 
 def validate_delete_access(delete_key: str = Header(...)) -> None:
-    """Validate the server delete key that authorises erasing a user's data."""
+    """Validate the server delete key that authorises erasing a user's data.
 
-    if delete_key != SETTINGS.server_delete_key:
+    An unset SERVER_DELETE_KEY rejects every key, the empty one included, so a
+    non-production server without a key cannot be called with an empty header.
+    """
+
+    expected = SETTINGS.server_delete_key
+    # Bytes, because compare_digest raises TypeError on non-ASCII str
+    if not expected or not hmac.compare_digest(delete_key.encode(), expected.encode()):
         raise AppError(
             status_code=403,
             error_type=ErrorType.INVALID_API_KEY,

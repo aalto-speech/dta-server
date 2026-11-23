@@ -1,15 +1,27 @@
 {
 	# ACME contact
-	email {$ACME_EMAIL}
+	email "{$ACME_EMAIL}"
 
 	servers {
 		# TODO: HTTP1 support will be removed in the future
 		protocols h1 h2
 		timeouts {
-			read_body 10s
+			# Max upload (90 s audio, ~3 MB) on a slow mobile link
+			read_body 60s
 			read_header 5s
 			idle 30s
 		}
+	}
+}
+
+# Security headers, imported by the site and its error handlers
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		# Strip the Server header, both Caddy's and the upstream's (uvicorn)
+		-Server
+		-Via
 	}
 }
 
@@ -19,21 +31,52 @@
 		max_size 10MB
 	}
 
-	# Logging
+	# Logging, without the DELETE /users key headers and with client IPs masked
 	log {
 		output file /var/log/caddy/access.log
-		format console
+		format filter {
+			request>headers>X-Delete-Key delete
+			request>headers>X-Api-Key delete
+			request>headers>X-Forwarded-For delete
+			request>remote_ip ip_mask {
+				ipv4 24
+				ipv6 48
+			}
+			request>client_ip ip_mask {
+				ipv4 24
+				ipv6 48
+			}
+			wrap console
+		}
 	}
+
+	import security_headers
 
 	# /api/v1/* -> {$UPSTREAM}/*
 	@api path /api/v1/*
 	handle @api {
 		uri strip_prefix /api/v1
-		reverse_proxy {$UPSTREAM}
+		reverse_proxy {$UPSTREAM} {
+			# Keep retrying the connection while the app restarts
+			lb_try_duration 10s
+		}
 	}
 
-	# Return 404 if not matched by previous handlers
-	handle /* {
-		respond "Not found" 404
+	# Return 404 for everything else
+	handle {
+		header Content-Type application/json
+		respond `{"detail":{"type":"HTTP_ERROR","message":"Not found"}}` 404
+	}
+
+	# Caddy's own errors, in the app's error envelope
+	handle_errors 413 {
+		import security_headers
+		header Content-Type application/json
+		respond `{"detail":{"type":"FILE_TOO_LARGE","message":"Request body exceeds the 10 MB limit.","max_size_bytes":10485760}}` 413
+	}
+	handle_errors {
+		import security_headers
+		header Content-Type application/json
+		respond `{"detail":{"type":"HTTP_ERROR","message":"{err.status_text}"}}` {err.status_code}
 	}
 }
